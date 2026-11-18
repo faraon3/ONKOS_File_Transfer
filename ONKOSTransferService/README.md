@@ -21,7 +21,7 @@ Desde el directorio que contiene el ejecutable y su DLL:
 
 ```bat
 %WINDIR%\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe ONKOS.TransferService.exe
-` ```
+```
 
 En Windows de 32 bits, usar `%WINDIR%\Microsoft.NET\Framework\v4.0.30319\InstallUtil.exe`.
 
