@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -22,9 +25,28 @@ jobs:
           /p:Configuration=Release
           /p:Platform=AnyCPU
 
-      - name: Publicar ejecutable
-        uses: actions/upload-artifact@v4
+      - name: Verificar ejecutable
+        shell: pwsh
+        run: |
+          $exe = "ONKOSFileTransfer/bin/Release/ONKOSFileTransfer.exe"
+          if (!(Test-Path $exe)) {
+            throw "No se encontró el ejecutable: $exe"
+          }
+          Get-Item $exe | Select-Object FullName, Length
+
+      - name: Empaquetar ejecutable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "ONKOSFileTransfer/bin/Release/*" -DestinationPath "ONKOS-File-Transfer.zip" -Force
+
+      - name: Publicar GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
         with:
-          name: ONKOS-File-Transfer
-          path: ONKOSFileTransfer/bin/Release/
-          if-no-files-found: error
+          tag_name: build-${{ github.run_number }}
+          name: ONKOS File Transfer - Build ${{ github.run_number }}
+          body: |
+            Compilación automática de ONKOS File Transfer.
+            Descarga el ZIP y extrae su contenido antes de ejecutar.
+          files: ONKOS-File-Transfer.zip
+          make_latest: true
