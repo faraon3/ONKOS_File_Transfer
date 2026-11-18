@@ -111,3 +111,12 @@ Transferencia directa de archivos entre computadores de la LAN. No requiere serv
 - Sin servidor central, la autorización, configuración y auditoría quedan distribuidas por computador. La revocación y actualización de políticas deben hacerse equipo por equipo.
 - No desplegar hasta probar autenticación, permisos, firewall, integridad, rutas, sobrescritura, recuperación ante cortes, historial, notificaciones y compatibilidad.
 - El piloto debe comenzar con pocos equipos de prueba y archivos no sensibles. La clínica debe aprobar formalmente cualquier uso con información institucional o clínica.
+
+## Avance de implementación — etapa 1
+
+- Se creó el proyecto independiente `ONKOSTransferService`, basado en .NET Framework 4.8.
+- El servicio usa la cuenta integrada `LocalService`, está configurado para inicio automático retrasado y admite detención controlada.
+- Los eventos de inicio y detención se registran en el registro Application de Windows.
+- La recepción de red permanece deshabilitada deliberadamente: este primer esqueleto no abre puertos ni acepta archivos.
+- Se actualizó el flujo de compilación para compilar tanto la interfaz actual como el nuevo servicio en la rama `v2-architecture` y publicar un artefacto de prueba.
+- Pendiente de validar mediante GitHub Actions y prueba real de instalación/inicio/detención en un equipo Windows de laboratorio.
