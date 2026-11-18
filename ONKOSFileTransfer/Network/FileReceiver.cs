@@ -95,6 +95,9 @@ namespace ONKOSFileTransfer.Network
                         }
                     }
 
+                    // Confirm successful disk write to the sender.
+                    stream.WriteByte(1);
+                    await stream.FlushAsync();
                     FileReceived?.Invoke(destination);
                 }
             }
