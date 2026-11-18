@@ -49,8 +49,8 @@ jobs:
           Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt
           Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
 
-      # La cuota de almacenamiento de Actions está llena.
-      # El ZIP se conserva como artefacto temporal solo cuando se solicita manualmente.
+      # La cuota de almacenamiento de Actions puede estar llena.
+      # Se mantiene la carga de artefactos opcional; para pruebas se usa una Release preliminar.
       - name: Publicar artefacto de compilación (opcional)
         if: ${{ github.event_name == 'workflow_dispatch' && vars.ENABLE_ACTIONS_ARTIFACT_UPLOAD == 'true' }}
         uses: actions/upload-artifact@v4
@@ -60,8 +60,21 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Publicar GitHub Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      - name: Publicar versión preliminar V2
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/v2-architecture' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2-preview-${{ github.run_number }}
+          name: ONKOS File Transfer 2.0 - Prueba ${{ github.run_number }}
+          body: |
+            Versión preliminar de ONKOS File Transfer 2.0 compilada desde la rama v2-architecture.
+            Es una versión de prueba. No usar para transferir información clínica sensible.
+          files: ONKOS-File-Transfer-V2.zip
+          prerelease: true
+          make_latest: false
+
+      - name: Publicar GitHub Release estable (main)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
