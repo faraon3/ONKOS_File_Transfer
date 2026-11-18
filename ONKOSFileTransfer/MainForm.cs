@@ -470,8 +470,8 @@ namespace ONKOSFileTransfer
             button.FlatAppearance.BorderSize = 0;
             button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.12F);
             button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(color, 0.08F);
-            button.Region = RoundedGeometry.Create(new Rectangle(0, 0, width, height), 10);
-            button.Resize += delegate { button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10); };
+            if (button.Width > 1 && button.Height > 1) button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10);
+            button.Resize += delegate { if (button.IsDisposed || button.Width < 2 || button.Height < 2) return; Region oldRegion = button.Region; button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10); if (oldRegion != null) oldRegion.Dispose(); };
             return button;
         }
 
@@ -781,11 +781,16 @@ namespace ONKOSFileTransfer
         public static GraphicsPath Path(Rectangle bounds, int radius)
         {
             GraphicsPath path = new GraphicsPath();
-            int d = Math.Min(Math.Max(2, radius * 2), Math.Min(bounds.Width, bounds.Height));
-            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
-            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
-            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
-            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            if (bounds.Width < 2 || bounds.Height < 2) { path.AddRectangle(bounds); return path; }
+            int diameter = Math.Min(Math.Max(2, radius * 2), Math.Min(bounds.Width, bounds.Height));
+            if (diameter < 2) { path.AddRectangle(bounds); return path; }
+            int right = bounds.Right - diameter;
+            int bottom = bounds.Bottom - diameter;
+            path.StartFigure();
+            path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180F, 90F);
+            path.AddArc(right, bounds.Y, diameter, diameter, 270F, 90F);
+            path.AddArc(right, bottom, diameter, diameter, 0F, 90F);
+            path.AddArc(bounds.X, bottom, diameter, diameter, 90F, 90F);
             path.CloseFigure();
             return path;
         }
