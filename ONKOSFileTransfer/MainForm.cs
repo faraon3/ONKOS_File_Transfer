@@ -38,140 +38,224 @@ namespace ONKOSFileTransfer
 
         private void BuildInterface()
         {
-            Text = "ONKOS File Transfer";
-            Size = new Size(760, 680);
-            MinimumSize = new Size(700, 620);
+            Text = "ONKOS File Transfer 2.0";
+            Size = new Size(940, 790);
+            MinimumSize = new Size(900, 740);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Color.FromArgb(24, 25, 38);
+            BackColor = Color.FromArgb(17, 19, 31);
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 9.5F);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
 
-            Label title = new Label
+            Panel header = new Panel
             {
-                Text = "ONKOS FILE TRANSFER",
-                Font = new Font("Segoe UI", 21, FontStyle.Bold),
-                ForeColor = Color.FromArgb(177, 139, 255),
-                Location = new Point(28, 20),
-                Size = new Size(500, 38)
+                Dock = DockStyle.Top,
+                Height = 112,
+                BackColor = Color.FromArgb(27, 29, 46),
+                Padding = new Padding(28, 18, 28, 12)
             };
-            Controls.Add(title);
+            Controls.Add(header);
+
+            Label brand = new Label
+            {
+                Text = "ONKOS",
+                Font = new Font("Segoe UI", 23, FontStyle.Bold),
+                ForeColor = Color.FromArgb(183, 148, 255),
+                Location = new Point(26, 13),
+                AutoSize = true
+            };
+            header.Controls.Add(brand);
+
+            Label product = new Label
+            {
+                Text = "FILE TRANSFER  2.0",
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(31, 57),
+                AutoSize = true
+            };
+            header.Controls.Add(product);
+
+            Label tagline = new Label
+            {
+                Text = "Transferencia directa entre equipos de la red",
+                ForeColor = Color.FromArgb(174, 178, 199),
+                Font = new Font("Segoe UI", 9),
+                Location = new Point(250, 43),
+                AutoSize = true
+            };
+            header.Controls.Add(tagline);
+
+            Panel content = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(26, 20, 26, 22),
+                BackColor = BackColor
+            };
+            Controls.Add(content);
+            content.BringToFront();
+
+            Label section = new Label
+            {
+                Text = "Centro de transferencias",
+                Font = new Font("Segoe UI", 17, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(28, 20),
+                AutoSize = true
+            };
+            content.Controls.Add(section);
 
             Label subtitle = new Label
             {
-                Text = "Envía archivos directamente entre equipos de tu red",
-                ForeColor = Color.FromArgb(175, 178, 195),
-                Location = new Point(31, 61),
-                Size = new Size(650, 24)
+                Text = "Envía archivos a otro computador y recibe transferencias en esta estación.",
+                ForeColor = Color.FromArgb(165, 170, 192),
+                Location = new Point(30, 55),
+                AutoSize = true
             };
-            Controls.Add(subtitle);
+            content.Controls.Add(subtitle);
+
+            Panel statusCard = new Panel
+            {
+                Location = new Point(28, 88),
+                Size = new Size(840, 68),
+                BackColor = Color.FromArgb(35, 39, 58)
+            };
+            content.Controls.Add(statusCard);
 
             Label localIp = new Label
             {
-                Text = "TU IP: " + NetworkManager.GetLocalIPv4() + "     •     RECEPCIÓN AUTOMÁTICA ACTIVA",
-                ForeColor = Color.LightGreen,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                Location = new Point(31, 101),
-                Size = new Size(680, 25)
+                Text = "ESTE EQUIPO   •   IP " + NetworkManager.GetLocalIPv4(),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                Location = new Point(18, 12),
+                AutoSize = true
             };
-            Controls.Add(localIp);
+            statusCard.Controls.Add(localIp);
 
-            Label ipLabel = MakeLabel("IP DEL EQUIPO DESTINO", 31, 145);
-            Controls.Add(ipLabel);
+            Label receiveState = new Label
+            {
+                Text = "●  RECEPCIÓN AUTOMÁTICA",
+                ForeColor = Color.FromArgb(133, 225, 169),
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Location = new Point(18, 38),
+                AutoSize = true
+            };
+            statusCard.Controls.Add(receiveState);
+
+            Label destinationLabel = MakeLabel("DESTINO", 30, 176);
+            content.Controls.Add(destinationLabel);
 
             txtIP = new TextBox
             {
-                Location = new Point(31, 172),
-                Size = new Size(680, 34),
+                Location = new Point(30, 202),
+                Size = new Size(390, 34),
                 Font = new Font("Segoe UI", 11),
-                BackColor = Color.FromArgb(39, 40, 57),
+                BackColor = Color.FromArgb(35, 39, 58),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
             Controls.Add(txtIP);
+            content.Controls.Add(txtIP);
 
-            Label folderLabel = MakeLabel("CARPETA DONDE SE GUARDAN LOS ARCHIVOS RECIBIDOS", 31, 220);
-            Controls.Add(folderLabel);
+            Label destinationHint = new Label
+            {
+                Text = "Escribe la dirección IPv4 del computador que recibirá los archivos.",
+                ForeColor = Color.FromArgb(145, 151, 174),
+                Location = new Point(30, 240),
+                AutoSize = true
+            };
+            content.Controls.Add(destinationHint);
+
+            Label folderLabel = MakeLabel("CARPETA DE RECEPCIÓN", 30, 278);
+            content.Controls.Add(folderLabel);
 
             txtFolder = new TextBox
             {
                 Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
-                Location = new Point(31, 247),
-                Size = new Size(550, 32),
-                BackColor = Color.FromArgb(39, 40, 57),
+                Location = new Point(30, 304),
+                Size = new Size(690, 34),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.FromArgb(35, 39, 58),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
-            Controls.Add(txtFolder);
+            content.Controls.Add(txtFolder);
 
-            Button browse = MakeButton("CAMBIAR", 592, 246, 119, 34, Color.FromArgb(66, 68, 91));
+            Button browse = MakeButton("EXAMINAR", 735, 303, 133, 36, Color.FromArgb(62, 66, 91));
+            browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             browse.Click += BrowseFolder;
-            Controls.Add(browse);
+            content.Controls.Add(browse);
 
-            Label filesLabel = MakeLabel("ARCHIVOS PARA ENVIAR", 31, 300);
-            Controls.Add(filesLabel);
+            Label filesLabel = MakeLabel("ARCHIVOS SELECCIONADOS", 30, 359);
+            content.Controls.Add(filesLabel);
 
             listFiles = new ListView
             {
-                Location = new Point(31, 328),
-                Size = new Size(680, 155),
+                Location = new Point(30, 386),
+                Size = new Size(838, 190),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
                 GridLines = false,
                 MultiSelect = false,
-                BackColor = Color.FromArgb(32, 33, 49),
+                BackColor = Color.FromArgb(27, 30, 47),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
-            listFiles.Columns.Add("Archivo", 390);
-            listFiles.Columns.Add("Tamaño", 120);
-            listFiles.Columns.Add("Estado", 145);
-            Controls.Add(listFiles);
+            listFiles.Columns.Add("Archivo", 490);
+            listFiles.Columns.Add("Tamaño", 150);
+            listFiles.Columns.Add("Estado", 170);
+            content.Controls.Add(listFiles);
 
-            Button add = MakeButton("AGREGAR ARCHIVOS", 31, 496, 215, 39, Color.FromArgb(66, 68, 91));
+            Button add = MakeButton("+  AGREGAR ARCHIVOS", 30, 592, 205, 40, Color.FromArgb(62, 66, 91));
             add.Click += AddFiles;
-            Controls.Add(add);
+            content.Controls.Add(add);
 
-            Button remove = MakeButton("QUITAR SELECCIONADO", 258, 496, 215, 39, Color.FromArgb(66, 68, 91));
+            Button remove = MakeButton("QUITAR SELECCIONADO", 247, 592, 205, 40, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
-            Controls.Add(remove);
+            content.Controls.Add(remove);
 
-            btnSend = MakeButton("ENVIAR ARCHIVOS", 486, 496, 225, 39, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("ENVIAR ARCHIVOS", 464, 592, 404, 40, Color.FromArgb(112, 70, 194));
+            btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
-            Controls.Add(btnSend);
+            content.Controls.Add(btnSend);
 
-            Label progressTitle = MakeLabel("PROGRESO DE TRANSFERENCIA", 31, 552);
-            Controls.Add(progressTitle);
+            Label progressTitle = MakeLabel("PROGRESO", 30, 654);
+            content.Controls.Add(progressTitle);
 
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(640, 550),
-                Size = new Size(70, 24)
+                Location = new Point(798, 650),
+                Size = new Size(70, 24),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            Controls.Add(lblProgress);
+            content.Controls.Add(lblProgress);
 
             progressBar = new ProgressBar
             {
-                Location = new Point(31, 579),
-                Size = new Size(680, 13),
+                Location = new Point(30, 681),
+                Size = new Size(838, 14),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Minimum = 0,
                 Maximum = 100,
                 Style = ProgressBarStyle.Continuous
             };
-            Controls.Add(progressBar);
+            content.Controls.Add(progressBar);
 
             lblStatus = new Label
             {
-                Text = "Listo. Este equipo ya puede recibir archivos.",
+                Text = "Listo. Este equipo puede recibir archivos.",
                 ForeColor = Color.FromArgb(155, 205, 255),
-                Location = new Point(31, 606),
-                Size = new Size(680, 28)
+                Location = new Point(30, 710),
+                Size = new Size(838, 26),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
-            Controls.Add(lblStatus);
+            content.Controls.Add(lblStatus);
         }
 
         private Label MakeLabel(string text, int x, int y)
