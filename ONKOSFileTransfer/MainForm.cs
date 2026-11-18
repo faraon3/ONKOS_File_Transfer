@@ -52,15 +52,20 @@ namespace ONKOSFileTransfer
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
 
+            Panel root = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(17, 19, 31)
+            };
+            Controls.Add(root);
+
             Panel sidebar = new Panel
             {
-                Dock = DockStyle.Left,
+                Location = new Point(0, 0),
                 Width = 228,
                 BackColor = Color.FromArgb(23, 25, 40),
                 Padding = new Padding(14, 18, 14, 14)
             };
-            Controls.Add(sidebar);
-
             Label brand = new Label
             {
                 Text = "◈  ONKOS",
@@ -132,13 +137,22 @@ namespace ONKOSFileTransfer
 
             pageHost = new Panel
             {
-                Dock = DockStyle.Fill,
+                Location = new Point(228, 0),
                 BackColor = Color.FromArgb(17, 19, 31),
                 Padding = new Padding(0)
             };
-            Controls.Add(pageHost);
-            pageHost.BringToFront();
-            sidebar.BringToFront();
+
+            root.Controls.Add(pageHost);
+            root.Controls.Add(sidebar);
+
+            Action layout = delegate
+            {
+                sidebar.Bounds = new Rectangle(0, 0, 228, root.ClientSize.Height);
+                pageHost.Bounds = new Rectangle(228, 0,
+                    Math.Max(0, root.ClientSize.Width - 228), root.ClientSize.Height);
+            };
+            root.Resize += delegate { layout(); };
+            layout();
 
             ShowPage("transfer", null);
         }
