@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -95,7 +96,43 @@ namespace ONKOSFileTransfer.Network
                         }
                     }
 
-                    // Confirm successful disk write to the sender.
+                    if (string.Equals(Path.GetExtension(destination), ".onkosfolder", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string folderName = Path.GetFileNameWithoutExtension(destination);
+                        if (folderName.StartsWith("ONKOS_", StringComparison.OrdinalIgnoreCase))
+                            folderName = "Carpeta_recibida_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                        string extractRoot = Path.Combine(folder, folderName);
+                        int suffix = 1;
+                        while (Directory.Exists(extractRoot))
+                            extractRoot = Path.Combine(folder, folderName + "_" + suffix++);
+
+                        Directory.CreateDirectory(extractRoot);
+                        string rootFull = Path.GetFullPath(extractRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        using (ZipArchive archive = ZipFile.OpenRead(destination))
+                        {
+                            foreach (ZipArchiveEntry entry in archive.Entries)
+                            {
+                                string relative = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
+                                string target = Path.GetFullPath(Path.Combine(extractRoot, relative));
+                                if (!target.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+                                    throw new InvalidDataException("La carpeta contiene una ruta no válida.");
+                                if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+                                {
+                                    Directory.CreateDirectory(target);
+                                }
+                                else
+                                {
+                                    string parent = Path.GetDirectoryName(target);
+                                    if (!Directory.Exists(parent)) Directory.CreateDirectory(parent);
+                                    entry.ExtractToFile(target, false);
+                                }
+                            }
+                        }
+                        File.Delete(destination);
+                        destination = extractRoot;
+                    }
+
+                    // Confirm successful disk write and extraction to the sender.
                     stream.WriteByte(1);
                     await stream.FlushAsync();
                     FileReceived?.Invoke(destination);
