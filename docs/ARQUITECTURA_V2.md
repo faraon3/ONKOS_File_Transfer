@@ -21,7 +21,12 @@ Transferencia de archivos punto a punto dentro de la LAN de la clínica. Los arc
 - Uno o varios destinatarios, selección de equipos aprobados y grupos.
 - Envíos secuenciales inicialmente; concurrencia configurable después de medir capacidad.
 - Muestra progreso, confirmación, errores y notificaciones.
-- Historial visible según permisos.
+- Tras completar y registrar una transferencia, muestra el resumen; al cerrarlo, limpia la lista de elementos, destinatarios temporales y progreso, dejando el formulario listo para el siguiente envío.
+- La limpieza de pantalla no elimina ni modifica los archivos originales y tampoco borra los registros del historial.
+- Historial consultable de envíos y recepciones, con filtros por fecha, equipo, usuario y resultado.
+- Cada registro incluye dirección (envío/recepción), equipo y usuario de origen/destino, fecha/hora, nombres de archivo o carpeta, tamaño, cantidad de elementos, resultado y detalle del error si aplica.
+- Acciones para abrir la ubicación recibida y consultar el detalle de una transferencia, según permisos.
+- El historial debe persistir entre reinicios; no depender de la lista temporal de la pantalla.
 
 ### 3. ONKOS Transfer Admin (Sistemas)
 - Registro de solicitudes de incorporación de equipos.
@@ -48,6 +53,7 @@ Transferencia de archivos punto a punto dentro de la LAN de la clínica. Los arc
 - Límites de tamaño, nombres seguros, prevención de sobrescritura, archivos temporales y verificación SHA-256.
 - Auditoría: dispositivo emisor/receptor, usuario disponible, fecha/hora, nombres, tamaños, hash, resultado y motivo de fallo. Evitar registrar contenido de archivos o datos clínicos.
 - Políticas configurables para tipos de archivo, destinos, horarios y tamaños. La opción inicial es permitir cualquier extensión solo entre dispositivos autorizados, con posibilidad de bloquear tipos de riesgo.
+- La persistencia del historial debe protegerse con permisos de sistema; la consulta y exportación estarán restringidas según roles. Definir retención y borrado conforme a la política institucional.
 
 ## Compatibilidad y tecnología
 
@@ -73,7 +79,8 @@ Transferencia de archivos punto a punto dentro de la LAN de la clínica. Los arc
 3. El receptor verifica identidad del emisor, autorización, espacio disponible y reglas.
 4. Se transfiere el contenido por canal cifrado directo.
 5. El receptor verifica tamaño y SHA-256, guarda el contenido y confirma.
-6. Ambos equipos registran el resultado; la interfaz notifica al usuario.
+6. Ambos equipos registran el resultado en su historial local y sincronizan los metadatos de auditoría con el servicio central.
+7. La interfaz muestra el resumen; al cerrarlo, limpia el formulario para el próximo envío, conservando intacto el historial.
 
 ## Fases de implementación
 
@@ -82,11 +89,12 @@ Transferencia de archivos punto a punto dentro de la LAN de la clínica. Los arc
 3. Diseñar e implementar inscripción y aprobación de dispositivos.
 4. Implementar TLS mutuo y revocación; eliminar el protocolo TCP actual sin cifrado.
 5. Agregar carpetas, múltiples IP, selección editable y notificaciones.
-6. Agregar auditoría central, políticas y pruebas de seguridad.
-7. Piloto controlado en equipos de prueba; luego despliegue gradual.
+6. Implementar historial persistente local y auditoría central, filtros, detalle de transferencia y limpieza automática del formulario tras mostrar el resumen.
+7. Agregar políticas y pruebas de seguridad.
+8. Piloto controlado en equipos de prueba; luego despliegue gradual.
 
 ## Riesgos y condiciones de salida
 
 - La versión actual usa TCP sin cifrado ni autenticación y el receptor vive dentro de MainForm; cerrar la ventana detiene la recepción. No usarla para información sensible.
-- No desplegar la versión 2.0 hasta probar autenticación, revocación, permisos de carpetas, firewall, integridad, recuperación ante cortes, compatibilidad y auditoría.
-- La autoridad de seguridad, la ubicación del servicio central y las políticas finales deben ser aprobadas por Sistemas/seguridad de la clínica.
+- No desplegar la versión 2.0 hasta probar autenticación, revocación, permisos de carpetas, firewall, integridad, recuperación ante cortes, compatibilidad, historial y auditoría.
+- La autoridad de seguridad, la ubicación del servicio central, la retención de auditoría y las políticas finales deben ser aprobadas por Sistemas/seguridad de la clínica.
