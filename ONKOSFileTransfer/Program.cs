@@ -14,7 +14,7 @@ namespace ONKOSFileTransfer
             bool createdNew;
             singleInstanceMutex = new Mutex(
                 true,
-                @"Local\\ONKOSFileTransfer_SingleInstance",
+                @"Local\ONKOSFileTransfer_SingleInstance",
                 out createdNew);
 
             if (!createdNew)
