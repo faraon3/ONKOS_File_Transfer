@@ -342,6 +342,32 @@ namespace ONKOSFileTransfer
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             content.Controls.Add(lblStatus);
+
+            // Ajusta todos los elementos al ancho real del área de trabajo.
+            Action adjustLayout = delegate
+            {
+                int right = Math.Max(420, content.ClientSize.Width - 30);
+                int available = Math.Max(360, right - 30);
+
+                statusCard.Width = available;
+                browse.Left = right - browse.Width;
+                txtFolder.Width = Math.Max(180, browse.Left - txtFolder.Left - 14);
+                listFiles.Width = available;
+
+                int gap = 12;
+                int buttonWidth = Math.Max(110, (available - gap * 2) / 3);
+                add.Width = buttonWidth;
+                remove.Left = add.Right + gap;
+                remove.Width = buttonWidth;
+                btnSend.Left = remove.Right + gap;
+                btnSend.Width = Math.Max(110, right - btnSend.Left);
+
+                lblProgress.Left = right - lblProgress.Width;
+                progressBar.Width = available;
+                lblStatus.Width = available;
+            };
+            content.Resize += delegate { adjustLayout(); };
+            adjustLayout();
         }
 
         private void BuildInformationPage(string page)
@@ -416,6 +442,12 @@ namespace ONKOSFileTransfer
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             content.Controls.Add(card);
+            Action adjustCard = delegate
+            {
+                card.Width = Math.Max(360, content.ClientSize.Width - 60);
+            };
+            content.Resize += delegate { adjustCard(); };
+            adjustCard();
 
             Label status = new Label
             {
