@@ -2,7 +2,7 @@ name: ONKOS File Transfer - Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2-architecture]
   workflow_dispatch:
 
 permissions:
@@ -19,28 +19,46 @@ jobs:
       - name: Configurar MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Compilar
+      - name: Compilar interfaz gráfica
         run: >
           msbuild ONKOSFileTransfer/ONKOSFileTransfer.csproj
           /p:Configuration=Release
           /p:Platform=AnyCPU
 
-      - name: Verificar ejecutable
-        shell: pwsh
-        run: |
-          $exe = "ONKOSFileTransfer/bin/Release/ONKOSFileTransfer.exe"
-          if (!(Test-Path $exe)) {
-            throw "No se encontró el ejecutable: $exe"
-          }
-          Get-Item $exe | Select-Object FullName, Length
+      - name: Compilar servicio de Windows
+        run: >
+          msbuild ONKOSTransferService/ONKOSTransferService.csproj
+          /p:Configuration=Release
+          /p:Platform=AnyCPU
 
-      - name: Empaquetar ejecutable
+      - name: Verificar compilaciones
         shell: pwsh
         run: |
-          Compress-Archive -Path "ONKOSFileTransfer/bin/Release/*" -DestinationPath "ONKOS-File-Transfer.zip" -Force
+          $gui = "ONKOSFileTransfer/bin/Release/ONKOSFileTransfer.exe"
+          $service = "ONKOSTransferService/bin/Release/ONKOS.TransferService.exe"
+          if (!(Test-Path $gui)) { throw "No se encontró la interfaz: $gui" }
+          if (!(Test-Path $service)) { throw "No se encontró el servicio: $service" }
+          Get-Item $gui, $service | Select-Object FullName, Length
+
+      - name: Preparar paquete de prueba
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
+          Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse
+          Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse
+          Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt
+          Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
+
+      - name: Publicar artefacto de compilación
+        uses: actions/upload-artifact@v4
+        with:
+          name: ONKOS-File-Transfer-V2
+          path: ONKOS-File-Transfer-V2.zip
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publicar GitHub Release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -48,5 +66,5 @@ jobs:
           body: |
             Compilación automática de ONKOS File Transfer.
             Descarga el ZIP y extrae su contenido antes de ejecutar.
-          files: ONKOS-File-Transfer.zip
+          files: ONKOS-File-Transfer-V2.zip
           make_latest: true
