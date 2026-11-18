@@ -49,13 +49,16 @@ jobs:
           Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt
           Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
 
-      - name: Publicar artefacto de compilación
+      # La cuota de almacenamiento de Actions está llena.
+      # El ZIP se conserva como artefacto temporal solo cuando se solicita manualmente.
+      - name: Publicar artefacto de compilación (opcional)
+        if: ${{ github.event_name == 'workflow_dispatch' && vars.ENABLE_ACTIONS_ARTIFACT_UPLOAD == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ONKOS-File-Transfer-V2
           path: ONKOS-File-Transfer-V2.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Publicar GitHub Release
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
