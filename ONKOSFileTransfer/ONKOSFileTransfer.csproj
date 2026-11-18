@@ -1,4 +1,5 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -8,13 +9,30 @@
     <AssemblyName>ONKOSFileTransfer</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>7.3</LangVersion>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="MainForm.cs" />
@@ -22,5 +40,7 @@
     <Compile Include="Network\FileSender.cs" />
     <Compile Include="Network\FileReceiver.cs" />
   </ItemGroup>
+
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
 </Project>
