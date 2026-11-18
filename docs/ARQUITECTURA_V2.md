@@ -1,100 +1,113 @@
-# ONKOS File Transfer 2.0 — Arquitectura propuesta
+# ONKOS File Transfer 2.0 — Arquitectura sin servidor central
 
 ## Estado
-Diseño inicial. No desplegar en producción ni transferir información clínica hasta completar desarrollo, pruebas y validación de seguridad.
+Diseño para desarrollo y pruebas. No desplegar en producción ni transferir información clínica sensible hasta completar las pruebas de seguridad y recibir aprobación institucional.
 
 ## Objetivo
-Transferencia de archivos punto a punto dentro de la LAN de la clínica. Los archivos viajan directamente entre equipos; el servidor central administra autorización, configuración y auditoría, pero no almacena ni retransmite el contenido.
+Transferencia directa de archivos entre computadores de la LAN. No requiere servidor central, nube, API externa ni base de datos compartida. Cada computador ejecuta su propio servicio receptor y conserva localmente sus equipos autorizados, configuración e historial.
+
+## Alcance de esta versión
+- Sin servidor central ni sincronización centralizada.
+- Sin almacenamiento ni retransmisión de archivos en la nube.
+- La autorización de equipos se administra localmente en cada computador receptor.
+- Sistemas deberá aprobar los equipos en cada receptor donde se permita recibir archivos.
+- Los grupos/áreas y la libreta de destinatarios se configuran localmente en la interfaz de cada emisor.
+- La auditoría e historial son locales a cada computador; no existe una vista consolidada de toda la clínica.
 
 ## Componentes
 
 ### 1. ONKOS Transfer Service (cada computador)
 - Servicio de Windows independiente de la interfaz gráfica.
 - Inicia con Windows y recibe aunque ningún usuario haya abierto ONKOS.
-- Ejecuta con una cuenta de privilegios mínimos (preferiblemente LocalService o una cuenta de servicio dedicada).
-- Escucha únicamente en interfaces/redes internas autorizadas.
-- Guarda en una carpeta configurada y con ACL restrictivas.
+- Ejecuta con una cuenta de privilegios mínimos (preferiblemente LocalService o una cuenta dedicada).
+- Escucha únicamente en la red/interfaz LAN configurada y en el puerto definido.
+- Guarda en una carpeta configurada con permisos restrictivos.
 - No acepta conexiones anónimas ni comandos remotos generales.
+- La instalación, actualización, configuración protegida y desinstalación requieren permisos administrativos.
 
 ### 2. ONKOS File Transfer (interfaz gráfica)
-- Selección de archivos y carpetas, lista editable antes de enviar.
-- Uno o varios destinatarios, selección de equipos aprobados y grupos.
-- Envíos secuenciales inicialmente; concurrencia configurable después de medir capacidad.
-- Muestra progreso, confirmación, errores y notificaciones.
-- Tras completar y registrar una transferencia, muestra el resumen; al cerrarlo, limpia la lista de elementos, destinatarios temporales y progreso, dejando el formulario listo para el siguiente envío.
-- La limpieza de pantalla no elimina ni modifica los archivos originales y tampoco borra los registros del historial.
-- Historial consultable de envíos y recepciones, con filtros por fecha, equipo, usuario y resultado.
-- Cada registro incluye dirección (envío/recepción), equipo y usuario de origen/destino, fecha/hora, nombres de archivo o carpeta, tamaño, cantidad de elementos, resultado y detalle del error si aplica.
-- Acciones para abrir la ubicación recibida y consultar el detalle de una transferencia, según permisos.
-- El historial debe persistir entre reinicios; no depender de la lista temporal de la pantalla.
+- Selección de cualquier tipo de archivo y de carpetas completas, conservando su estructura.
+- Lista editable antes de enviar: agregar, quitar elementos, seleccionar todo, deseleccionar y limpiar.
+- Envío a una o varias IP/equipos autorizados.
+- Libreta local de destinatarios y grupos por área, editable por el usuario según permisos.
+- Envíos secuenciales en la primera versión para simplificar control y recuperación.
+- Progreso por archivo y por destinatario, con estado claro de cada envío.
+- Notificación al usuario/equipo emisor cuando se reciben archivos, mostrando equipo y usuario de origen, nombres y resultado, sin exponer el contenido.
+- Tras completar, muestra un resumen; al cerrarlo, limpia la selección temporal, destinatarios temporales y progreso, dejando el formulario listo para otro envío.
+- La limpieza de pantalla no elimina ni modifica los archivos originales ni borra el historial.
+- Historial persistente de envíos y recepciones con filtros por fecha, equipo, usuario y resultado.
+- Detalle de transferencia con nombres, tamaños, cantidad, fecha/hora, origen, destino, estado y errores.
+- Acción para abrir la ubicación recibida, respetando permisos del usuario.
 
-### 3. ONKOS Transfer Admin (Sistemas)
-- Registro de solicitudes de incorporación de equipos.
-- Aprobación o rechazo manual por Sistemas.
-- Revocación/bloqueo de equipos.
-- Gestión de grupos/áreas, límites y políticas.
-- Consulta de auditoría.
+### 3. ONKOS Transfer Admin (administración local de Sistemas)
+- Herramienta o sección protegida para administrar la lista de equipos permitidos en ese computador.
+- Aprobar o rechazar solicitudes de incorporación recibidas localmente.
+- Bloquear o retirar equipos previamente autorizados.
+- Configurar carpeta de recepción, puerto, límites, políticas y grupos locales.
+- Consultar y exportar el historial/auditoría local.
+- Las acciones administrativas requieren elevación de permisos de Windows.
+- No existe administración central: los cambios deben repetirse en cada receptor correspondiente.
 
-### 4. Servicio central de control (red interna)
-- API de control y registro alojada en infraestructura interna aprobada por la clínica.
-- Base de datos para dispositivos, aprobaciones, grupos, políticas y auditoría.
-- No transporta el contenido de los archivos.
-- Si no está disponible, las transferencias nuevas quedan bloqueadas; no se debe aceptar un equipo desconocido por modo de emergencia.
+## Identidad y autorización de equipos sin servidor
+- Cada instalación genera una identidad criptográfica propia y una huella digital única.
+- Un equipo nuevo no queda autorizado automáticamente.
+- Para incorporarlo, Sistemas verifica el nombre/IP y la huella digital del equipo por un procedimiento local controlado y lo aprueba explícitamente en la lista de permitidos del receptor.
+- La aprobación se realiza en cada computador receptor que deba aceptar conexiones de ese equipo.
+- Los equipos bloqueados o retirados dejan de ser aceptados por ese receptor.
+- No confiar únicamente en la dirección IP o el nombre de equipo: pueden cambiar o suplantarse.
+- La distribución/verificación de huellas debe hacerse por un canal administrativo confiable; no aceptar aprobaciones recibidas por la misma conexión no confiable que se intenta autorizar.
 
-## Confianza y seguridad
-
-- Cada instalación recibe una identidad criptográfica única de dispositivo.
-- Un equipo nuevo genera una solicitud de inscripción; no puede recibir ni enviar hasta que Sistemas lo apruebe.
-- Tras aprobar, se emite una credencial/certificado de dispositivo firmado por una autoridad interna.
-- Comunicación de transferencia cifrada con TLS 1.2 o superior y autenticación mutua de dispositivos.
-- Validación de autorización y revocación antes de aceptar transferencias.
-- Claves privadas protegidas mediante ACL del sistema operativo; nunca se guardan en el repositorio ni dentro del instalador.
-- Firewall limitado a perfiles/redes privadas de la clínica y al puerto definido.
-- Límites de tamaño, nombres seguros, prevención de sobrescritura, archivos temporales y verificación SHA-256.
-- Auditoría: dispositivo emisor/receptor, usuario disponible, fecha/hora, nombres, tamaños, hash, resultado y motivo de fallo. Evitar registrar contenido de archivos o datos clínicos.
-- Políticas configurables para tipos de archivo, destinos, horarios y tamaños. La opción inicial es permitir cualquier extensión solo entre dispositivos autorizados, con posibilidad de bloquear tipos de riesgo.
-- La persistencia del historial debe protegerse con permisos de sistema; la consulta y exportación estarán restringidas según roles. Definir retención y borrado conforme a la política institucional.
+## Seguridad y límites conocidos
+- Usar un canal cifrado TLS 1.2 o superior y autenticación mutua basada en identidades de dispositivo, con validación explícita de la identidad autorizada por el receptor.
+- No continuar con el protocolo TCP actual sin cifrado ni autenticación.
+- Proteger claves privadas y configuración de confianza mediante ACL del sistema operativo; nunca incluir claves privadas en el repositorio ni en el instalador.
+- Restringir el firewall a perfiles/redes privadas y al puerto requerido. No exponer el servicio a Internet.
+- Validar nombres y rutas para impedir path traversal; limitar tamaño/cantidad, evitar sobrescrituras por defecto y usar archivos temporales durante la recepción.
+- Verificar integridad con SHA-256 antes de marcar la recepción como completada.
+- Registrar localmente equipo y usuario de origen/destino cuando estén disponibles, fecha/hora, nombres, tamaños, hash, resultado y motivo de error. No registrar contenido de archivos ni datos clínicos.
+- Definir retención, permisos de consulta y exportación del historial según política institucional.
+- Esta arquitectura ofrece menos control que una administración centralizada: no hay revocación global instantánea, políticas centralizadas, auditoría consolidada ni garantía de que todos los receptores tengan listas actualizadas. Un equipo debe retirarse de la lista de cada receptor.
+- El cifrado y la autorización reducen riesgos, pero no convierten automáticamente esta solución en un sistema aprobado para información clínica sensible. Requiere revisión y aprobación de la clínica.
 
 ## Compatibilidad y tecnología
+- Mantener la interfaz WinForms existente y evaluar .NET Framework 4.8 para la primera etapa.
+- Separar en proyectos: interfaz gráfica, servicio Windows y bibliotecas compartidas/protocolo.
+- Objetivo de compatibilidad: Windows 7 SP1, Windows 10 y Windows 11, sujeto a pruebas reales.
+- Verificar TLS 1.2, certificados, actualizaciones y algoritmos criptográficos disponibles en cada sistema. Windows 7 requiere pruebas específicas y podría no cumplir los requisitos sin actualizaciones.
+- No prometer compatibilidad segura en un sistema operativo que no pueda negociar la configuración TLS requerida; documentar excepciones o excluirlo.
+- No incluir credenciales privadas ni secretos en el código fuente, configuración versionada o instalador.
 
-- Mantener la interfaz WinForms existente y el objetivo .NET Framework 4.8 en la primera etapa para preservar compatibilidad con Windows 7 SP1, Windows 10 y Windows 11.
-- Crear proyectos separados para interfaz, servicio Windows y bibliotecas compartidas.
-- Verificar disponibilidad real de TLS 1.2, actualizaciones de Windows y certificados en cada versión de sistema operativo; Windows 7 requiere pruebas específicas y puede necesitar actualizaciones.
-- No asumir que el servicio puede instalarse sin privilegios administrativos: la instalación y actualización requieren autorización de Sistemas.
-- Revisar compatibilidad y soporte de la infraestructura central antes de decidir el alojamiento definitivo.
-
-## Flujo de incorporación
-
-1. Sistemas instala el servicio en el computador nuevo.
-2. El servicio genera una solicitud de inscripción con identificador único y datos técnicos mínimos.
-3. Sistemas verifica físicamente/administrativamente el equipo y aprueba o rechaza.
-4. La autoridad interna emite la credencial del dispositivo aprobado.
-5. El servicio instala la credencial y queda habilitado según la política asignada.
-6. Sistemas puede suspender o revocar el dispositivo.
+## Flujo de incorporación de un equipo
+1. Sistemas instala el servicio en el equipo nuevo con permisos administrativos.
+2. El equipo genera su identidad y muestra su huella digital.
+3. Sistemas verifica esa identidad por un canal confiable.
+4. En cada computador receptor donde se autorizará, Sistemas agrega y aprueba la identidad del nuevo equipo.
+5. Se prueba una conexión autenticada y una transferencia de archivos no sensibles.
+6. Si el equipo debe dejar de tener acceso, Sistemas lo bloquea/elimina de la lista de cada receptor.
 
 ## Flujo de transferencia
-
-1. El emisor selecciona archivos/carpetas y destinatarios aprobados.
-2. La interfaz consulta autorización y políticas.
-3. El receptor verifica identidad del emisor, autorización, espacio disponible y reglas.
-4. Se transfiere el contenido por canal cifrado directo.
-5. El receptor verifica tamaño y SHA-256, guarda el contenido y confirma.
-6. Ambos equipos registran el resultado en su historial local y sincronizan los metadatos de auditoría con el servicio central.
-7. La interfaz muestra el resumen; al cerrarlo, limpia el formulario para el próximo envío, conservando intacto el historial.
+1. El emisor selecciona archivos/carpetas y uno o varios destinatarios guardados localmente.
+2. La interfaz comprueba que los destinatarios estén configurados y autorizados según la información disponible.
+3. El receptor autentica la identidad del emisor, comprueba su lista local de permitidos, valida espacio y aplica sus límites.
+4. El contenido se transfiere directamente por el canal cifrado.
+5. El receptor valida rutas, tamaño y SHA-256, guarda el contenido y confirma el resultado.
+6. Emisor y receptor registran el resultado en sus historiales locales.
+7. La interfaz muestra el resumen; al cerrarlo, limpia los elementos y destinatarios temporales y reinicia el progreso, conservando originales e historial.
 
 ## Fases de implementación
-
-1. Separar el receptor del formulario y crear el proyecto de servicio Windows, sin cambiar aún el protocolo público.
-2. Crear instalador/paquete de servicio y probar inicio, parada, recuperación y desinstalación.
-3. Diseñar e implementar inscripción y aprobación de dispositivos.
-4. Implementar TLS mutuo y revocación; eliminar el protocolo TCP actual sin cifrado.
-5. Agregar carpetas, múltiples IP, selección editable y notificaciones.
-6. Implementar historial persistente local y auditoría central, filtros, detalle de transferencia y limpieza automática del formulario tras mostrar el resumen.
-7. Agregar políticas y pruebas de seguridad.
-8. Piloto controlado en equipos de prueba; luego despliegue gradual.
+1. Revisar el código actual y separar el receptor de la interfaz gráfica.
+2. Crear el proyecto de servicio Windows, con inicio automático, recuperación y parada controlada.
+3. Crear almacenamiento local seguro para identidad, lista de equipos autorizados, configuración e historial.
+4. Implementar aprobación local de equipos y administración protegida por permisos de Windows.
+5. Implementar TLS mutuo y validación de identidad; retirar el protocolo TCP sin cifrado.
+6. Agregar envío de carpetas completas, lista editable, múltiples destinatarios y grupos locales.
+7. Implementar notificaciones de recepción, resumen y limpieza de la pantalla tras cada envío.
+8. Implementar historial local persistente, filtros, detalle y exportación.
+9. Implementar límites, validación de rutas, integridad, recuperación y auditoría.
+10. Probar en Windows 7 SP1, 10 y 11 con archivos no sensibles y revisar resultados antes de cualquier piloto.
 
 ## Riesgos y condiciones de salida
-
-- La versión actual usa TCP sin cifrado ni autenticación y el receptor vive dentro de MainForm; cerrar la ventana detiene la recepción. No usarla para información sensible.
-- No desplegar la versión 2.0 hasta probar autenticación, revocación, permisos de carpetas, firewall, integridad, recuperación ante cortes, compatibilidad, historial y auditoría.
-- La autoridad de seguridad, la ubicación del servicio central, la retención de auditoría y las políticas finales deben ser aprobadas por Sistemas/seguridad de la clínica.
+- La versión actual usa TCP sin cifrado ni autenticación y el receptor depende de MainForm; cerrar la ventana detiene la recepción. No usarla para información sensible.
+- Sin servidor central, la autorización, configuración y auditoría quedan distribuidas por computador. La revocación y actualización de políticas deben hacerse equipo por equipo.
+- No desplegar hasta probar autenticación, permisos, firewall, integridad, rutas, sobrescritura, recuperación ante cortes, historial, notificaciones y compatibilidad.
+- El piloto debe comenzar con pocos equipos de prueba y archivos no sensibles. La clínica debe aprobar formalmente cualquier uso con información institucional o clínica.
