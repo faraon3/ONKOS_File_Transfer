@@ -43,117 +43,55 @@ namespace ONKOSFileTransfer
         private void BuildInterface()
         {
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(1180, 820);
-            MinimumSize = new Size(1050, 720);
+            Size = new Size(1050, 760);
+            MinimumSize = new Size(850, 650);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(17, 19, 31);
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 9F);
-            FormBorderStyle = FormBorderStyle.Sizable;
-            MaximizeBox = true;
+            AllowDrop = true;
+            DragEnter += MainDragEnter;
+            DragDrop += MainDragDrop;
 
-            Panel root = new Panel
+            Panel header = new Panel
             {
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(17, 19, 31)
-            };
-            Controls.Add(root);
-
-            Panel sidebar = new Panel
-            {
-                Location = new Point(0, 0),
-                Width = 228,
+                Dock = DockStyle.Top,
+                Height = 86,
                 BackColor = Color.FromArgb(23, 25, 40),
-                Padding = new Padding(14, 18, 14, 14)
+                Padding = new Padding(24, 12, 24, 10)
             };
             Label brand = new Label
             {
                 Text = "◈  ONKOS",
-                Font = new Font("Segoe UI", 23, FontStyle.Bold),
-                ForeColor = Color.FromArgb(183, 148, 255),
-                Location = new Point(20, 20),
+                Font = new Font("Segoe UI", 22, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 160, 255),
+                Location = new Point(24, 10),
                 AutoSize = true
             };
-            sidebar.Controls.Add(brand);
-
+            header.Controls.Add(brand);
             Label product = new Label
             {
-                Text = "FILE TRANSFER 2.0",
+                Text = "FILE TRANSFER 2.0  ·  ENVÍA Y RECIBE EN TU RED",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(205, 207, 222),
-                Location = new Point(23, 59),
+                ForeColor = Color.FromArgb(165, 170, 192),
+                Location = new Point(28, 52),
                 AutoSize = true
             };
-            sidebar.Controls.Add(product);
+            header.Controls.Add(product);
 
-            Label menuTitle = new Label
-            {
-                Text = "MENÚ PRINCIPAL",
-                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(120, 126, 151),
-                Location = new Point(20, 112),
-                AutoSize = true
-            };
-            sidebar.Controls.Add(menuTitle);
-
-            AddNavButton(sidebar, "⇄   Transferencias", "transfer", 145);
-            AddNavButton(sidebar, "▤   Historial", "history", 195);
-            AddNavButton(sidebar, "▣   Equipos autorizados", "devices", 245);
-            AddNavButton(sidebar, "▦   Grupos por área", "groups", 295);
-            AddNavButton(sidebar, "◉   Notificaciones", "notifications", 345);
-
-            Panel bottom = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 92,
-                BackColor = Color.Transparent
-            };
-            sidebar.Controls.Add(bottom);
-
-            Label local = new Label
-            {
-                Text = "RED LOCAL",
-                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(120, 126, 151),
-                Location = new Point(8, 8),
-                AutoSize = true
-            };
-            bottom.Controls.Add(local);
-
-            Label ip = new Label
-            {
-                Text = NetworkManager.GetLocalIPv4(),
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(133, 225, 169),
-                Location = new Point(8, 30),
-                AutoSize = true
-            };
-            bottom.Controls.Add(ip);
-
-            Button settings = MakeButton("⚙   Configuración", 8, 54, 185, 30, Color.FromArgb(43, 46, 66));
-            settings.TextAlign = ContentAlignment.MiddleLeft;
-            settings.Click += delegate { ShowPage("settings", settings); };
-            bottom.Controls.Add(settings);
+            Button admin = MakeButton("⚙ Administración", 0, 22, 150, 38, Color.FromArgb(43, 46, 66));
+            admin.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            admin.Click += delegate { ShowPage("settings", null); };
+            header.Controls.Add(admin);
+            header.Resize += delegate { admin.Left = header.ClientSize.Width - admin.Width - 24; };
 
             pageHost = new Panel
             {
-                Location = new Point(228, 0),
-                BackColor = Color.FromArgb(17, 19, 31),
-                Padding = new Padding(0)
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(17, 19, 31)
             };
-
-            root.Controls.Add(pageHost);
-            root.Controls.Add(sidebar);
-
-            Action layout = delegate
-            {
-                sidebar.Bounds = new Rectangle(0, 0, 228, root.ClientSize.Height);
-                pageHost.Bounds = new Rectangle(228, 0,
-                    Math.Max(0, root.ClientSize.Width - 228), root.ClientSize.Height);
-            };
-            root.Resize += delegate { layout(); };
-            layout();
-
+            Controls.Add(pageHost);
+            Controls.Add(header);
             ShowPage("transfer", null);
         }
 
@@ -248,7 +186,7 @@ namespace ONKOSFileTransfer
             };
             statusCard.Controls.Add(receiveState);
 
-            content.Controls.Add(MakeLabel("DIRECCIÓN IP DEL EQUIPO DESTINO", 30, 190));
+            content.Controls.Add(MakeLabel("¿A QUIÉN DESEAS ENVIAR?", 30, 190));
             txtIP = new TextBox
             {
                 Location = new Point(30, 218),
@@ -260,7 +198,7 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(txtIP);
 
-            content.Controls.Add(MakeLabel("CARPETA DONDE SE GUARDAN LOS ARCHIVOS RECIBIDOS", 30, 274));
+            content.Controls.Add(MakeLabel("DÓNDE SE GUARDAN LOS ARCHIVOS RECIBIDOS", 30, 274));
             txtFolder = new TextBox
             {
                 Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
@@ -278,7 +216,7 @@ namespace ONKOSFileTransfer
             browse.Click += BrowseFolder;
             content.Controls.Add(browse);
 
-            content.Controls.Add(MakeLabel("ARCHIVOS PARA ENVIAR", 30, 356));
+            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS SELECCIONADOS  ·  TAMBIÉN PUEDES ARRASTRARLOS AQUÍ", 30, 356));
             listFiles = new ListView
             {
                 Location = new Point(30, 384),
@@ -295,17 +233,24 @@ namespace ONKOSFileTransfer
             listFiles.Columns.Add("Archivo", 470);
             listFiles.Columns.Add("Tamaño", 150);
             listFiles.Columns.Add("Estado", 190);
+            listFiles.AllowDrop = true;
+            listFiles.DragEnter += MainDragEnter;
+            listFiles.DragDrop += MainDragDrop;
             content.Controls.Add(listFiles);
 
             Button add = MakeButton("+  AGREGAR ARCHIVOS", 30, 605, 205, 42, Color.FromArgb(62, 66, 91));
             add.Click += AddFiles;
             content.Controls.Add(add);
 
-            Button remove = MakeButton("QUITAR SELECCIONADOS", 247, 605, 205, 42, Color.FromArgb(62, 66, 91));
+            Button addFolders = MakeButton("+  AGREGAR CARPETAS", 247, 605, 205, 42, Color.FromArgb(62, 66, 91));
+            addFolders.Click += AddFolders;
+            content.Controls.Add(addFolders);
+
+            Button remove = MakeButton("QUITAR SELECCIONADOS", 464, 605, 205, 42, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
             content.Controls.Add(remove);
 
-            btnSend = MakeButton("ENVIAR ARCHIVOS", 464, 605, 414, 42, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("ENVIAR AHORA  ➜", 681, 605, 197, 42, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
@@ -355,9 +300,11 @@ namespace ONKOSFileTransfer
                 listFiles.Width = available;
 
                 int gap = 12;
-                int buttonWidth = Math.Max(110, (available - gap * 2) / 3);
+                int buttonWidth = Math.Max(110, (available - gap * 3) / 4);
                 add.Width = buttonWidth;
-                remove.Left = add.Right + gap;
+                addFolders.Left = add.Right + gap;
+                addFolders.Width = buttonWidth;
+                remove.Left = addFolders.Right + gap;
                 remove.Width = buttonWidth;
                 btnSend.Left = remove.Right + gap;
                 btnSend.Width = Math.Max(110, right - btnSend.Left);
@@ -557,6 +504,74 @@ namespace ONKOSFileTransfer
             }
         }
 
+        private void MainDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+
+        private void MainDragDrop(object sender, DragEventArgs e)
+        {
+            string[] paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (paths == null) return;
+            AddPaths(paths);
+        }
+
+        private void AddFolders(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "Selecciona la carpeta completa que deseas enviar";
+                dialog.ShowNewFolderButton = false;
+                if (dialog.ShowDialog() == DialogResult.OK)
+                    AddPaths(new string[] { dialog.SelectedPath });
+            }
+        }
+
+        private void AddPaths(IEnumerable<string> paths)
+        {
+            foreach (string path in paths)
+            {
+                if (!File.Exists(path) && !Directory.Exists(path)) continue;
+                bool exists = false;
+                foreach (ListViewItem existing in listFiles.Items)
+                    if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
+                        exists = true;
+                if (exists) continue;
+
+                string name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                string size = Directory.Exists(path) ? "Carpeta completa" : FormatBytes(new FileInfo(path).Length);
+                ListViewItem item = new ListViewItem((Directory.Exists(path) ? "📁  " : "📄  ") + name);
+                item.SubItems.Add(size);
+                item.SubItems.Add("Pendiente");
+                item.Tag = path;
+                listFiles.Items.Add(item);
+            }
+            UpdateStatus(listFiles.Items.Count + " elemento(s) listo(s) para enviar.");
+        }
+
+        private static string CreateFolderPackage(string folderPath)
+        {
+            string folderName = new DirectoryInfo(folderPath).Name;
+            string temp = Path.Combine(Path.GetTempPath(),
+                "ONKOS_" + Guid.NewGuid().ToString("N") + ".onkosfolder");
+            using (FileStream zipStream = new FileStream(temp, FileMode.CreateNew))
+            using (System.IO.Compression.ZipArchive archive =
+                new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                string root = Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                foreach (string file in Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories))
+                {
+                    string relative = file.Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/');
+                    archive.CreateEntryFromFile(file, folderName + "/" + relative,
+                        System.IO.Compression.CompressionLevel.Fastest);
+                }
+                if (Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories).Length == 0)
+                    archive.CreateEntry(folderName + "/");
+            }
+            return temp;
+        }
+
         private void AddFiles(object sender, EventArgs e)
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
@@ -566,30 +581,13 @@ namespace ONKOSFileTransfer
                 if (dialog.ShowDialog() != DialogResult.OK)
                     return;
 
-                foreach (string path in dialog.FileNames)
-                {
-                    bool exists = false;
-                    foreach (ListViewItem existing in listFiles.Items)
-                        if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
-                            exists = true;
-
-                    if (exists)
-                        continue;
-
-                    FileInfo info = new FileInfo(path);
-                    ListViewItem item = new ListViewItem(info.Name);
-                    item.SubItems.Add(FormatBytes(info.Length));
-                    item.SubItems.Add("Pendiente");
-                    item.Tag = path;
-                    listFiles.Items.Add(item);
-                }
+                AddPaths(dialog.FileNames);
             }
         }
 
         private void RemoveSelected(object sender, EventArgs e)
         {
-            if (listFiles.SelectedItems.Count > 0 && !isSending)
-                listFiles.Items.Remove(listFiles.SelectedItems[0]);
+            if (!isSending) foreach (ListViewItem item in listFiles.SelectedItems) listFiles.Items.Remove(item);
         }
 
         private async void SendFiles(object sender, EventArgs e)
@@ -637,15 +635,24 @@ namespace ONKOSFileTransfer
                 string name = Path.GetFileName(path);
                 try
                 {
-                    if (!File.Exists(path))
-                        throw new FileNotFoundException("El archivo ya no existe.");
+                    if (!File.Exists(path) && !Directory.Exists(path))
+                        throw new FileNotFoundException("El archivo o carpeta ya no existe.");
+
+                    string transferPath = path;
+                    bool temporaryPackage = false;
+                    if (Directory.Exists(path))
+                    {
+                        item.SubItems[2].Text = "Preparando carpeta...";
+                        transferPath = CreateFolderPackage(path);
+                        temporaryPackage = true;
+                    }
 
                     item.SubItems[2].Text = "Conectando...";
                     UpdateStatus("Enviando " + name + "...");
-                    long fileSize = new FileInfo(path).Length;
+                    long fileSize = new FileInfo(transferPath).Length;
                     long fileSent = 0;
 
-                    await FileSender.SendFileAsync(address.ToString(), Port, path,
+                    await FileSender.SendFileAsync(address.ToString(), Port, transferPath,
                         (sent, size) =>
                         {
                             long delta = sent - fileSent;
@@ -656,6 +663,7 @@ namespace ONKOSFileTransfer
 
                     sentCount++;
                     item.SubItems[2].Text = "Enviado";
+                    if (temporaryPackage && File.Exists(transferPath)) File.Delete(transferPath);
                     UpdateStatus("Enviado: " + name);
                 }
                 catch (Exception ex)
