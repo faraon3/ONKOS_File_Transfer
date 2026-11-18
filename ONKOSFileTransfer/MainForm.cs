@@ -95,7 +95,6 @@ namespace ONKOSFileTransfer
                 BackColor = BackColor
             };
             Controls.Add(content);
-            content.BringToFront();
 
             Label section = new Label
             {
