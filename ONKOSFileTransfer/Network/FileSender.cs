@@ -7,11 +7,16 @@ namespace ONKOSFileTransfer.Network
 {
     public static class FileSender
     {
+        public static async Task SendFileAsync(string ip, int port, string filePath)
+        {
+            await SendFileAsync(ip, port, filePath, null);
+        }
+
         public static async Task SendFileAsync(
-            string ip, int port, string filePath)
+            string ip, int port, string filePath, Action<long, long> progress)
         {
             if (!File.Exists(filePath))
-                throw new FileNotFoundException("Archivo no encontrado.");
+                throw new FileNotFoundException("Archivo no encontrado.", filePath);
 
             using (TcpClient client = new TcpClient())
             {
@@ -22,11 +27,21 @@ namespace ONKOSFileTransfer.Network
                     stream, System.Text.Encoding.UTF8, true))
                 using (FileStream file = File.OpenRead(filePath))
                 {
+                    long length = file.Length;
                     writer.Write(Path.GetFileName(filePath));
-                    writer.Write(file.Length);
+                    writer.Write(length);
                     writer.Flush();
 
-                    await file.CopyToAsync(stream);
+                    byte[] buffer = new byte[81920];
+                    long sent = 0;
+                    int read;
+                    while ((read = await file.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    {
+                        await stream.WriteAsync(buffer, 0, read);
+                        sent += read;
+                        if (progress != null)
+                            progress(sent, length);
+                    }
                     await stream.FlushAsync();
                 }
             }
