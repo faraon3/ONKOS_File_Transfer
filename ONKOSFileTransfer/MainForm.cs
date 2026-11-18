@@ -554,7 +554,7 @@ namespace ONKOSFileTransfer
         {
             string folderName = new DirectoryInfo(folderPath).Name;
             string temp = Path.Combine(Path.GetTempPath(),
-                "ONKOS_" + Guid.NewGuid().ToString("N") + ".onkosfolder");
+                folderName + "_" + Guid.NewGuid().ToString("N") + ".onkosfolder");
             using (FileStream zipStream = new FileStream(temp, FileMode.CreateNew))
             using (System.IO.Compression.ZipArchive archive =
                 new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Create))
@@ -620,7 +620,14 @@ namespace ONKOSFileTransfer
 
             foreach (ListViewItem item in items)
             {
-                try { totalBytes += new FileInfo(item.Tag as string).Length; }
+                try
+                {
+                    string selectedPath = item.Tag as string;
+                    if (File.Exists(selectedPath)) totalBytes += new FileInfo(selectedPath).Length;
+                    else if (Directory.Exists(selectedPath))
+                        foreach (string file in Directory.GetFiles(selectedPath, "*", SearchOption.AllDirectories))
+                            totalBytes += new FileInfo(file).Length;
+                }
                 catch { }
             }
 
@@ -669,6 +676,10 @@ namespace ONKOSFileTransfer
                 catch (Exception ex)
                 {
                     item.SubItems[2].Text = "Error";
+                    if (temporaryPackage && File.Exists(transferPath))
+                    {
+                        try { File.Delete(transferPath); } catch { }
+                    }
                     failures.Add(name + ": " + ex.Message);
                 }
             }
