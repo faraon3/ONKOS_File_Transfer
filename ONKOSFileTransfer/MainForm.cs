@@ -641,13 +641,13 @@ namespace ONKOSFileTransfer
             {
                 string path = item.Tag as string;
                 string name = Path.GetFileName(path);
+                string transferPath = path;
+                bool temporaryPackage = false;
                 try
                 {
                     if (!File.Exists(path) && !Directory.Exists(path))
                         throw new FileNotFoundException("El archivo o carpeta ya no existe.");
 
-                    string transferPath = path;
-                    bool temporaryPackage = false;
                     if (Directory.Exists(path))
                     {
                         item.SubItems[2].Text = "Preparando carpeta...";
