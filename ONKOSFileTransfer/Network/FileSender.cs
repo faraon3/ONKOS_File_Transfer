@@ -43,6 +43,11 @@ namespace ONKOSFileTransfer.Network
                             progress(sent, length);
                     }
                     await stream.FlushAsync();
+
+                    // The receiver confirms only after the file has been saved.
+                    int confirmation = stream.ReadByte();
+                    if (confirmation != 1)
+                        throw new IOException("El equipo destino no confirmó que el archivo se guardó.");
                 }
             }
         }
