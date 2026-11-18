@@ -99,7 +99,11 @@ namespace ONKOSFileTransfer.Network
                     if (string.Equals(Path.GetExtension(destination), ".onkosfolder", StringComparison.OrdinalIgnoreCase))
                     {
                         string folderName = Path.GetFileNameWithoutExtension(destination);
-                        if (folderName.StartsWith("ONKOS_", StringComparison.OrdinalIgnoreCase))
+                        int guidSeparator = folderName.LastIndexOf('_');
+                        Guid packageId;
+                        if (guidSeparator > 0 && Guid.TryParse(folderName.Substring(guidSeparator + 1), out packageId))
+                            folderName = folderName.Substring(0, guidSeparator);
+                        if (string.IsNullOrWhiteSpace(folderName))
                             folderName = "Carpeta_recibida_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
                         string extractRoot = Path.Combine(folder, folderName);
                         int suffix = 1;
