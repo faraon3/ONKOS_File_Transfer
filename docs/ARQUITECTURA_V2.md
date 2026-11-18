@@ -32,12 +32,24 @@ Transferencia directa de archivos entre computadores de la LAN. No requiere serv
 - Libreta local de destinatarios y grupos por área, editable por el usuario según permisos.
 - Envíos secuenciales en la primera versión para simplificar control y recuperación.
 - Progreso por archivo y por destinatario, con estado claro de cada envío.
-- Notificación al usuario/equipo emisor cuando se reciben archivos, mostrando equipo y usuario de origen, nombres y resultado, sin exponer el contenido.
+- Notificaciones visuales para todos los eventos: envíos, recepciones y errores; sin sonido. Mostrar equipo/usuario, archivos y resultado cuando corresponda, sin exponer el contenido.
 - Tras completar, muestra un resumen; al cerrarlo, limpia la selección temporal, destinatarios temporales y progreso, dejando el formulario listo para otro envío.
 - La limpieza de pantalla no elimina ni modifica los archivos originales ni borra el historial.
 - Historial persistente de envíos y recepciones con filtros por fecha, equipo, usuario y resultado.
 - Detalle de transferencia con nombres, tamaños, cantidad, fecha/hora, origen, destino, estado y errores.
 - Acción para abrir la ubicación recibida, respetando permisos del usuario.
+
+### Notificaciones visuales (preferencia definida)
+
+- La preferencia seleccionada para ONKOS File Transfer 2.0 es **notificar todos los eventos**: envíos, recepciones y errores.
+- Las notificaciones serán exclusivamente visuales; **no se reproducirán sonidos**.
+- Mostrar avisos de Windows cuando la interfaz esté minimizada o no esté abierta, siempre que la sesión de usuario permita mostrar notificaciones.
+- En recepción: identificar equipo y usuario de origen cuando estén disponibles, cantidad y nombres de archivos, resultado y acceso a la carpeta recibida.
+- En envío: informar el resultado por destinatario, incluidos los envíos completados y fallidos.
+- En errores: indicar el equipo afectado y una explicación breve con la acción sugerida, sin mostrar contenido de archivos ni datos clínicos.
+- Incluir avisos de solicitudes de autorización de equipos y cambios relevantes de seguridad.
+- Mantener un registro local consultable de notificaciones; las notificaciones no sustituyen el historial persistente de transferencias.
+- Permitir configurar las notificaciones visuales sin introducir controles de sonido, ya que el sonido queda desactivado por decisión del usuario.
 
 ### 3. ONKOS Transfer Admin (administración local de Sistemas)
 - Herramienta o sección protegida para administrar la lista de equipos permitidos en ese computador.
@@ -101,7 +113,7 @@ Transferencia directa de archivos entre computadores de la LAN. No requiere serv
 4. Implementar aprobación local de equipos y administración protegida por permisos de Windows.
 5. Implementar TLS mutuo y validación de identidad; retirar el protocolo TCP sin cifrado.
 6. Agregar envío de carpetas completas, lista editable, múltiples destinatarios y grupos locales.
-7. Implementar notificaciones de recepción, resumen y limpieza de la pantalla tras cada envío.
+7. Implementar notificaciones visuales de todos los eventos (envíos, recepciones, errores y solicitudes de autorización), sin sonido; además, resumen y limpieza de la pantalla tras cada envío.
 8. Implementar historial local persistente, filtros, detalle y exportación.
 9. Implementar límites, validación de rutas, integridad, recuperación y auditoría.
 10. Probar en Windows 7 SP1, 10 y 11 con archivos no sensibles y revisar resultados antes de cualquier piloto.
@@ -120,3 +132,8 @@ Transferencia directa de archivos entre computadores de la LAN. No requiere serv
 - La recepción de red permanece deshabilitada deliberadamente: este primer esqueleto no abre puertos ni acepta archivos.
 - Se actualizó el flujo de compilación para compilar tanto la interfaz actual como el nuevo servicio en la rama `v2-architecture` y publicar un artefacto de prueba.
 - Pendiente de validar mediante GitHub Actions y prueba real de instalación/inicio/detención en un equipo Windows de laboratorio.
+
+
+## Preferencias de notificación confirmadas
+- Alcance: todos los eventos (envíos, recepciones y errores).
+- Presentación: solo visual, sin sonido.
