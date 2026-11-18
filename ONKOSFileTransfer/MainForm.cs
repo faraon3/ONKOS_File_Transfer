@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
@@ -62,7 +63,7 @@ namespace ONKOSFileTransfer
 
             Label brand = new Label
             {
-                Text = "ONKOS",
+                Text = "◈  ONKOS",
                 Font = new Font("Segoe UI", 23, FontStyle.Bold),
                 ForeColor = Color.FromArgb(183, 148, 255),
                 Location = new Point(20, 20),
@@ -204,7 +205,7 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(subtitle);
 
-            Panel statusCard = new Panel
+            RoundedPanel statusCard = new RoundedPanel(18)
             {
                 Location = new Point(28, 94),
                 Size = new Size(850, 76),
@@ -393,7 +394,7 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(sub);
 
-            Panel card = new Panel
+            RoundedPanel card = new RoundedPanel(20)
             {
                 Location = new Point(30, 125),
                 Size = new Size(790, 330),
@@ -404,7 +405,7 @@ namespace ONKOSFileTransfer
 
             Label status = new Label
             {
-                Text = "MÓDULO PLANIFICADO",
+                Text = "EN PREPARACIÓN",
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(183, 148, 255),
                 Location = new Point(25, 24),
@@ -423,7 +424,7 @@ namespace ONKOSFileTransfer
 
             Label listTitle = new Label
             {
-                Text = "FUNCIONES PREVISTAS",
+                Text = "LO QUE INCLUIRÁ ESTA SECCIÓN",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(130, 136, 160),
                 Location = new Point(25, 125),
@@ -436,8 +437,8 @@ namespace ONKOSFileTransfer
             {
                 Label item = new Label
                 {
-                    Text = "•   " + feature,
-                    Font = new Font("Segoe UI", 10F),
+                    Text = "✦    " + feature,
+                    Font = new Font("Segoe UI", 10.5F),
                     ForeColor = Color.FromArgb(225, 226, 236),
                     Location = new Point(28, y),
                     AutoSize = true
@@ -473,6 +474,10 @@ namespace ONKOSFileTransfer
                 Cursor = Cursors.Hand
             };
             button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.12F);
+            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(color, 0.08F);
+            button.Region = RoundedGeometry.Create(new Rectangle(0, 0, width, height), 10);
+            button.Resize += delegate { button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10); };
             return button;
         }
 
@@ -679,4 +684,50 @@ namespace ONKOSFileTransfer
             base.OnFormClosing(e);
         }
     }
+
+    internal sealed class RoundedPanel : Panel
+    {
+        private readonly int radius;
+        public RoundedPanel(int cornerRadius)
+        {
+            radius = cornerRadius;
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+        }
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (Width > 0 && Height > 0)
+                Region = RoundedGeometry.Create(new Rectangle(0, 0, Width, Height), radius);
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (GraphicsPath path = RoundedGeometry.Path(new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1)), radius))
+            using (Pen pen = new Pen(Color.FromArgb(75, 83, 112), 1F))
+                e.Graphics.DrawPath(pen, path);
+            base.OnPaint(e);
+        }
+    }
+
+    internal static class RoundedGeometry
+    {
+        public static GraphicsPath Path(Rectangle bounds, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int d = Math.Min(Math.Max(2, radius * 2), Math.Min(bounds.Width, bounds.Height));
+            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+        public static Region Create(Rectangle bounds, int radius)
+        {
+            using (GraphicsPath path = Path(bounds, radius))
+                return new Region(path);
+        }
+    }
+
 }
