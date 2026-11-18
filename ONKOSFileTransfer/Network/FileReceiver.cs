@@ -11,9 +11,9 @@ namespace ONKOSFileTransfer.Network
         private TcpListener listener;
 
         public bool IsRunning { get; private set; }
-
         public event Action<string> FileReceived;
         public event Action<string> Error;
+        public event Action<string, long, long> TransferProgress;
 
         public void Start(int port, string folder)
         {
@@ -21,11 +21,9 @@ namespace ONKOSFileTransfer.Network
                 return;
 
             Directory.CreateDirectory(folder);
-
             listener = new TcpListener(IPAddress.Any, port);
             listener.Start();
             IsRunning = true;
-
             AcceptLoop(folder);
         }
 
@@ -39,6 +37,14 @@ namespace ONKOSFileTransfer.Network
                     Task.Run(() => ReceiveFile(client, folder));
                 }
             }
+            catch (ObjectDisposedException)
+            {
+                // Listener closed intentionally.
+            }
+            catch (SocketException)
+            {
+                // Listener closed intentionally.
+            }
             catch (Exception ex)
             {
                 if (IsRunning)
@@ -48,6 +54,7 @@ namespace ONKOSFileTransfer.Network
 
         private async Task ReceiveFile(TcpClient client, string folder)
         {
+            string destination = null;
             try
             {
                 using (client)
@@ -58,16 +65,14 @@ namespace ONKOSFileTransfer.Network
                     string name = Path.GetFileName(reader.ReadString());
                     long size = reader.ReadInt64();
 
-                    if (string.IsNullOrWhiteSpace(name) ||
+                    if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
                         size < 0 || size > 20L * 1024 * 1024 * 1024)
-                        throw new InvalidDataException("Archivo no válido.");
+                        throw new InvalidDataException("Archivo no válido o tamaño fuera del límite.");
 
-                    string destination = Path.Combine(folder, name);
-
+                    destination = Path.Combine(folder, name);
                     if (File.Exists(destination))
                     {
-                        destination = Path.Combine(
-                            folder,
+                        destination = Path.Combine(folder,
                             Path.GetFileNameWithoutExtension(name) + "_" +
                             DateTime.Now.ToString("yyyyMMdd_HHmmssfff") +
                             Path.GetExtension(name));
@@ -76,19 +81,17 @@ namespace ONKOSFileTransfer.Network
                     using (FileStream output = File.Create(destination))
                     {
                         byte[] buffer = new byte[81920];
-                        long remaining = size;
-
-                        while (remaining > 0)
+                        long receivedTotal = 0;
+                        while (receivedTotal < size)
                         {
-                            int count = (int)Math.Min(buffer.Length, remaining);
+                            int count = (int)Math.Min(buffer.Length, size - receivedTotal);
                             int received = await stream.ReadAsync(buffer, 0, count);
-
                             if (received == 0)
-                                throw new EndOfStreamException(
-                                    "Transferencia incompleta.");
+                                throw new EndOfStreamException("La conexión se interrumpió antes de completar el archivo.");
 
                             await output.WriteAsync(buffer, 0, received);
-                            remaining -= received;
+                            receivedTotal += received;
+                            TransferProgress?.Invoke(name, receivedTotal, size);
                         }
                     }
 
@@ -97,6 +100,11 @@ namespace ONKOSFileTransfer.Network
             }
             catch (Exception ex)
             {
+                if (destination != null && File.Exists(destination))
+                {
+                    try { File.Delete(destination); }
+                    catch { }
+                }
                 Error?.Invoke(ex.Message);
             }
         }
@@ -104,7 +112,6 @@ namespace ONKOSFileTransfer.Network
         public void Stop()
         {
             IsRunning = false;
-
             if (listener != null)
             {
                 listener.Stop();
