@@ -113,8 +113,8 @@ namespace ONKOSFileTransfer
             // Estado del equipo en la franja superior, visible sin ocupar espacio del área de trabajo.
             RoundedPanel headerStatus = new RoundedPanel(12)
             {
-                Location = new Point(350, 18),
-                Size = new Size(410, 38),
+                Location = new Point(0, 22),
+                Size = new Size(300, 38),
                 BackColor = Color.FromArgb(35, 39, 58),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -145,9 +145,13 @@ namespace ONKOSFileTransfer
             Action adjustHeader = delegate
             {
                 admin.Left = header.ClientSize.Width - admin.Width - 24;
-                headerStatus.Width = Math.Max(245, admin.Left - headerStatus.Left - 18);
+                admin.Top = 22;
+                headerStatus.Width = 300;
+                headerStatus.Left = Math.Max(320, admin.Left - headerStatus.Width - 12);
+                headerStatus.Top = admin.Top;
+                headerIp.Left = 12;
                 headerIp.Top = (headerStatus.Height - headerIp.Height) / 2;
-                headerReceive.Left = headerIp.Right + 18;
+                headerReceive.Left = headerIp.Right + 12;
                 headerReceive.Top = (headerStatus.Height - headerReceive.Height) / 2;
             };
             header.Resize += delegate { adjustHeader(); };
