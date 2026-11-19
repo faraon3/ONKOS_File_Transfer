@@ -309,19 +309,37 @@ namespace ONKOSFileTransfer
             listFiles.DragDrop += MainDragDrop;
             content.Controls.Add(listFiles);
 
-            Button add = MakeButton("+ Archivos", 24, 354, 205, 36, Color.FromArgb(62, 66, 91));
-            add.Click += AddFiles;
+            Button add = MakeButton("＋  Adjuntar", 24, 354, 205, 36, Color.FromArgb(62, 66, 91));
+            add.Click += delegate
+            {
+                ContextMenuStrip attachMenu = new ContextMenuStrip
+                {
+                    BackColor = Color.FromArgb(35, 39, 58),
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 9F),
+                    ShowImageMargin = false,
+                    ShowCheckMargin = false,
+                    Padding = new Padding(5, 6, 5, 6),
+                    Renderer = new ToolStripProfessionalRenderer(new OnkosMenuColors())
+                };
+                ToolStripMenuItem filesOption = new ToolStripMenuItem("  Archivos");
+                ToolStripMenuItem foldersOption = new ToolStripMenuItem("  Carpetas completas");
+                filesOption.Padding = new Padding(12, 8, 18, 8);
+                foldersOption.Padding = new Padding(12, 8, 18, 8);
+                filesOption.Click += AddFiles;
+                foldersOption.Click += AddFolders;
+                attachMenu.Items.Add(filesOption);
+                attachMenu.Items.Add(foldersOption);
+                attachMenu.Show(add, new Point(0, add.Height));
+                attachMenu.Closed += delegate { attachMenu.Dispose(); };
+            };
             content.Controls.Add(add);
 
-            Button addFolders = MakeButton("+ Carpetas", 247, 354, 205, 36, Color.FromArgb(62, 66, 91));
-            addFolders.Click += AddFolders;
-            content.Controls.Add(addFolders);
-
-            Button remove = MakeButton("Quitar seleccionados", 464, 354, 205, 36, Color.FromArgb(62, 66, 91));
+            Button remove = MakeButton("Quitar seleccionados", 247, 354, 205, 36, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
             content.Controls.Add(remove);
 
-            btnSend = MakeButton("Enviar ahora  →", 681, 354, 197, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 464, 354, 414, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
@@ -389,11 +407,9 @@ namespace ONKOSFileTransfer
                 listFiles.Width = available;
 
                 int gap = 12;
-                int buttonWidth = Math.Max(110, (available - gap * 3) / 4);
+                int buttonWidth = Math.Max(110, (available - gap * 2) / 3);
                 add.Width = buttonWidth;
-                addFolders.Left = add.Right + gap;
-                addFolders.Width = buttonWidth;
-                remove.Left = addFolders.Right + gap;
+                remove.Left = add.Right + gap;
                 remove.Width = buttonWidth;
                 btnSend.Left = remove.Right + gap;
                 btnSend.Width = Math.Max(110, right - btnSend.Left);
@@ -954,6 +970,18 @@ namespace ONKOSFileTransfer
             if (notifier != null) { notifier.Visible = false; notifier.Dispose(); }
             base.OnFormClosing(e);
         }
+    }
+
+    internal sealed class OnkosMenuColors : ProfessionalColorTable
+    {
+        public override Color MenuBorder { get { return Color.FromArgb(75, 81, 111); } }
+        public override Color MenuItemSelected { get { return Color.FromArgb(83, 66, 126); } }
+        public override Color MenuItemSelectedGradientBegin { get { return Color.FromArgb(83, 66, 126); } }
+        public override Color MenuItemSelectedGradientEnd { get { return Color.FromArgb(83, 66, 126); } }
+        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(35, 39, 58); } }
+        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(35, 39, 58); } }
+        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(35, 39, 58); } }
+        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(35, 39, 58); } }
     }
 
     internal static class NativeMethods
