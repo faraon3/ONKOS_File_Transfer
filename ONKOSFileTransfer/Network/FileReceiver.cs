@@ -75,7 +75,7 @@ namespace ONKOSFileTransfer.Network
                     destination = Path.Combine(senderFolder, name);
                     if (File.Exists(destination))
                     {
-                        destination = Path.Combine(folder,
+                        destination = Path.Combine(senderFolder,
                             Path.GetFileNameWithoutExtension(name) + "_" +
                             DateTime.Now.ToString("yyyyMMdd_HHmmssfff") +
                             Path.GetExtension(name));
@@ -110,7 +110,7 @@ namespace ONKOSFileTransfer.Network
                         string extractRoot = Path.Combine(senderFolder, folderName);
                         int suffix = 1;
                         while (Directory.Exists(extractRoot))
-                            extractRoot = Path.Combine(folder, folderName + "_" + suffix++);
+                            extractRoot = Path.Combine(senderFolder, folderName + "_" + suffix++);
 
                         Directory.CreateDirectory(extractRoot);
                         string rootFull = Path.GetFullPath(extractRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -174,7 +174,6 @@ namespace ONKOSFileTransfer.Network
             {
                 Directory.CreateDirectory(dayFolder);
 
-                // Reuse the first folder created for this sender on the current day.
                 string prefix = senderIp + "_";
                 string existing = null;
                 try
