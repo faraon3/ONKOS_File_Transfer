@@ -1,6 +1,6 @@
 using System.ServiceProcess;
 
-namespace ONKOS.TransferService
+namespace ONKOSTransferService
 {
     internal static class Program
     {
