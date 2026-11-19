@@ -407,7 +407,7 @@ namespace ONKOSFileTransfer
                 Text = "Tiempo restante: —",
                 ForeColor = Color.FromArgb(160, 166, 190),
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(650, 488),
+                Location = new Point(650, 552),
                 Size = new Size(222, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -417,7 +417,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Recepción automática activa.",
                 ForeColor = Color.FromArgb(145, 195, 255),
-                Location = new Point(24, 516),
+                Location = new Point(24, 574),
                 Size = new Size(848, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
