@@ -248,16 +248,28 @@ namespace ONKOSFileTransfer
             content.Controls.Add(subtitle);
 
             content.Controls.Add(MakeLabel("DESTINO", 24, 77));
+            FocusInputPanel destinationInput = new FocusInputPanel
+            {
+                Location = new Point(24, 97),
+                Size = new Size(520, 42),
+                BackColor = Color.FromArgb(35, 39, 58),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left
+            };
             txtIP = new TextBox
             {
-                Location = new Point(24, 101),
-                Size = new Size(520, 32),
-                Font = new Font("Segoe UI", 11),
+                Location = new Point(13, 9),
+                Size = new Size(492, 25),
+                Font = new Font("Segoe UI", 10.5F),
                 BackColor = Color.FromArgb(35, 39, 58),
                 ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
+                BorderStyle = BorderStyle.None,
+                Text = ""
             };
-            content.Controls.Add(txtIP);
+            txtIP.PlaceholderText = "Ej. 172.16.13.25";
+            txtIP.Enter += delegate { destinationInput.IsFocused = true; };
+            txtIP.Leave += delegate { destinationInput.IsFocused = false; };
+            destinationInput.Controls.Add(txtIP);
+            content.Controls.Add(destinationInput);
 
             content.Controls.Add(MakeLabel("CARPETA DE RECEPCIÓN", 24, 149));
             txtFolder = new TextBox
@@ -902,6 +914,39 @@ namespace ONKOSFileTransfer
             if (entranceTimer != null) { entranceTimer.Stop(); entranceTimer.Dispose(); }
             if (notifier != null) { notifier.Visible = false; notifier.Dispose(); }
             base.OnFormClosing(e);
+        }
+    }
+
+    internal sealed class FocusInputPanel : Panel
+    {
+        private bool isFocused;
+        public bool IsFocused
+        {
+            get { return isFocused; }
+            set { isFocused = value; Invalidate(); }
+        }
+
+        public FocusInputPanel()
+        {
+            DoubleBuffered = true;
+            Padding = new Padding(1);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Color border = isFocused
+                ? Color.FromArgb(151, 112, 245)
+                : Color.FromArgb(78, 84, 112);
+            using (GraphicsPath path = RoundedGeometry.Path(
+                new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1)), 10))
+            using (SolidBrush fill = new SolidBrush(BackColor))
+            using (Pen pen = new Pen(border, isFocused ? 1.8F : 1F))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+            base.OnPaint(e);
         }
     }
 
