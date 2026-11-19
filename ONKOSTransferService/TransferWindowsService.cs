@@ -1,62 +1,84 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.ServiceProcess;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace ONKOS.TransferService
+namespace ONKOSTransferService
 {
-    public sealed class TransferWindowsService : ServiceBase
+    public partial class TransferWindowsService : ServiceBase
     {
-        private const string EventSourceName = "ONKOS Transfer Service";
-        private const string EventLogName = "Application";
-        private EventLog serviceLog;
+        private CancellationTokenSource _cts;
+        private Task _listenerTask;
 
         public TransferWindowsService()
         {
             ServiceName = "ONKOSTransferService";
             CanStop = true;
             CanPauseAndContinue = false;
-            AutoLog = false;
+            AutoLog = true;
         }
 
         protected override void OnStart(string[] args)
         {
-            serviceLog = new EventLog
-            {
-                Source = EventSourceName,
-                Log = EventLogName
-            };
+            _cts = new CancellationTokenSource();
+            _listenerTask = Task.Run(() => RunReceiverLoopAsync(_cts.Token));
 
-            WriteEvent("ONKOS Transfer Service iniciado. La recepción de archivos permanece deshabilitada hasta implementar autenticación y cifrado.", EventLogEntryType.Information);
+            ServiceNotifier.SendInfo(
+                "Servicio iniciado",
+                "ONKOSTransferService está listo para recibir archivos."
+            );
+        }
+
+        private async Task RunReceiverLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    // Aquí conectas tu lógica de escucha/recepción en segundo plano
+                    // Ejemplo:
+                    // await FileReceiver.ListenOnceAsync(token, onFileReceived: fileName =>
+                    // {
+                    //     ServiceNotifier.SendSuccess("Archivo recibido", $"Se guardó {fileName}.");
+                    // },
+                    // onRejected: reason =>
+                    // {
+                    //     ServiceNotifier.SendWarning("Transferencia bloqueada", reason);
+                    // });
+
+                    await Task.Delay(500, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    ServiceNotifier.SendError("Error en servicio", ex.Message);
+                    await Task.Delay(2000, token);
+                }
+            }
         }
 
         protected override void OnStop()
         {
-            WriteEvent("ONKOS Transfer Service detenido.", EventLogEntryType.Information);
-
-            if (serviceLog != null)
-            {
-                serviceLog.Dispose();
-                serviceLog = null;
-            }
-        }
-
-        protected override void OnShutdown()
-        {
-            WriteEvent("Windows está cerrando; ONKOS Transfer Service se detendrá.", EventLogEntryType.Information);
-            base.OnShutdown();
-        }
-
-        private void WriteEvent(string message, EventLogEntryType type)
-        {
             try
             {
-                if (serviceLog != null)
-                    serviceLog.WriteEntry(message, type);
+                _cts?.Cancel();
+                _listenerTask?.Wait(TimeSpan.FromSeconds(5));
+
+                ServiceNotifier.SendWarning(
+                    "Servicio detenido",
+                    "ONKOSTransferService se ha detenido."
+                );
             }
             catch
             {
-                // A logging failure must not crash the Windows service.
+                // Evita bloquear la detención del servicio de Windows
+            }
+            finally
+            {
+                _cts?.Dispose();
             }
         }
     }
