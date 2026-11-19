@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -265,7 +266,7 @@ namespace ONKOSFileTransfer
                 BorderStyle = BorderStyle.None,
                 Text = ""
             };
-            txtIP.PlaceholderText = "Ej. 172.16.13.25";
+            txtIP.HandleCreated += delegate { NativeMethods.SendMessage(txtIP.Handle, 0x1501, new IntPtr(1), "Ej. 172.16.13.25"); };
             txtIP.Enter += delegate { destinationInput.IsFocused = true; };
             txtIP.Leave += delegate { destinationInput.IsFocused = false; };
             destinationInput.Controls.Add(txtIP);
@@ -915,6 +916,12 @@ namespace ONKOSFileTransfer
             if (notifier != null) { notifier.Visible = false; notifier.Dispose(); }
             base.OnFormClosing(e);
         }
+    }
+
+    internal static class NativeMethods
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, string lParam);
     }
 
     internal sealed class FocusInputPanel : Panel
