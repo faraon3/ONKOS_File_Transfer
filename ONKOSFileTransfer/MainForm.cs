@@ -714,6 +714,8 @@ namespace ONKOSFileTransfer
             btnSend.Enabled = false;
             progressBar.Value = 0;
             lblProgress.Text = "0%";
+            transferClock = Stopwatch.StartNew();
+            lblEta.Text = "Calculando tiempo restante...";
 
             foreach (ListViewItem item in items)
             {
@@ -737,8 +739,6 @@ namespace ONKOSFileTransfer
                     item.SubItems[2].Text = "Conectando...";
                     UpdateStatus("Conectando con " + address + "...");
                     UpdateCurrentAction("Enviando: " + name);
-                    transferClock = Stopwatch.StartNew();
-                    lblEta.Text = "Calculando tiempo restante...";
                     long fileSize = new FileInfo(transferPath).Length;
                     long fileSent = 0;
 
