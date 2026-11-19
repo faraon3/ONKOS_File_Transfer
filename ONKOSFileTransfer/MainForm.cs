@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
@@ -26,16 +27,39 @@ namespace ONKOSFileTransfer
         private long totalBytes;
         private long totalSent;
         private bool isSending;
+        private Label lblCurrentAction;
+        private Label lblEta;
+        private Stopwatch transferClock;
+        private NotifyIcon notifier;
+        private Timer entranceTimer;
 
         public MainForm()
         {
             receiver = new FileReceiver();
-            receiver.FileReceived += path => UpdateStatus("Recibido: " + Path.GetFileName(path));
+            receiver.FileReceived += path =>
+            {
+                UpdateStatus("Recepción completada: " + Path.GetFileName(path));
+                ShowNotification("Archivo recibido", Path.GetFileName(path) + " se guardó correctamente.", ToolTipIcon.Info);
+            };
             receiver.TransferProgress += (name, received, size) =>
+            {
                 UpdateStatus("Recibiendo " + name + " (" + FormatBytes(received) + " / " + FormatBytes(size) + ")");
-            receiver.Error += message => UpdateStatus("Error al recibir: " + message);
+                UpdateCurrentAction("Recibiendo: " + name);
+            };
+            receiver.Error += message =>
+            {
+                UpdateStatus("Error al recibir: " + message);
+                ShowNotification("Error al recibir", message, ToolTipIcon.Error);
+            };
 
+            notifier = new NotifyIcon
+            {
+                Icon = SystemIcons.Application,
+                Visible = true,
+                Text = "ONKOS File Transfer 2.0"
+            };
             BuildInterface();
+            Shown += StartEntranceAnimation;
             StartReceiver();
         }
 
@@ -45,8 +69,8 @@ namespace ONKOSFileTransfer
         private void BuildInterface()
         {
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(1050, 760);
-            MinimumSize = new Size(850, 650);
+            Size = new Size(980, 700);
+            MinimumSize = new Size(820, 620);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(17, 19, 31);
             ForeColor = Color.White;
@@ -58,16 +82,16 @@ namespace ONKOSFileTransfer
             Panel header = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 86,
+                Height = 76,
                 BackColor = Color.FromArgb(23, 25, 40),
                 Padding = new Padding(24, 12, 24, 10)
             };
             Label brand = new Label
             {
                 Text = "◈  ONKOS",
-                Font = new Font("Segoe UI", 22, FontStyle.Bold),
+                Font = new Font("Segoe UI", 18, FontStyle.Bold),
                 ForeColor = Color.FromArgb(190, 160, 255),
-                Location = new Point(24, 10),
+                Location = new Point(22, 8),
                 AutoSize = true
             };
             header.Controls.Add(brand);
@@ -76,7 +100,7 @@ namespace ONKOSFileTransfer
                 Text = "FILE TRANSFER 2.0  ·  ENVÍA Y RECIBE EN TU RED",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(165, 170, 192),
-                Location = new Point(28, 52),
+                Location = new Point(26, 45),
                 AutoSize = true
             };
             header.Controls.Add(product);
@@ -165,7 +189,7 @@ namespace ONKOSFileTransfer
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
-                Padding = new Padding(30, 25, 30, 24),
+                Padding = new Padding(20, 16, 20, 16),
                 BackColor = Color.FromArgb(17, 19, 31)
             };
             pageHost.Controls.Add(content);
@@ -175,7 +199,7 @@ namespace ONKOSFileTransfer
                 Text = "Centro de transferencias",
                 Font = new Font("Segoe UI", 20, FontStyle.Bold),
                 ForeColor = Color.White,
-                Location = new Point(28, 20),
+                Location = new Point(22, 12),
                 AutoSize = true
             };
             content.Controls.Add(title);
@@ -184,15 +208,15 @@ namespace ONKOSFileTransfer
             {
                 Text = "Envía archivos a otros computadores y recibe transferencias en esta estación.",
                 ForeColor = Color.FromArgb(165, 170, 192),
-                Location = new Point(30, 59),
+                Location = new Point(24, 47),
                 AutoSize = true
             };
             content.Controls.Add(subtitle);
 
             RoundedPanel statusCard = new RoundedPanel(18)
             {
-                Location = new Point(28, 94),
-                Size = new Size(850, 76),
+                Location = new Point(22, 76),
+                Size = new Size(850, 64),
                 BackColor = Color.FromArgb(35, 39, 58),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -203,7 +227,7 @@ namespace ONKOSFileTransfer
                 Text = "ESTE EQUIPO     IP " + NetworkManager.GetLocalIPv4(),
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                Location = new Point(18, 12),
+                Location = new Point(18, 9),
                 AutoSize = true
             };
             statusCard.Controls.Add(localIp);
@@ -213,16 +237,16 @@ namespace ONKOSFileTransfer
                 Text = "●  RECEPCIÓN AUTOMÁTICA ACTIVA",
                 ForeColor = Color.FromArgb(133, 225, 169),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                Location = new Point(18, 42),
+                Location = new Point(18, 36),
                 AutoSize = true
             };
             statusCard.Controls.Add(receiveState);
 
-            content.Controls.Add(MakeLabel("¿A QUIÉN DESEAS ENVIAR?", 30, 190));
+            content.Controls.Add(MakeLabel("DESTINO", 24, 157));
             txtIP = new TextBox
             {
-                Location = new Point(30, 218),
-                Size = new Size(520, 34),
+                Location = new Point(24, 181),
+                Size = new Size(520, 32),
                 Font = new Font("Segoe UI", 11),
                 BackColor = Color.FromArgb(35, 39, 58),
                 ForeColor = Color.White,
@@ -230,12 +254,12 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(txtIP);
 
-            content.Controls.Add(MakeLabel("DÓNDE SE GUARDAN LOS ARCHIVOS RECIBIDOS", 30, 274));
+            content.Controls.Add(MakeLabel("CARPETA DE RECEPCIÓN", 24, 229));
             txtFolder = new TextBox
             {
                 Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
-                Location = new Point(30, 302),
-                Size = new Size(690, 34),
+                Location = new Point(24, 253),
+                Size = new Size(690, 32),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(35, 39, 58),
                 ForeColor = Color.White,
@@ -243,16 +267,16 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(txtFolder);
 
-            Button browse = MakeButton("CAMBIAR", 735, 301, 143, 36, Color.FromArgb(62, 66, 91));
+            Button browse = MakeButton("Cambiar", 735, 252, 143, 34, Color.FromArgb(62, 66, 91));
             browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             browse.Click += BrowseFolder;
             content.Controls.Add(browse);
 
-            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS SELECCIONADOS  ·  TAMBIÉN PUEDES ARRASTRARLOS AQUÍ", 30, 356));
+            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 300));
             listFiles = new ListView
             {
-                Location = new Point(30, 384),
-                Size = new Size(848, 205),
+                Location = new Point(24, 324),
+                Size = new Size(848, 158),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
@@ -262,38 +286,38 @@ namespace ONKOSFileTransfer
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
-            listFiles.Columns.Add("Archivo", 470);
-            listFiles.Columns.Add("Tamaño", 150);
-            listFiles.Columns.Add("Estado", 190);
+            listFiles.Columns.Add("Archivo", 450);
+            listFiles.Columns.Add("Tamaño", 135);
+            listFiles.Columns.Add("Estado", 170);
             listFiles.AllowDrop = true;
             listFiles.DragEnter += MainDragEnter;
             listFiles.DragDrop += MainDragDrop;
             content.Controls.Add(listFiles);
 
-            Button add = MakeButton("+  AGREGAR ARCHIVOS", 30, 605, 205, 42, Color.FromArgb(62, 66, 91));
+            Button add = MakeButton("+ Archivos", 24, 494, 205, 36, Color.FromArgb(62, 66, 91));
             add.Click += AddFiles;
             content.Controls.Add(add);
 
-            Button addFolders = MakeButton("+  AGREGAR CARPETAS", 247, 605, 205, 42, Color.FromArgb(62, 66, 91));
+            Button addFolders = MakeButton("+ Carpetas", 247, 494, 205, 36, Color.FromArgb(62, 66, 91));
             addFolders.Click += AddFolders;
             content.Controls.Add(addFolders);
 
-            Button remove = MakeButton("QUITAR SELECCIONADOS", 464, 605, 205, 42, Color.FromArgb(62, 66, 91));
+            Button remove = MakeButton("Quitar seleccionados", 464, 494, 205, 36, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
             content.Controls.Add(remove);
 
-            btnSend = MakeButton("ENVIAR AHORA  ➜", 681, 605, 197, 42, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 681, 494, 197, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
 
-            content.Controls.Add(MakeLabel("PROGRESO DE TRANSFERENCIA", 30, 670));
+            content.Controls.Add(MakeLabel("PROGRESO", 24, 548));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(808, 666),
+                Location = new Point(808, 544),
                 Size = new Size(70, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -301,8 +325,8 @@ namespace ONKOSFileTransfer
 
             progressBar = new ProgressBar
             {
-                Location = new Point(30, 697),
-                Size = new Size(848, 14),
+                Location = new Point(24, 570),
+                Size = new Size(848, 12),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Minimum = 0,
                 Maximum = 100,
@@ -310,12 +334,33 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(progressBar);
 
+            lblCurrentAction = new Label
+            {
+                Text = "Listo para enviar o recibir archivos.",
+                ForeColor = Color.FromArgb(218, 220, 235),
+                Location = new Point(24, 592),
+                Size = new Size(610, 22),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            content.Controls.Add(lblCurrentAction);
+
+            lblEta = new Label
+            {
+                Text = "Tiempo restante: —",
+                ForeColor = Color.FromArgb(160, 166, 190),
+                TextAlign = ContentAlignment.MiddleRight,
+                Location = new Point(650, 592),
+                Size = new Size(222, 22),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            content.Controls.Add(lblEta);
+
             lblStatus = new Label
             {
-                Text = "Listo. Este equipo puede recibir archivos.",
-                ForeColor = Color.FromArgb(155, 205, 255),
-                Location = new Point(30, 724),
-                Size = new Size(848, 26),
+                Text = "Recepción automática activa.",
+                ForeColor = Color.FromArgb(145, 195, 255),
+                Location = new Point(24, 620),
+                Size = new Size(848, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             content.Controls.Add(lblStatus);
@@ -323,8 +368,8 @@ namespace ONKOSFileTransfer
             // Ajusta todos los elementos al ancho real del área de trabajo.
             Action adjustLayout = delegate
             {
-                int right = Math.Max(420, content.ClientSize.Width - 30);
-                int available = Math.Max(360, right - 30);
+                int right = Math.Max(420, content.ClientSize.Width - 24);
+                int available = Math.Max(360, right - 24);
 
                 statusCard.Width = available;
                 browse.Left = right - browse.Width;
@@ -344,6 +389,8 @@ namespace ONKOSFileTransfer
                 lblProgress.Left = right - lblProgress.Width;
                 progressBar.Width = available;
                 lblStatus.Width = available;
+                lblEta.Left = right - lblEta.Width;
+                lblCurrentAction.Width = Math.Max(220, lblEta.Left - lblCurrentAction.Left - 12);
             };
             content.Resize += delegate { adjustLayout(); };
             adjustLayout();
@@ -682,12 +729,16 @@ namespace ONKOSFileTransfer
                     if (Directory.Exists(path))
                     {
                         item.SubItems[2].Text = "Preparando carpeta...";
+                        UpdateCurrentAction("Preparando carpeta: " + name);
                         transferPath = CreateFolderPackage(path);
                         temporaryPackage = true;
                     }
 
                     item.SubItems[2].Text = "Conectando...";
-                    UpdateStatus("Enviando " + name + "...");
+                    UpdateStatus("Conectando con " + address + "...");
+                    UpdateCurrentAction("Enviando: " + name);
+                    transferClock = Stopwatch.StartNew();
+                    lblEta.Text = "Calculando tiempo restante...";
                     long fileSize = new FileInfo(transferPath).Length;
                     long fileSent = 0;
 
@@ -704,6 +755,8 @@ namespace ONKOSFileTransfer
                     item.SubItems[2].Text = "Enviado";
                     if (temporaryPackage && File.Exists(transferPath)) File.Delete(transferPath);
                     UpdateStatus("Enviado: " + name);
+                    UpdateCurrentAction("Completado: " + name);
+                    ShowNotification("Envío completado", name + " se envió correctamente.", ToolTipIcon.Info);
                 }
                 catch (Exception ex)
                 {
@@ -713,10 +766,12 @@ namespace ONKOSFileTransfer
                         try { File.Delete(transferPath); } catch { }
                     }
                     failures.Add(name + ": " + ex.Message);
+                    ShowNotification("No se pudo enviar", name + ": " + ex.Message, ToolTipIcon.Error);
                 }
             }
 
             isSending = false;
+            if (transferClock != null) transferClock.Stop();
             btnSend.Enabled = true;
             progressBar.Value = 100;
             lblProgress.Text = "100%";
@@ -727,6 +782,9 @@ namespace ONKOSFileTransfer
                 summary += "\r\n\r\nArchivos con error:\r\n" + string.Join("\r\n", failures.ToArray());
 
             UpdateStatus("Proceso terminado: " + sentCount + " de " + items.Count + " enviados.");
+            UpdateCurrentAction(failures.Count == 0 ? "Todas las transferencias finalizaron correctamente." : "Transferencia finalizada con elementos pendientes.");
+            if (lblEta != null) lblEta.Text = "Tiempo restante: 0 s";
+            ShowNotification(failures.Count == 0 ? "Transferencia finalizada" : "Transferencia con advertencias", sentCount + " de " + items.Count + " elementos enviados.", failures.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
             MessageBox.Show(summary, "Resumen de transferencia",
                 MessageBoxButtons.OK,
                 failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
@@ -748,6 +806,14 @@ namespace ONKOSFileTransfer
             progressBar.Value = Math.Max(0, Math.Min(100, percent));
             lblProgress.Text = percent + "%";
             lblStatus.Text = "Enviando " + name + " — " + FormatBytes(fileSent) + " / " + FormatBytes(fileSize);
+            UpdateCurrentAction("Enviando: " + name + " · " + FormatBytes(fileSent) + " de " + FormatBytes(fileSize));
+            if (transferClock != null && transferClock.Elapsed.TotalSeconds >= 1 && sent > 0)
+            {
+                double bytesPerSecond = sent / transferClock.Elapsed.TotalSeconds;
+                long remainingBytes = Math.Max(0, total - sent);
+                double seconds = bytesPerSecond > 0 ? remainingBytes / bytesPerSecond : 0;
+                lblEta.Text = "Restante aprox.: " + FormatDuration(seconds);
+            }
         }
 
         private void UpdateStatus(string message)
@@ -760,6 +826,57 @@ namespace ONKOSFileTransfer
                 return;
             }
             lblStatus.Text = message;
+        }
+
+        private void UpdateCurrentAction(string message)
+        {
+            if (IsDisposed || !IsHandleCreated || lblCurrentAction == null) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string>(UpdateCurrentAction), message);
+                return;
+            }
+            lblCurrentAction.Text = message;
+        }
+
+        private void ShowNotification(string title, string message, ToolTipIcon icon)
+        {
+            if (notifier == null || IsDisposed) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string, string, ToolTipIcon>(ShowNotification), title, message, icon);
+                return;
+            }
+            notifier.BalloonTipTitle = title;
+            notifier.BalloonTipText = message.Length > 220 ? message.Substring(0, 217) + "..." : message;
+            notifier.BalloonTipIcon = icon;
+            notifier.ShowBalloonTip(3500);
+        }
+
+        private void StartEntranceAnimation(object sender, EventArgs e)
+        {
+            Opacity = 0;
+            entranceTimer = new Timer { Interval = 15 };
+            entranceTimer.Tick += delegate
+            {
+                Opacity = Math.Min(1, Opacity + 0.08);
+                if (Opacity >= 1)
+                {
+                    entranceTimer.Stop();
+                    entranceTimer.Dispose();
+                    entranceTimer = null;
+                }
+            };
+            entranceTimer.Start();
+        }
+
+        private static string FormatDuration(double seconds)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) return "calculando...";
+            TimeSpan time = TimeSpan.FromSeconds(Math.Min(seconds, 359999));
+            if (time.TotalHours >= 1) return ((int)time.TotalHours) + " h " + time.Minutes + " min";
+            if (time.TotalMinutes >= 1) return time.Minutes + " min " + time.Seconds + " s";
+            return Math.Max(1, time.Seconds) + " s";
         }
 
         private static string FormatBytes(long bytes)
@@ -778,6 +895,8 @@ namespace ONKOSFileTransfer
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             receiver.Stop();
+            if (entranceTimer != null) { entranceTimer.Stop(); entranceTimer.Dispose(); }
+            if (notifier != null) { notifier.Visible = false; notifier.Dispose(); }
             base.OnFormClosing(e);
         }
     }
