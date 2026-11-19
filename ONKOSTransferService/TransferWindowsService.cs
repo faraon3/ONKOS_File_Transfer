@@ -2,16 +2,17 @@ using System;
 using System.IO;
 using System.ServiceProcess;
 using System.Threading;
-using System.Threading.Tasks;
+using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
 {
     public partial class TransferWindowsService : ServiceBase
     {
         private const string DefaultInboxFolder = @"C:\ProgramData\ONKOS\Inbox";
+        private const int DefaultListenPort = 5050;
 
-        private CancellationTokenSource _cts;
-        private Task _receiverTask;
+        private FileReceiver _receiver;
+        private ManualResetEventSlim _stopEvent;
 
         public TransferWindowsService()
         {
@@ -26,13 +27,16 @@ namespace ONKOSTransferService
             try
             {
                 Directory.CreateDirectory(DefaultInboxFolder);
+                _stopEvent = new ManualResetEventSlim(false);
 
-                _cts = new CancellationTokenSource();
-                _receiverTask = Task.Run(() => RunReceiverLoopAsync(_cts.Token));
+                _receiver = new FileReceiver();
+                _receiver.FileReceived += OnFileReceived;
+                _receiver.Error += OnReceiverError;
+                _receiver.Start(DefaultListenPort, DefaultInboxFolder);
 
                 ServiceNotifier.SendInfo(
                     "Servicio iniciado",
-                    "ONKOSTransferService está activo y listo para recibir archivos."
+                    $"Escuchando en el puerto {DefaultListenPort}."
                 );
             }
             catch (Exception ex)
@@ -42,34 +46,36 @@ namespace ONKOSTransferService
             }
         }
 
-        private async Task RunReceiverLoopAsync(CancellationToken token)
+        private void OnFileReceived(string savedPath)
         {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    // Llama aquí al método principal de recepción de tu clase FileReceiver.cs
-                    // pasando DefaultInboxFolder y el CancellationToken 'token'.
-                    await Task.Delay(1000, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    ServiceNotifier.SendError("Error en recepción", ex.Message);
-                    await Task.Delay(2000, token);
-                }
-            }
+            string itemName = Path.GetFileName(savedPath);
+            if (string.IsNullOrWhiteSpace(itemName))
+                itemName = "Elemento recibido";
+
+            ServiceNotifier.SendSuccess(
+                "Archivo recibido",
+                $"Se guardó \"{itemName}\" en bandeja."
+            );
+        }
+
+        private void OnReceiverError(string errorMessage)
+        {
+            ServiceNotifier.SendError("Error en recepción", errorMessage);
         }
 
         protected override void OnStop()
         {
             try
             {
-                _cts?.Cancel();
-                _receiverTask?.Wait(TimeSpan.FromSeconds(5));
+                _stopEvent?.Set();
+
+                if (_receiver != null)
+                {
+                    _receiver.FileReceived -= OnFileReceived;
+                    _receiver.Error -= OnReceiverError;
+                    _receiver.Stop();
+                    _receiver = null;
+                }
 
                 ServiceNotifier.SendWarning(
                     "Servicio detenido",
@@ -82,8 +88,8 @@ namespace ONKOSTransferService
             }
             finally
             {
-                _cts?.Dispose();
-                _cts = null;
+                _stopEvent?.Dispose();
+                _stopEvent = null;
             }
         }
     }
