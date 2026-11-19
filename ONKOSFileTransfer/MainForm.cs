@@ -269,8 +269,17 @@ namespace ONKOSFileTransfer
                 Margin = new Padding(0),
                 AccessibleName = "Dirección IP del equipo de destino"
             };
-            txtIP.HandleCreated += delegate { NativeMethods.SendMessage(txtIP.Handle, 0x1501, new IntPtr(1), "Ej. 172.16.13.25"); };
+            // Evita EM_SETCUEBANNER: en algunos equipos Windows dibuja una franja negra sobre el TextBox.
+            Label destinationHint = new Label
+            {
+                Text = "Ej. 172.16.13.25",
+                ForeColor = Color.FromArgb(135, 141, 166),
+                Font = new Font("Segoe UI", 8F),
+                Location = new Point(112, 112),
+                AutoSize = true
+            };
             content.Controls.Add(txtIP);
+            content.Controls.Add(destinationHint);
 
             content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 142));
             listFiles = new ListView
@@ -310,6 +319,7 @@ namespace ONKOSFileTransfer
                 Text = "Seleccionar todo",
                 AutoSize = true,
                 Checked = true,
+                Visible = false,
                 ForeColor = Color.FromArgb(190, 183, 222),
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 8.5F),
@@ -804,6 +814,7 @@ namespace ONKOSFileTransfer
                     item.Checked = true;
                     item.BackColor = Color.FromArgb(67, 49, 103);
                     listFiles.Items.Add(item);
+                    chkSelectAll.Visible = true;
                     listFiles.EnsureVisible(item.Index);
                     Timer rowHighlight = new Timer { Interval = 45 };
                     int fadeStep = 0;
@@ -919,6 +930,9 @@ namespace ONKOSFileTransfer
         private void RemoveSelected(object sender, EventArgs e)
         {
             if (!isSending) foreach (ListViewItem item in listFiles.SelectedItems) listFiles.Items.Remove(item);
+            listFiles.Visible = listFiles.Items.Count > 0;
+            dropZone.Visible = listFiles.Items.Count == 0;
+            chkSelectAll.Visible = listFiles.Items.Count > 0;
         }
 
         private async void SendFiles(object sender, EventArgs e)
