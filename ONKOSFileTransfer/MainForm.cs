@@ -288,8 +288,8 @@ namespace ONKOSFileTransfer
             content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 142));
             listFiles = new ListView
             {
-                Location = new Point(24, 166),
-                Size = new Size(848, 210),
+                Location = new Point(24, 278),
+                Size = new Size(848, 142),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
@@ -345,13 +345,13 @@ namespace ONKOSFileTransfer
             listFiles.DragEnter += MainDragEnter;
             listFiles.DragLeave += MainDragLeave;
             listFiles.DragDrop += MainDragDrop;
-            listFiles.Visible = false;
+            listFiles.Visible = true;
             content.Controls.Add(listFiles);
 
             dropZone = new AttachmentDropZone
             {
                 Location = new Point(24, 166),
-                Size = new Size(848, 210),
+                Size = new Size(848, 100),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(24, 27, 43),
                 ForeColor = Color.FromArgb(190, 183, 222),
@@ -364,18 +364,18 @@ namespace ONKOSFileTransfer
             dropZone.DragDrop += MainDragDrop;
             content.Controls.Add(dropZone);
 
-            btnSend = MakeButton("Enviar ahora  →", 24, 390, 854, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 24, 434, 854, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
 
-            content.Controls.Add(MakeLabel("PROGRESO", 24, 444));
+            content.Controls.Add(MakeLabel("PROGRESO", 24, 486));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(808, 440),
+                Location = new Point(808, 482),
                 Size = new Size(70, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -383,7 +383,7 @@ namespace ONKOSFileTransfer
 
             progressBar = new RoundedProgressBar
             {
-                Location = new Point(24, 466),
+                Location = new Point(24, 508),
                 Size = new Size(848, 10),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(17, 19, 31),
@@ -396,7 +396,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Listo para enviar o recibir archivos.",
                 ForeColor = Color.FromArgb(218, 220, 235),
-                Location = new Point(24, 488),
+                Location = new Point(24, 530),
                 Size = new Size(610, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -820,7 +820,7 @@ namespace ONKOSFileTransfer
                     listFiles.Items.Add(item);
                     // Al incorporar el primer elemento, cambia el área vacía por la tabla.
                     listFiles.Visible = true;
-                    dropZone.Visible = false;
+                    dropZone.Visible = true;
                     chkSelectAll.Visible = true;
                     listFiles.EnsureVisible(item.Index);
                     Timer rowHighlight = new Timer { Interval = 45 };
@@ -865,8 +865,8 @@ namespace ONKOSFileTransfer
                 btnSend.Enabled = true;
                 // Mantiene sincronizadas la tabla, el área para soltar y la selección.
                 bool hasAttachments = listFiles.Items.Count > 0;
-                listFiles.Visible = hasAttachments;
-                dropZone.Visible = !hasAttachments;
+                listFiles.Visible = true;
+                dropZone.Visible = true;
                 chkSelectAll.Visible = hasAttachments;
 
                 // La carga de adjuntos y el envío son etapas independientes.
@@ -949,8 +949,8 @@ namespace ONKOSFileTransfer
         private void RemoveSelected(object sender, EventArgs e)
         {
             if (!isSending) foreach (ListViewItem item in listFiles.SelectedItems) listFiles.Items.Remove(item);
-            listFiles.Visible = listFiles.Items.Count > 0;
-            dropZone.Visible = listFiles.Items.Count == 0;
+            listFiles.Visible = true;
+            dropZone.Visible = true;
             chkSelectAll.Visible = listFiles.Items.Count > 0;
         }
 
