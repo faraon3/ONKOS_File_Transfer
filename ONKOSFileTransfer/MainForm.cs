@@ -23,6 +23,8 @@ namespace ONKOSFileTransfer
         private Label lblProgress;
         private ProgressBar progressBar;
         private ListView listFiles;
+        private CheckBox chkSelectAll;
+        private bool updatingChecks;
         private Button btnSend;
         private long totalBytes;
         private long totalSent;
@@ -280,7 +282,8 @@ namespace ONKOSFileTransfer
                 View = View.Details,
                 FullRowSelect = true,
                 GridLines = false,
-                MultiSelect = true,
+                MultiSelect = false,
+                CheckBoxes = true,
                 BackColor = Color.FromArgb(25, 28, 44),
                 ForeColor = Color.FromArgb(235, 237, 248),
                 BorderStyle = BorderStyle.None,
@@ -295,6 +298,21 @@ namespace ONKOSFileTransfer
             listFiles.DrawColumnHeader += DrawFileColumnHeader;
             listFiles.DrawItem += DrawFileItem;
             listFiles.DrawSubItem += DrawFileSubItem;
+            listFiles.ItemChecked += ListFilesItemChecked;
+
+            chkSelectAll = new CheckBox
+            {
+                Text = "Seleccionar todo",
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.FromArgb(190, 183, 222),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8.5F),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(748, 158)
+            };
+            chkSelectAll.CheckedChanged += SelectAllChanged;
+            content.Controls.Add(chkSelectAll);
 
             // Aumenta la altura de cada fila para dar aire y facilitar la lectura.
             ImageList rowHeight = new ImageList
@@ -335,11 +353,7 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(add);
 
-            Button remove = MakeButton("Quitar seleccionados", 247, 354, 205, 36, Color.FromArgb(62, 66, 91));
-            remove.Click += RemoveSelected;
-            content.Controls.Add(remove);
-
-            btnSend = MakeButton("Enviar ahora  →", 464, 354, 414, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 247, 354, 631, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
@@ -409,10 +423,9 @@ namespace ONKOSFileTransfer
                 int gap = 12;
                 int buttonWidth = Math.Max(110, (available - gap * 2) / 3);
                 add.Width = buttonWidth;
-                remove.Left = add.Right + gap;
-                remove.Width = buttonWidth;
-                btnSend.Left = remove.Right + gap;
+                btnSend.Left = add.Right + gap;
                 btnSend.Width = Math.Max(110, right - btnSend.Left);
+                chkSelectAll.Left = right - chkSelectAll.Width;
 
                 lblProgress.Left = right - lblProgress.Width;
                 progressBar.Width = available;
@@ -604,6 +617,24 @@ namespace ONKOSFileTransfer
             }
         }
 
+        private void SelectAllChanged(object sender, EventArgs e)
+        {
+            if (listFiles == null || updatingChecks) return;
+            updatingChecks = true;
+            foreach (ListViewItem item in listFiles.Items)
+                item.Checked = chkSelectAll.Checked;
+            updatingChecks = false;
+        }
+
+        private void ListFilesItemChecked(object sender, ItemCheckedEventArgs e)
+        {
+            if (updatingChecks || chkSelectAll == null) return;
+            updatingChecks = true;
+            chkSelectAll.Checked = listFiles.Items.Count > 0 &&
+                listFiles.CheckedItems.Count == listFiles.Items.Count;
+            updatingChecks = false;
+        }
+
         private void DrawFileColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             using (SolidBrush background = new SolidBrush(Color.FromArgb(38, 42, 62)))
@@ -647,7 +678,7 @@ namespace ONKOSFileTransfer
                     e.Graphics.DrawLine(separator, e.Bounds.Left, e.Bounds.Top + 7,
                         e.Bounds.Left, e.Bounds.Bottom - 7);
 
-                Rectangle textBounds = new Rectangle(e.Bounds.X + (e.ColumnIndex == 0 ? 13 : 12),
+                Rectangle textBounds = new Rectangle(e.Bounds.X + (e.ColumnIndex == 0 ? 34 : 12),
                     e.Bounds.Y + 1, Math.Max(0, e.Bounds.Width - 22), e.Bounds.Height - 2);
                 e.Graphics.DrawString(e.SubItem.Text, rowFont, foreground, textBounds,
                     new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter });
@@ -695,6 +726,7 @@ namespace ONKOSFileTransfer
                 item.SubItems.Add(size);
                 item.SubItems.Add("Pendiente");
                 item.Tag = path;
+                item.Checked = true;
                 listFiles.Items.Add(item);
             }
             UpdateStatus(listFiles.Items.Count + " elemento(s) listo(s) para enviar.");
@@ -761,7 +793,13 @@ namespace ONKOSFileTransfer
 
             List<ListViewItem> items = new List<ListViewItem>();
             foreach (ListViewItem item in listFiles.Items)
-                items.Add(item);
+                if (item.Checked) items.Add(item);
+            if (items.Count == 0)
+            {
+                MessageBox.Show("Selecciona al menos un archivo o carpeta para enviar.", "ONKOS File Transfer",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
             totalBytes = 0;
             totalSent = 0;
