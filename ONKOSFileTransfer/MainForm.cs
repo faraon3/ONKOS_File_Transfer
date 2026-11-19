@@ -263,7 +263,7 @@ namespace ONKOSFileTransfer
             txtIP = new TextBox
             {
                 Location = new Point(112, 78),
-                Size = new Size(520, 34),
+                Size = new Size(620, 32),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Font = new Font("Segoe UI", 10.5F),
                 BackColor = Color.FromArgb(35, 39, 58),
@@ -273,23 +273,13 @@ namespace ONKOSFileTransfer
                 Margin = new Padding(0),
                 AccessibleName = "Dirección IP del equipo de destino"
             };
-            // Evita EM_SETCUEBANNER: en algunos equipos Windows dibuja una franja negra sobre el TextBox.
-            Label destinationHint = new Label
-            {
-                Text = "Ej. 172.16.13.25",
-                ForeColor = Color.FromArgb(135, 141, 166),
-                Font = new Font("Segoe UI", 8F),
-                Location = new Point(112, 112),
-                AutoSize = true
-            };
             content.Controls.Add(txtIP);
-            content.Controls.Add(destinationHint);
 
-            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 142));
+            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 128));
             listFiles = new ListView
             {
-                Location = new Point(24, 278),
-                Size = new Size(848, 142),
+                Location = new Point(24, 250),
+                Size = new Size(848, 120),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
@@ -328,7 +318,7 @@ namespace ONKOSFileTransfer
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 8.5F),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                Location = new Point(748, 140)
+                Location = new Point(748, 126)
             };
             chkSelectAll.CheckedChanged += SelectAllChanged;
             content.Controls.Add(chkSelectAll);
@@ -350,8 +340,8 @@ namespace ONKOSFileTransfer
 
             dropZone = new AttachmentDropZone
             {
-                Location = new Point(24, 166),
-                Size = new Size(848, 100),
+                Location = new Point(24, 152),
+                Size = new Size(848, 84),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(24, 27, 43),
                 ForeColor = Color.FromArgb(190, 183, 222),
@@ -364,18 +354,18 @@ namespace ONKOSFileTransfer
             dropZone.DragDrop += MainDragDrop;
             content.Controls.Add(dropZone);
 
-            btnSend = MakeButton("Enviar ahora  →", 24, 434, 854, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 24, 386, 854, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
 
-            content.Controls.Add(MakeLabel("PROGRESO", 24, 486));
+            content.Controls.Add(MakeLabel("PROGRESO", 24, 432));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(808, 482),
+                Location = new Point(808, 428),
                 Size = new Size(70, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -383,7 +373,7 @@ namespace ONKOSFileTransfer
 
             progressBar = new RoundedProgressBar
             {
-                Location = new Point(24, 508),
+                Location = new Point(24, 456),
                 Size = new Size(848, 10),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(17, 19, 31),
@@ -396,7 +386,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Listo para enviar o recibir archivos.",
                 ForeColor = Color.FromArgb(218, 220, 235),
-                Location = new Point(24, 530),
+                Location = new Point(24, 480),
                 Size = new Size(610, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -407,7 +397,7 @@ namespace ONKOSFileTransfer
                 Text = "Tiempo restante: —",
                 ForeColor = Color.FromArgb(160, 166, 190),
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(650, 552),
+                Location = new Point(650, 480),
                 Size = new Size(222, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -417,7 +407,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Recepción automática activa.",
                 ForeColor = Color.FromArgb(145, 195, 255),
-                Location = new Point(24, 574),
+                Location = new Point(24, 508),
                 Size = new Size(848, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -430,13 +420,17 @@ namespace ONKOSFileTransfer
                 int available = Math.Max(360, right - 24);
 
                 listFiles.Width = available;
-                txtIP.Width = Math.Min(620, Math.Max(360, available - 100));
-
-                int gap = 12;
+                txtIP.Width = available;
                 dropZone.Width = available;
                 btnSend.Left = 24;
                 btnSend.Width = available;
                 chkSelectAll.Left = right - chkSelectAll.Width;
+
+                // Las tres columnas ocupan exactamente el ancho útil de la tabla.
+                int tableWidth = Math.Max(360, listFiles.ClientSize.Width - 4);
+                listFiles.Columns[0].Width = (int)(tableWidth * 0.60);
+                listFiles.Columns[1].Width = (int)(tableWidth * 0.17);
+                listFiles.Columns[2].Width = tableWidth - listFiles.Columns[0].Width - listFiles.Columns[1].Width;
 
                 lblProgress.Left = right - lblProgress.Width;
                 progressBar.Width = available;
