@@ -23,6 +23,7 @@ namespace ONKOSFileTransfer
         private Label lblProgress;
         private RoundedProgressBar progressBar;
         private ListView listFiles;
+        private AttachmentDropZone dropZone;
         private ImageList fileIcons;
         private bool isLoadingAttachments;
         private CheckBox chkSelectAll;
@@ -334,35 +335,25 @@ namespace ONKOSFileTransfer
             listFiles.AllowDrop = true;
             listFiles.DragEnter += MainDragEnter;
             listFiles.DragDrop += MainDragDrop;
+            listFiles.Visible = false;
             content.Controls.Add(listFiles);
 
-            Button add = MakeButton("＋  Adjuntar", 24, 390, 205, 36, Color.FromArgb(62, 66, 91));
-            add.Click += delegate
+            dropZone = new AttachmentDropZone
             {
-                ContextMenuStrip attachMenu = new ContextMenuStrip
-                {
-                    BackColor = Color.FromArgb(35, 39, 58),
-                    ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 9F),
-                    ShowImageMargin = false,
-                    ShowCheckMargin = false,
-                    Padding = new Padding(5, 6, 5, 6),
-                    Renderer = new ToolStripProfessionalRenderer(new OnkosMenuColors())
-                };
-                ToolStripMenuItem filesOption = new ToolStripMenuItem("  Archivos");
-                ToolStripMenuItem foldersOption = new ToolStripMenuItem("  Carpetas completas");
-                filesOption.Padding = new Padding(12, 8, 18, 8);
-                foldersOption.Padding = new Padding(12, 8, 18, 8);
-                filesOption.Click += AddFiles;
-                foldersOption.Click += AddFolders;
-                attachMenu.Items.Add(filesOption);
-                attachMenu.Items.Add(foldersOption);
-                attachMenu.Show(add, new Point(0, add.Height));
-                attachMenu.Closed += delegate { attachMenu.Dispose(); };
+                Location = new Point(24, 166),
+                Size = new Size(848, 210),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.FromArgb(24, 27, 43),
+                ForeColor = Color.FromArgb(190, 183, 222),
+                AllowDrop = true,
+                Cursor = Cursors.Hand
             };
-            content.Controls.Add(add);
+            dropZone.Click += OpenAttachmentPicker;
+            dropZone.DragEnter += MainDragEnter;
+            dropZone.DragDrop += MainDragDrop;
+            content.Controls.Add(dropZone);
 
-            btnSend = MakeButton("Enviar ahora  →", 247, 390, 631, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 24, 390, 854, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
@@ -432,10 +423,9 @@ namespace ONKOSFileTransfer
                 txtIP.Width = Math.Max(220, destinationInput.ClientSize.Width - 26);
 
                 int gap = 12;
-                int buttonWidth = Math.Max(110, (available - gap * 2) / 3);
-                add.Width = buttonWidth;
-                btnSend.Left = add.Right + gap;
-                btnSend.Width = Math.Max(110, right - btnSend.Left);
+                dropZone.Width = available;
+                btnSend.Left = 24;
+                btnSend.Width = available;
                 chkSelectAll.Left = right - chkSelectAll.Width;
 
                 lblProgress.Left = right - lblProgress.Width;
@@ -700,6 +690,21 @@ namespace ONKOSFileTransfer
                     e.Bounds.Y + 1, Math.Max(0, e.Bounds.Width - 22), e.Bounds.Height - 2);
                 e.Graphics.DrawString(e.SubItem.Text, rowFont, foreground, textBounds,
                     new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter });
+            }
+        }
+
+        private void OpenAttachmentPicker(object sender, EventArgs e)
+        {
+            if (isLoadingAttachments || isSending) return;
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Selecciona los archivos que deseas enviar";
+                dialog.Multiselect = true;
+                dialog.CheckFileExists = true;
+                dialog.CheckPathExists = true;
+                dialog.Filter = "Todos los archivos (*.*)|*.*";
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    AddPaths(dialog.FileNames);
             }
         }
 
@@ -1124,6 +1129,46 @@ namespace ONKOSFileTransfer
     {
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, string lParam);
+    }
+
+    internal sealed class AttachmentDropZone : Panel
+    {
+        public AttachmentDropZone()
+        {
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
+            using (GraphicsPath panelPath = RoundedGeometry.Path(bounds, 13))
+            using (SolidBrush fill = new SolidBrush(Color.FromArgb(24, 27, 43)))
+            using (Pen border = new Pen(Color.FromArgb(91, 78, 135), 1.4F))
+            {
+                border.DashPattern = new float[] { 5F, 4F };
+                e.Graphics.FillPath(fill, panelPath);
+                e.Graphics.DrawPath(border, panelPath);
+            }
+
+            int center = Width / 2;
+            using (Font iconFont = new Font("Segoe UI Symbol", 28F, FontStyle.Regular))
+            using (Font titleFont = new Font("Segoe UI Semibold", 11F, FontStyle.Bold))
+            using (Font hintFont = new Font("Segoe UI", 9F))
+            using (SolidBrush accent = new SolidBrush(Color.FromArgb(177, 146, 255)))
+            using (SolidBrush title = new SolidBrush(Color.FromArgb(238, 237, 248)))
+            using (SolidBrush hint = new SolidBrush(Color.FromArgb(155, 162, 190)))
+            {
+                StringFormat centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                e.Graphics.DrawString("⇧", iconFont, accent, new Rectangle(center - 40, Height / 2 - 62, 80, 52), centered);
+                e.Graphics.DrawString("Arrastra aquí tus archivos o haz clic para seleccionarlos", titleFont, title,
+                    new Rectangle(15, Height / 2 - 4, Width - 30, 28), centered);
+                e.Graphics.DrawString("Puedes adjuntar varios archivos a la vez · También puedes soltarlos aquí",
+                    hintFont, hint, new Rectangle(15, Height / 2 + 27, Width - 30, 24), centered);
+            }
+        }
     }
 
     internal sealed class RoundedProgressBar : Control
