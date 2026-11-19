@@ -1,43 +1,37 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
+using ONKOSFileTransfer.ONKOSTray;
 
 namespace ONKOSFileTransfer
 {
     internal static class Program
     {
-        private static Mutex singleInstanceMutex;
-
         [STAThread]
-        static void Main()
+        private static void Main(string[] args)
         {
-            bool createdNew;
-            singleInstanceMutex = new Mutex(
-                true,
-                @"Local\ONKOSFileTransfer_SingleInstance",
-                out createdNew);
+            bool trayMode = args != null && args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
+            string mutexName = trayMode
+                ? "Global\\ONKOSFileTransfer_Tray_Mutex"
+                : "Global\\ONKOSFileTransfer_MainForm_Mutex";
 
-            if (!createdNew)
+            using (var mutex = new Mutex(true, mutexName, out bool isNewInstance))
             {
-                MessageBox.Show(
-                    "ONKOS File Transfer ya está abierto en este usuario.\r\n\r\nBusca la ventana existente antes de iniciar otra instancia.",
-                    "ONKOS File Transfer",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                singleInstanceMutex.Dispose();
-                return;
-            }
+                if (!isNewInstance)
+                    return;
 
-            try
-            {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new MainForm());
-            }
-            finally
-            {
-                singleInstanceMutex.ReleaseMutex();
-                singleInstanceMutex.Dispose();
+
+                if (trayMode)
+                {
+                    Application.Run(new TrayApplicationContext());
+                }
+                else
+                {
+                    Application.Run(new MainForm());
+                }
             }
         }
     }
