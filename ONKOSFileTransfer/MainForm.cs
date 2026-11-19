@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using ONKOSFileTransfer.Network;
@@ -82,7 +83,7 @@ namespace ONKOSFileTransfer
 
             Button admin = MakeButton("⚙ Administración", 0, 22, 150, 38, Color.FromArgb(43, 46, 66));
             admin.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            admin.Click += delegate { ShowPage("settings", null); };
+            admin.Click += OpenAdministration;
             header.Controls.Add(admin);
             header.Resize += delegate { admin.Left = header.ClientSize.Width - admin.Width - 24; };
 
@@ -94,6 +95,36 @@ namespace ONKOSFileTransfer
             Controls.Add(pageHost);
             Controls.Add(header);
             ShowPage("transfer", null);
+        }
+
+        private void OpenAdministration(object sender, EventArgs e)
+        {
+            bool isAdministrator = false;
+            try
+            {
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+                {
+                    WindowsPrincipal principal = new WindowsPrincipal(identity);
+                    isAdministrator = principal.IsInRole(WindowsBuiltInRole.Administrator);
+                }
+            }
+            catch
+            {
+                isAdministrator = false;
+            }
+
+            if (!isAdministrator)
+            {
+                MessageBox.Show(
+                    "Esta sección está reservada para el técnico de sistemas.\r\n\r\n" +
+                    "Cierra ONKOS y ejecútalo con una cuenta de Windows que tenga permisos de administrador.",
+                    "Acceso restringido",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            ShowPage("settings", null);
         }
 
         private void AddNavButton(Panel sidebar, string text, string page, int top)
@@ -347,9 +378,9 @@ namespace ONKOSFileTransfer
                     features = new string[] { "Transferencias enviadas y recibidas", "Errores y fallos de conexión", "Eventos de autorización y seguridad", "Avisos visuales, sin sonido" };
                     break;
                 case "settings":
-                    title = "Configuración";
-                    description = "Opciones locales de funcionamiento de ONKOS File Transfer.";
-                    features = new string[] { "Carpeta predeterminada de recepción", "Información de red de este equipo", "Preferencias de notificación visual", "Estado del servicio de recepción" };
+                    title = "Administración de ONKOS";
+                    description = "Panel reservado al técnico de sistemas para administrar esta estación y sus permisos.";
+                    features = new string[] { "Equipos autorizados y solicitudes de acceso", "Grupos de computadores por área", "Configuración de red: Wi-Fi y Ethernet", "Seguridad, certificados y permisos", "Historial y registros de actividad", "Estado del servicio de recepción" };
                     break;
             }
 
