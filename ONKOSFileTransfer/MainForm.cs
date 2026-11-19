@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Net;
-using System.Threading.Tasks;
+using System.Net.Sockets;
 using System.Windows.Forms;
 using ONKOSFileTransfer.Network;
 
@@ -12,152 +12,163 @@ namespace ONKOSFileTransfer
     public class MainForm : Form
     {
         private const int Port = 5050;
+
+        private static readonly Color BgWindow = Color.FromArgb(24, 25, 38);
+        private static readonly Color BgInput = Color.FromArgb(39, 40, 57);
+        private static readonly Color BgList = Color.FromArgb(32, 33, 49);
+        private static readonly Color BtnSecondary = Color.FromArgb(66, 68, 91);
+        private static readonly Color BtnPrimary = Color.FromArgb(112, 70, 194);
+        private static readonly Color AccentPurple = Color.FromArgb(177, 139, 255);
+        private static readonly Color TextMuted = Color.FromArgb(175, 178, 195);
+        private static readonly Color TextLabel = Color.FromArgb(200, 202, 218);
+        private static readonly Color TextInfo = Color.FromArgb(155, 205, 255);
+
         private readonly FileReceiver receiver;
         private TextBox txtIP;
         private TextBox txtFolder;
         private Label lblStatus;
+        private Label lblReceiverInfo;
         private Label lblProgress;
         private ProgressBar progressBar;
         private ListView listFiles;
+        private Button btnAdd;
+        private Button btnRemove;
         private Button btnSend;
-        private long totalBytes;
-        private long totalSent;
+        private string activeFolder;
         private bool isSending;
 
         public MainForm()
         {
+            activeFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "ONKOS_Received");
+
             receiver = new FileReceiver();
-            receiver.FileReceived += path => UpdateStatus("Recibido: " + Path.GetFileName(path));
+            receiver.FileReceived += path =>
+                UpdateReceiverStatus("Último archivo recibido: " + Path.GetFileName(path));
             receiver.TransferProgress += (name, received, size) =>
-                UpdateStatus("Recibiendo " + name + " (" + FormatBytes(received) + " / " + FormatBytes(size) + ")");
-            receiver.Error += message => UpdateStatus("Error al recibir: " + message);
+                UpdateReceiverStatus("Recibiendo " + name + " (" + FormatBytes(received) + " / " + FormatBytes(size) + ")");
+            receiver.Error += message =>
+                UpdateReceiverStatus("Error de recepción: " + message);
 
             BuildInterface();
-            StartReceiver();
+            StartReceiver(activeFolder);
         }
 
         private void BuildInterface()
         {
             Text = "ONKOS File Transfer";
-            Size = new Size(760, 680);
-            MinimumSize = new Size(700, 620);
+            ClientSize = new Size(744, 642);
+            MinimumSize = new Size(744, 642);
+            MaximumSize = new Size(744, 642);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Color.FromArgb(24, 25, 38);
+            BackColor = BgWindow;
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 9.5F);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
 
-            Label title = new Label
+            Controls.Add(new Label
             {
                 Text = "ONKOS FILE TRANSFER",
                 Font = new Font("Segoe UI", 21, FontStyle.Bold),
-                ForeColor = Color.FromArgb(177, 139, 255),
-                Location = new Point(28, 20),
-                Size = new Size(500, 38)
-            };
-            Controls.Add(title);
+                ForeColor = AccentPurple,
+                Location = new Point(28, 18),
+                Size = new Size(460, 38)
+            });
 
-            Label subtitle = new Label
+            Controls.Add(new Label
             {
-                Text = "Envía archivos directamente entre equipos de tu red",
-                ForeColor = Color.FromArgb(175, 178, 195),
-                Location = new Point(31, 61),
-                Size = new Size(650, 24)
-            };
-            Controls.Add(subtitle);
+                Text = "Envía y recibe archivos directamente entre equipos de tu red local",
+                ForeColor = TextMuted,
+                Location = new Point(30, 58),
+                Size = new Size(680, 22)
+            });
 
-            Label localIp = new Label
+            lblReceiverInfo = new Label
             {
-                Text = "TU IP: " + NetworkManager.GetLocalIPv4() + "     •     RECEPCIÓN AUTOMÁTICA ACTIVA",
+                Text = "TU IP: " + NetworkManager.GetLocalIPv4() + "  •  PUERTO " + Port + "  •  RECEPCIÓN ACTIVA",
                 ForeColor = Color.LightGreen,
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                Location = new Point(31, 101),
-                Size = new Size(680, 25)
+                Location = new Point(30, 88),
+                Size = new Size(684, 22)
             };
-            Controls.Add(localIp);
+            Controls.Add(lblReceiverInfo);
 
-            Label ipLabel = MakeLabel("IP DEL EQUIPO DESTINO", 31, 145);
-            Controls.Add(ipLabel);
-
+            Controls.Add(MakeSectionLabel("IP DEL EQUIPO DESTINO", 30, 124));
             txtIP = new TextBox
             {
-                Location = new Point(31, 172),
-                Size = new Size(680, 34),
-                Font = new Font("Segoe UI", 11),
-                BackColor = Color.FromArgb(39, 40, 57),
+                Location = new Point(30, 148),
+                Size = new Size(684, 30),
+                Font = new Font("Segoe UI", 10.5F),
+                BackColor = BgInput,
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
             Controls.Add(txtIP);
 
-            Label folderLabel = MakeLabel("CARPETA DONDE SE GUARDAN LOS ARCHIVOS RECIBIDOS", 31, 220);
-            Controls.Add(folderLabel);
-
+            Controls.Add(MakeSectionLabel("CARPETA DE ARCHIVOS RECIBIDOS", 30, 192));
             txtFolder = new TextBox
             {
-                Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
-                Location = new Point(31, 247),
-                Size = new Size(550, 32),
-                BackColor = Color.FromArgb(39, 40, 57),
+                Text = activeFolder,
+                Location = new Point(30, 216),
+                Size = new Size(556, 30),
+                BackColor = BgInput,
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
             Controls.Add(txtFolder);
 
-            Button browse = MakeButton("CAMBIAR", 592, 246, 119, 34, Color.FromArgb(66, 68, 91));
-            browse.Click += BrowseFolder;
-            Controls.Add(browse);
+            Button btnBrowse = MakeButton("CAMBIAR", 596, 215, 118, 32, BtnSecondary);
+            btnBrowse.Click += BrowseFolder;
+            Controls.Add(btnBrowse);
 
-            Label filesLabel = MakeLabel("ARCHIVOS PARA ENVIAR", 31, 300);
-            Controls.Add(filesLabel);
-
+            Controls.Add(MakeSectionLabel("COLA DE ARCHIVOS PARA ENVIAR", 30, 262));
             listFiles = new ListView
             {
-                Location = new Point(31, 328),
-                Size = new Size(680, 155),
+                Location = new Point(30, 286),
+                Size = new Size(684, 156),
                 View = View.Details,
                 FullRowSelect = true,
                 GridLines = false,
                 MultiSelect = false,
-                BackColor = Color.FromArgb(32, 33, 49),
+                BackColor = BgList,
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
-            listFiles.Columns.Add("Archivo", 390);
+            listFiles.Columns.Add("Archivo", 400);
             listFiles.Columns.Add("Tamaño", 120);
-            listFiles.Columns.Add("Estado", 145);
+            listFiles.Columns.Add("Estado", 140);
             Controls.Add(listFiles);
 
-            Button add = MakeButton("AGREGAR ARCHIVOS", 31, 496, 215, 39, Color.FromArgb(66, 68, 91));
-            add.Click += AddFiles;
-            Controls.Add(add);
+            btnAdd = MakeButton("AGREGAR ARCHIVOS", 30, 456, 218, 38, BtnSecondary);
+            btnAdd.Click += AddFiles;
+            Controls.Add(btnAdd);
 
-            Button remove = MakeButton("QUITAR SELECCIONADO", 258, 496, 215, 39, Color.FromArgb(66, 68, 91));
-            remove.Click += RemoveSelected;
-            Controls.Add(remove);
+            btnRemove = MakeButton("QUITAR SELECCIONADO", 260, 456, 218, 38, BtnSecondary);
+            btnRemove.Click += RemoveSelected;
+            Controls.Add(btnRemove);
 
-            btnSend = MakeButton("ENVIAR ARCHIVOS", 486, 496, 225, 39, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("ENVIAR ARCHIVOS", 490, 456, 224, 38, BtnPrimary);
             btnSend.Click += SendFiles;
             Controls.Add(btnSend);
 
-            Label progressTitle = MakeLabel("PROGRESO DE TRANSFERENCIA", 31, 552);
-            Controls.Add(progressTitle);
-
+            Controls.Add(MakeSectionLabel("PROGRESO DE ENVÍO", 30, 510));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(640, 550),
-                Size = new Size(70, 24)
+                Location = new Point(644, 510),
+                Size = new Size(70, 22)
             };
             Controls.Add(lblProgress);
 
             progressBar = new ProgressBar
             {
-                Location = new Point(31, 579),
-                Size = new Size(680, 13),
+                Location = new Point(30, 536),
+                Size = new Size(684, 14),
                 Minimum = 0,
                 Maximum = 100,
                 Style = ProgressBarStyle.Continuous
@@ -166,27 +177,37 @@ namespace ONKOSFileTransfer
 
             lblStatus = new Label
             {
-                Text = "Listo. Este equipo ya puede recibir archivos.",
-                ForeColor = Color.FromArgb(155, 205, 255),
-                Location = new Point(31, 606),
-                Size = new Size(680, 28)
+                Text = "Listo para enviar archivos.",
+                ForeColor = TextInfo,
+                Location = new Point(30, 562),
+                Size = new Size(684, 24)
             };
             Controls.Add(lblStatus);
+
+            Label lblFooter = new Label
+            {
+                Text = "Recepción automática activa en segundo plano.",
+                ForeColor = TextMuted,
+                Font = new Font("Segoe UI", 8.5F),
+                Location = new Point(30, 594),
+                Size = new Size(684, 24)
+            };
+            Controls.Add(lblFooter);
         }
 
-        private Label MakeLabel(string text, int x, int y)
+        private static Label MakeSectionLabel(string text, int x, int y)
         {
             return new Label
             {
                 Text = text,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Color.FromArgb(200, 202, 218),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = TextLabel,
                 Location = new Point(x, y),
-                Size = new Size(650, 23)
+                Size = new Size(600, 20)
             };
         }
 
-        private Button MakeButton(string text, int x, int y, int width, int height, Color color)
+        private static Button MakeButton(string text, int x, int y, int width, int height, Color color)
         {
             Button button = new Button
             {
@@ -203,19 +224,24 @@ namespace ONKOSFileTransfer
             return button;
         }
 
-        private void StartReceiver()
+        private void StartReceiver(string targetFolder)
         {
             try
             {
-                receiver.Start(Port, txtFolder.Text);
-                UpdateStatus("Recepción automática activa. Puerto " + Port + ".");
+                receiver.Start(Port, targetFolder);
+                activeFolder = targetFolder;
+                txtFolder.Text = targetFolder;
+                UpdateReceiverStatus("Recepción activa en: " + targetFolder);
             }
             catch (Exception ex)
             {
-                UpdateStatus("No se pudo activar la recepción: " + ex.Message);
+                UpdateReceiverStatus("Recepción inactiva: " + ex.Message);
                 MessageBox.Show(
-                    "No se pudo iniciar la recepción automática. Comprueba que el puerto 5050 esté libre y que tengas permisos para la carpeta.\r\n\r\n" + ex.Message,
-                    "ONKOS File Transfer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "No se pudo iniciar la recepción automática. Verifica que el puerto " + Port +
+                    " esté disponible y que tengas permisos sobre la carpeta.\r\n\r\n" + ex.Message,
+                    "ONKOS File Transfer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
             }
         }
 
@@ -223,13 +249,15 @@ namespace ONKOSFileTransfer
         {
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
-                dialog.SelectedPath = Directory.Exists(txtFolder.Text) ? txtFolder.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                dialog.SelectedPath = Directory.Exists(txtFolder.Text)
+                    ? txtFolder.Text
+                    : activeFolder;
+
                 if (dialog.ShowDialog() != DialogResult.OK)
                     return;
 
-                txtFolder.Text = dialog.SelectedPath;
                 receiver.Stop();
-                StartReceiver();
+                StartReceiver(dialog.SelectedPath);
             }
         }
 
@@ -239,17 +267,13 @@ namespace ONKOSFileTransfer
             {
                 dialog.Title = "Selecciona los archivos que deseas enviar";
                 dialog.Multiselect = true;
+
                 if (dialog.ShowDialog() != DialogResult.OK)
                     return;
 
                 foreach (string path in dialog.FileNames)
                 {
-                    bool exists = false;
-                    foreach (ListViewItem existing in listFiles.Items)
-                        if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
-                            exists = true;
-
-                    if (exists)
+                    if (IsFileAlreadyQueued(path))
                         continue;
 
                     FileInfo info = new FileInfo(path);
@@ -262,6 +286,16 @@ namespace ONKOSFileTransfer
             }
         }
 
+        private bool IsFileAlreadyQueued(string path)
+        {
+            foreach (ListViewItem existing in listFiles.Items)
+            {
+                if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
         private void RemoveSelected(object sender, EventArgs e)
         {
             if (listFiles.SelectedItems.Count > 0 && !isSending)
@@ -270,40 +304,47 @@ namespace ONKOSFileTransfer
 
         private async void SendFiles(object sender, EventArgs e)
         {
-            IPAddress address;
-            if (!IPAddress.TryParse(txtIP.Text.Trim(), out address) ||
-                address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            if (!IPAddress.TryParse(txtIP.Text.Trim(), out IPAddress address) ||
+                address.AddressFamily != AddressFamily.InterNetwork)
             {
-                MessageBox.Show("Escribe una dirección IPv4 válida.", "ONKOS File Transfer",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(
+                    "Escribe una dirección IPv4 válida (por ejemplo, 172.16.13.110).",
+                    "ONKOS File Transfer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 txtIP.Focus();
                 return;
             }
 
             if (listFiles.Items.Count == 0)
             {
-                MessageBox.Show("Agrega al menos un archivo para enviar.", "ONKOS File Transfer",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(
+                    "Agrega al menos un archivo para enviar.",
+                    "ONKOS File Transfer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 return;
             }
 
             List<ListViewItem> items = new List<ListViewItem>();
-            foreach (ListViewItem item in listFiles.Items)
-                items.Add(item);
+            long totalBytes = 0;
 
-            totalBytes = 0;
-            totalSent = 0;
+            foreach (ListViewItem item in listFiles.Items)
+            {
+                items.Add(item);
+                string path = item.Tag as string;
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                {
+                    try { totalBytes += new FileInfo(path).Length; }
+                    catch { }
+                }
+            }
+
+            long totalSent = 0;
             int sentCount = 0;
             List<string> failures = new List<string>();
 
-            foreach (ListViewItem item in items)
-            {
-                try { totalBytes += new FileInfo(item.Tag as string).Length; }
-                catch { }
-            }
-
-            isSending = true;
-            btnSend.Enabled = false;
+            SetSendingState(true);
             progressBar.Value = 0;
             lblProgress.Text = "0%";
 
@@ -311,17 +352,22 @@ namespace ONKOSFileTransfer
             {
                 string path = item.Tag as string;
                 string name = Path.GetFileName(path);
+
                 try
                 {
-                    if (!File.Exists(path))
+                    if (string.IsNullOrEmpty(path) || !File.Exists(path))
                         throw new FileNotFoundException("El archivo ya no existe.");
 
                     item.SubItems[2].Text = "Conectando...";
-                    UpdateStatus("Enviando " + name + "...");
+                    UpdateSendStatus("Conectando con " + address + " para enviar " + name + "...");
+
                     long fileSize = new FileInfo(path).Length;
                     long fileSent = 0;
 
-                    await FileSender.SendFileAsync(address.ToString(), Port, path,
+                    await FileSender.SendFileAsync(
+                        address.ToString(),
+                        Port,
+                        path,
                         (sent, size) =>
                         {
                             long delta = sent - fileSent;
@@ -332,7 +378,7 @@ namespace ONKOSFileTransfer
 
                     sentCount++;
                     item.SubItems[2].Text = "Enviado";
-                    UpdateStatus("Enviado: " + name);
+                    UpdateSendStatus("Enviado: " + name);
                 }
                 catch (Exception ex)
                 {
@@ -341,20 +387,34 @@ namespace ONKOSFileTransfer
                 }
             }
 
-            isSending = false;
-            btnSend.Enabled = true;
-            progressBar.Value = 100;
-            lblProgress.Text = "100%";
+            SetSendingState(false);
 
-            string summary = "Transferencia finalizada.\r\n\r\nCorrectos: " + sentCount +
-                " de " + items.Count + ".";
+            int finalPercent = totalBytes <= 0
+                ? 100
+                : (int)Math.Min(100, totalSent * 100.0 / totalBytes);
+            progressBar.Value = failures.Count == 0 ? 100 : finalPercent;
+            lblProgress.Text = progressBar.Value + "%";
+
+            string summary = "Transferencia finalizada.\r\n\r\nEnviados correctamente: " +
+                sentCount + " de " + items.Count + ".";
             if (failures.Count > 0)
-                summary += "\r\n\r\nArchivos con error:\r\n" + string.Join("\r\n", failures.ToArray());
+                summary += "\r\n\r\nErrores:\r\n" + string.Join("\r\n", failures.ToArray());
 
-            UpdateStatus("Proceso terminado: " + sentCount + " de " + items.Count + " enviados.");
-            MessageBox.Show(summary, "Resumen de transferencia",
+            UpdateSendStatus("Finalizado: " + sentCount + " de " + items.Count + " enviados.");
+            MessageBox.Show(
+                summary,
+                "Resumen de transferencia",
                 MessageBoxButtons.OK,
                 failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+
+        private void SetSendingState(bool sending)
+        {
+            isSending = sending;
+            btnSend.Enabled = !sending;
+            btnAdd.Enabled = !sending;
+            btnRemove.Enabled = !sending;
+            txtIP.Enabled = !sending;
         }
 
         private void UpdateProgress(long sent, long total, string name, long fileSent, long fileSize)
@@ -372,19 +432,36 @@ namespace ONKOSFileTransfer
             int percent = total <= 0 ? 100 : (int)Math.Min(100, sent * 100.0 / total);
             progressBar.Value = Math.Max(0, Math.Min(100, percent));
             lblProgress.Text = percent + "%";
-            lblStatus.Text = "Enviando " + name + " — " + FormatBytes(fileSent) + " / " + FormatBytes(fileSize);
+            lblStatus.Text = "Enviando " + name + " (" + FormatBytes(fileSent) + " / " + FormatBytes(fileSize) + ")";
         }
 
-        private void UpdateStatus(string message)
+        private void UpdateSendStatus(string message)
         {
             if (IsDisposed || !IsHandleCreated)
                 return;
+
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<string>(UpdateStatus), message);
+                BeginInvoke(new Action<string>(UpdateSendStatus), message);
                 return;
             }
+
             lblStatus.Text = message;
+        }
+
+        private void UpdateReceiverStatus(string message)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string>(UpdateReceiverStatus), message);
+                return;
+            }
+
+            lblReceiverInfo.Text =
+                "TU IP: " + NetworkManager.GetLocalIPv4() + "  •  PUERTO " + Port + "  •  " + message;
         }
 
         private static string FormatBytes(long bytes)
