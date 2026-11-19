@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -21,8 +22,10 @@ namespace ONKOSFileTransfer
         private static readonly Color BgCard = Color.FromArgb(24, 26, 40);
         private static readonly Color BgSurface = Color.FromArgb(30, 33, 51);
         private static readonly Color BgInput = Color.FromArgb(20, 22, 35);
+        private static readonly Color BgProgressTrack = Color.FromArgb(42, 46, 70);
         private static readonly Color BgHeaderTable = Color.FromArgb(35, 39, 60);
         private static readonly Color BorderSubtle = Color.FromArgb(54, 59, 86);
+        private static readonly Color BorderProgress = Color.FromArgb(76, 82, 118);
         private static readonly Color AccentPurple = Color.FromArgb(124, 77, 224);
         private static readonly Color AccentPurpleHover = Color.FromArgb(145, 98, 245);
         private static readonly Color AccentPurpleLight = Color.FromArgb(184, 148, 255);
@@ -35,6 +38,7 @@ namespace ONKOSFileTransfer
 
         private readonly FileReceiver receiver;
         private readonly Timer animTimer;
+        private readonly Stopwatch sendStopwatch = new Stopwatch();
 
         private TextBox txtIP;
         private Panel pnlDestCard;
@@ -355,16 +359,16 @@ namespace ONKOSFileTransfer
             };
             Controls.Add(pnlDropZone);
 
-            // --- TABLA DE ARCHIVOS CON ÍCONOS ---
+            // --- TABLA DE ARCHIVOS (COLUMNAS 554, 160, 185) ---
             Panel pnlTableHeader = new Panel
             {
                 Location = new Point(28, 352),
                 Size = new Size(906, 28),
                 BackColor = BgHeaderTable
             };
-            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("ARCHIVO", 16, 540));
-            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("TAMAÑO", 560, 150));
-            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("ESTADO", 720, 170));
+            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("ARCHIVO", 26, 524));
+            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("TAMAÑO", 554, 160));
+            pnlTableHeader.Controls.Add(MakeTableHeaderLabel("ESTADO", 714, 185));
             Controls.Add(pnlTableHeader);
 
             fileIcons = new ImageList
@@ -434,7 +438,7 @@ namespace ONKOSFileTransfer
             btnSend.Click += SendFiles;
             Controls.Add(btnSend);
 
-            // --- PROGRESO ANIMADO ---
+            // --- PROGRESO ANIMADO CON MAYOR CONTRASTE ---
             Controls.Add(new Label
             {
                 Text = "PROGRESO",
@@ -458,8 +462,8 @@ namespace ONKOSFileTransfer
             pnlProgressBar = new Panel
             {
                 Location = new Point(28, 578),
-                Size = new Size(906, 12),
-                BackColor = BgInput
+                Size = new Size(906, 13),
+                BackColor = BgProgressTrack
             };
             pnlProgressBar.Paint += PaintAnimatedProgressBar;
             Controls.Add(pnlProgressBar);
@@ -470,7 +474,7 @@ namespace ONKOSFileTransfer
                 Text = "Listo para enviar o recibir archivos.",
                 Font = new Font("Segoe UI", 8.5F),
                 ForeColor = TextPrimary,
-                Location = new Point(28, 598),
+                Location = new Point(28, 599),
                 Size = new Size(650, 20)
             };
             Controls.Add(lblStatus);
@@ -481,8 +485,8 @@ namespace ONKOSFileTransfer
                 Font = new Font("Segoe UI", 8.5F),
                 ForeColor = TextSecondary,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(714, 598),
-                Size = new Size(220, 20)
+                Location = new Point(684, 599),
+                Size = new Size(250, 20)
             };
             Controls.Add(lblRemaining);
 
@@ -498,7 +502,7 @@ namespace ONKOSFileTransfer
             lblReceiverFooter.Click += (s, e) =>
             {
                 if (Directory.Exists(activeFolder))
-                    System.Diagnostics.Process.Start("explorer.exe", activeFolder);
+                    Process.Start("explorer.exe", activeFolder);
             };
             Controls.Add(lblReceiverFooter);
         }
@@ -571,8 +575,8 @@ namespace ONKOSFileTransfer
 
             Rectangle track = new Rectangle(0, 0, pnlProgressBar.Width - 1, pnlProgressBar.Height - 1);
             using (GraphicsPath trackPath = GetRoundedRect(track, 6))
-            using (SolidBrush trackBrush = new SolidBrush(BgInput))
-            using (Pen trackPen = new Pen(BorderSubtle, 1f))
+            using (SolidBrush trackBrush = new SolidBrush(BgProgressTrack))
+            using (Pen trackPen = new Pen(BorderProgress, 1.2f))
             {
                 pnlProgressBar.Region = new Region(trackPath);
                 g.FillPath(trackBrush, trackPath);
@@ -906,6 +910,8 @@ namespace ONKOSFileTransfer
             btnSend.Text = "Enviando...";
             targetProgress = 0;
             animatedProgress = 0;
+            lblRemaining.Text = "Tiempo restante: calculando...";
+            sendStopwatch.Restart();
 
             foreach (ListViewItem item in items)
             {
@@ -962,6 +968,7 @@ namespace ONKOSFileTransfer
                 }
             }
 
+            sendStopwatch.Stop();
             isSending = false;
             btnSend.Enabled = true;
             btnSend.Text = "Enviar ahora  →";
@@ -1003,6 +1010,32 @@ namespace ONKOSFileTransfer
             int percent = total <= 0 ? 100 : (int)Math.Min(100, sent * 100.0 / total);
             targetProgress = Math.Max(0, Math.Min(100, percent));
             lblStatus.Text = "Enviando " + name + " (" + FormatBytes(fileSent) + " / " + FormatBytes(fileSize) + ")";
+
+            double elapsedSeconds = sendStopwatch.Elapsed.TotalSeconds;
+            if (sent > 0 && total > sent && elapsedSeconds > 0.35)
+            {
+                double bytesPerSec = sent / elapsedSeconds;
+                if (bytesPerSec > 1)
+                {
+                    double remainingSeconds = (total - sent) / bytesPerSec;
+                    lblRemaining.Text = "Tiempo restante: " + FormatDuration(remainingSeconds);
+                }
+            }
+            else if (sent >= total && total > 0)
+            {
+                lblRemaining.Text = "Tiempo restante: 0 s";
+            }
+        }
+
+        private static string FormatDuration(double seconds)
+        {
+            if (seconds < 1) return "menos de 1 s";
+            TimeSpan ts = TimeSpan.FromSeconds(Math.Ceiling(seconds));
+            if (ts.TotalHours >= 1)
+                return string.Format("{0} h {1} min", (int)ts.TotalHours, ts.Minutes);
+            if (ts.TotalMinutes >= 1)
+                return string.Format("{0} min {1} s", (int)ts.TotalMinutes, ts.Seconds);
+            return string.Format("{0} s", ts.Seconds);
         }
 
         private void UpdateReceiverFooter(string message)
