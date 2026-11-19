@@ -329,6 +329,7 @@ namespace ONKOSFileTransfer
             listFiles.SmallImageList = rowHeight;
             listFiles.AllowDrop = true;
             listFiles.DragEnter += MainDragEnter;
+            listFiles.DragLeave += MainDragLeave;
             listFiles.DragDrop += MainDragDrop;
             listFiles.Visible = false;
             content.Controls.Add(listFiles);
@@ -345,6 +346,7 @@ namespace ONKOSFileTransfer
             };
             dropZone.Click += OpenAttachmentPicker;
             dropZone.DragEnter += MainDragEnter;
+            dropZone.DragLeave += MainDragLeave;
             dropZone.DragDrop += MainDragDrop;
             content.Controls.Add(dropZone);
 
@@ -582,8 +584,28 @@ namespace ONKOSFileTransfer
                 Cursor = Cursors.Hand
             };
             button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.12F);
-            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(color, 0.08F);
+            button.FlatAppearance.MouseOverBackColor = color;
+            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(color, 0.12F);
+            Color normal = color;
+            Color hover = ControlPaint.Light(color, 0.16F);
+            Timer hoverTimer = new Timer { Interval = 15 };
+            int animationStep = 0;
+            bool hovering = false;
+            button.MouseEnter += delegate { hovering = true; animationStep = 0; hoverTimer.Start(); };
+            button.MouseLeave += delegate { hovering = false; animationStep = 0; hoverTimer.Start(); };
+            hoverTimer.Tick += delegate
+            {
+                if (button.IsDisposed) { hoverTimer.Stop(); hoverTimer.Dispose(); return; }
+                animationStep = Math.Min(8, animationStep + 1);
+                float amount = animationStep / 8F;
+                Color target = hovering ? hover : normal;
+                button.BackColor = Color.FromArgb(
+                    (int)(normal.R + (target.R - normal.R) * amount),
+                    (int)(normal.G + (target.G - normal.G) * amount),
+                    (int)(normal.B + (target.B - normal.B) * amount));
+                if (animationStep >= 8) hoverTimer.Stop();
+            };
+            button.Disposed += delegate { hoverTimer.Stop(); hoverTimer.Dispose(); };
             if (button.Width > 1 && button.Height > 1) button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10);
             button.Resize += delegate { if (button.IsDisposed || button.Width < 2 || button.Height < 2) return; Region oldRegion = button.Region; button.Region = RoundedGeometry.Create(new Rectangle(0, 0, button.Width, button.Height), 10); if (oldRegion != null) oldRegion.Dispose(); };
             return button;
@@ -704,12 +726,19 @@ namespace ONKOSFileTransfer
 
         private void MainDragEnter(object sender, DragEventArgs e)
         {
-            e.Effect = e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop)
-                ? DragDropEffects.Copy : DragDropEffects.None;
+            bool acceptsFiles = e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop);
+            e.Effect = acceptsFiles ? DragDropEffects.Copy : DragDropEffects.None;
+            if (dropZone != null) dropZone.DragActive = acceptsFiles;
+        }
+
+        private void MainDragLeave(object sender, EventArgs e)
+        {
+            if (dropZone != null) dropZone.DragActive = false;
         }
 
         private void MainDragDrop(object sender, DragEventArgs e)
         {
+            if (dropZone != null) dropZone.DragActive = false;
             string[] paths = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (paths == null) return;
             AddPaths(paths);
@@ -773,7 +802,30 @@ namespace ONKOSFileTransfer
                     item.SubItems.Add("Pendiente");
                     item.Tag = path;
                     item.Checked = true;
+                    item.BackColor = Color.FromArgb(67, 49, 103);
                     listFiles.Items.Add(item);
+                    listFiles.EnsureVisible(item.Index);
+                    Timer rowHighlight = new Timer { Interval = 45 };
+                    int fadeStep = 0;
+                    rowHighlight.Tick += delegate
+                    {
+                        if (item.ListView == null || item.ListView.IsDisposed)
+                        {
+                            rowHighlight.Stop();
+                            rowHighlight.Dispose();
+                            return;
+                        }
+                        fadeStep++;
+                        float mix = Math.Min(1F, fadeStep / 8F);
+                        Color from = Color.FromArgb(67, 49, 103);
+                        Color to = item.Index % 2 == 0 ? Color.FromArgb(27, 30, 46) : Color.FromArgb(24, 27, 43);
+                        item.BackColor = Color.FromArgb(
+                            (int)(from.R + (to.R - from.R) * mix),
+                            (int)(from.G + (to.G - from.G) * mix),
+                            (int)(from.B + (to.B - from.B) * mix));
+                        if (fadeStep >= 8) { rowHighlight.Stop(); rowHighlight.Dispose(); }
+                    };
+                    rowHighlight.Start();
 
                     loaded++;
                     int percent = (int)Math.Round(loaded * 100.0 / pending.Count);
@@ -1127,6 +1179,13 @@ namespace ONKOSFileTransfer
 
     internal sealed class AttachmentDropZone : Panel
     {
+        private bool dragActive;
+        public bool DragActive
+        {
+            get { return dragActive; }
+            set { if (dragActive == value) return; dragActive = value; Invalidate(); }
+        }
+
         public AttachmentDropZone()
         {
             DoubleBuffered = true;
@@ -1139,8 +1198,8 @@ namespace ONKOSFileTransfer
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             Rectangle bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
             using (GraphicsPath panelPath = RoundedGeometry.Path(bounds, 13))
-            using (SolidBrush fill = new SolidBrush(Color.FromArgb(24, 27, 43)))
-            using (Pen border = new Pen(Color.FromArgb(91, 78, 135), 1.4F))
+            using (SolidBrush fill = new SolidBrush(dragActive ? Color.FromArgb(47, 37, 72) : Color.FromArgb(24, 27, 43)))
+            using (Pen border = new Pen(dragActive ? Color.FromArgb(177, 146, 255) : Color.FromArgb(91, 78, 135), dragActive ? 2.2F : 1.4F))
             {
                 border.DashPattern = new float[] { 5F, 4F };
                 e.Graphics.FillPath(fill, panelPath);
@@ -1157,7 +1216,7 @@ namespace ONKOSFileTransfer
             {
                 StringFormat centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 e.Graphics.DrawString("⇧", iconFont, accent, new Rectangle(center - 40, Height / 2 - 62, 80, 52), centered);
-                e.Graphics.DrawString("Arrastra aquí tus archivos o haz clic para seleccionarlos", titleFont, title,
+                e.Graphics.DrawString(dragActive ? "Suelta los archivos para adjuntarlos" : "Arrastra aquí tus archivos o haz clic para seleccionarlos", titleFont, title,
                     new Rectangle(15, Height / 2 - 4, Width - 30, 28), centered);
                 e.Graphics.DrawString("Puedes adjuntar varios archivos a la vez · También puedes soltarlos aquí",
                     hintFont, hint, new Rectangle(15, Height / 2 + 27, Width - 30, 24), centered);
