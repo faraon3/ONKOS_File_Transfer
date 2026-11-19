@@ -252,30 +252,22 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(subtitle);
 
-            content.Controls.Add(MakeLabel("DESTINO", 24, 91));
-            FocusInputPanel destinationInput = new FocusInputPanel
-            {
-                Location = new Point(112, 78),
-                Size = new Size(520, 42),
-                BackColor = Color.FromArgb(35, 39, 58),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-            };
+            content.Controls.Add(MakeLabel("DESTINO", 24, 88));
             txtIP = new TextBox
             {
-                Location = new Point(13, 9),
-                Size = new Size(492, 25),
+                Location = new Point(112, 78),
+                Size = new Size(520, 34),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Font = new Font("Segoe UI", 10.5F),
                 BackColor = Color.FromArgb(35, 39, 58),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.None,
-                Text = ""
+                ForeColor = Color.FromArgb(245, 246, 252),
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = "",
+                Margin = new Padding(0),
+                AccessibleName = "Dirección IP del equipo de destino"
             };
             txtIP.HandleCreated += delegate { NativeMethods.SendMessage(txtIP.Handle, 0x1501, new IntPtr(1), "Ej. 172.16.13.25"); };
-            txtIP.Enter += delegate { destinationInput.IsFocused = true; };
-            txtIP.Leave += delegate { destinationInput.IsFocused = false; };
-            destinationInput.Controls.Add(txtIP);
-            content.Controls.Add(destinationInput);
+            content.Controls.Add(txtIP);
 
             content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 142));
             listFiles = new ListView
@@ -419,8 +411,7 @@ namespace ONKOSFileTransfer
                 int available = Math.Max(360, right - 24);
 
                 listFiles.Width = available;
-                destinationInput.Width = Math.Min(620, Math.Max(360, available - 100));
-                txtIP.Width = Math.Max(220, destinationInput.ClientSize.Width - 26);
+                txtIP.Width = Math.Min(620, Math.Max(360, available - 100));
 
                 int gap = 12;
                 dropZone.Width = available;
