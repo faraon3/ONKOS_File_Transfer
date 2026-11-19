@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace ONKOSTray
+namespace ONKOSFileTransfer.ONKOSTray
 {
     public enum ToastType
     {
@@ -22,7 +22,6 @@ namespace ONKOSTray
         private readonly Color _accentColor;
         private readonly Action _onClickAction;
 
-        // Evita que la notificación robe el foco si el usuario está escribiendo en otro programa
         protected override bool ShowWithoutActivation => true;
 
         public ToastNotificationForm(string title, string message, ToastType type, Action onClickAction = null, int durationMs = 6000)
@@ -35,7 +34,7 @@ namespace ONKOSTray
             ShowInTaskbar = false;
             TopMost = true;
             Size = new Size(360, 92);
-            BackColor = Color.FromArgb(30, 34, 42); // Fondo oscuro moderno propio de ONKOS
+            BackColor = Color.FromArgb(30, 34, 42);
             DoubleBuffered = true;
 
             BuildControls(title, message, type);
@@ -48,16 +47,15 @@ namespace ONKOSTray
         {
             switch (type)
             {
-                case ToastType.Success: return Color.FromArgb(46, 204, 113); // Verde
-                case ToastType.Warning: return Color.FromArgb(243, 156, 18); // Ámbar
-                case ToastType.Error:   return Color.FromArgb(231, 76, 60);  // Rojo
-                default:                return Color.FromArgb(52, 152, 219); // Azul ONKOS
+                case ToastType.Success: return Color.FromArgb(46, 204, 113);
+                case ToastType.Warning: return Color.FromArgb(243, 156, 18);
+                case ToastType.Error:   return Color.FromArgb(231, 76, 60);
+                default:                return Color.FromArgb(52, 152, 219);
             }
         }
 
         private void BuildControls(string title, string message, ToastType type)
         {
-            // Franja lateral de estado
             var sideBar = new Panel
             {
                 Dock = DockStyle.Left,
@@ -65,7 +63,6 @@ namespace ONKOSTray
                 BackColor = _accentColor
             };
 
-            // Botón cerrar
             var btnClose = new Label
             {
                 Text = "✕",
@@ -78,7 +75,6 @@ namespace ONKOSTray
             };
             btnClose.Click += (s, e) => CloseToast();
 
-            // Etiqueta superior de marca/estado
             var lblBadge = new Label
             {
                 Text = $"ONKOS • {GetBadgeText(type)}",
@@ -88,7 +84,6 @@ namespace ONKOSTray
                 AutoSize = true
             };
 
-            // Título principal
             var lblTitle = new Label
             {
                 Text = title,
@@ -99,7 +94,6 @@ namespace ONKOSTray
                 AutoEllipsis = true
             };
 
-            // Mensaje descriptivo
             var lblMessage = new Label
             {
                 Text = message,
@@ -116,7 +110,6 @@ namespace ONKOSTray
             Controls.Add(btnClose);
             Controls.Add(sideBar);
 
-            // Acción al hacer clic en la tarjeta
             EventHandler clickHandler = (s, e) =>
             {
                 _onClickAction?.Invoke();
@@ -143,7 +136,6 @@ namespace ONKOSTray
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            // Borde sutil para que destaque sobre fondos claros u oscuros
             using (var pen = new Pen(Color.FromArgb(60, 68, 82), 1))
             {
                 e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
@@ -155,7 +147,6 @@ namespace ONKOSTray
             var toast = new ToastNotificationForm(title, message, type, onClick, durationMs);
             lock (LockObj)
             {
-                // Máximo 4 notificaciones simultáneas en pantalla
                 if (ActiveToasts.Count >= 4)
                 {
                     var oldest = ActiveToasts[0];
@@ -181,7 +172,7 @@ namespace ONKOSTray
                 int x = workingArea.Right - t.Width - margin;
                 int y = currentBottom - t.Height;
                 t.Location = new Point(x, y);
-                currentBottom = y - 8; // Separación vertical entre tarjetas
+                currentBottom = y - 8;
             }
         }
 
