@@ -21,7 +21,7 @@ namespace ONKOSFileTransfer
         private TextBox txtIP;
         private Label lblStatus;
         private Label lblProgress;
-        private ProgressBar progressBar;
+        private RoundedProgressBar progressBar;
         private ListView listFiles;
         private CheckBox chkSelectAll;
         private bool updatingChecks;
@@ -370,14 +370,14 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(lblProgress);
 
-            progressBar = new ProgressBar
+            progressBar = new RoundedProgressBar
             {
                 Location = new Point(24, 430),
-                Size = new Size(848, 12),
+                Size = new Size(848, 10),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Minimum = 0,
-                Maximum = 100,
-                Style = ProgressBarStyle.Continuous
+                BackColor = Color.FromArgb(17, 19, 31),
+                ProgressColor = Color.FromArgb(139, 92, 246),
+                ProgressEndColor = Color.FromArgb(99, 102, 241)
             };
             content.Controls.Add(progressBar);
 
@@ -821,7 +821,7 @@ namespace ONKOSFileTransfer
 
             isSending = true;
             btnSend.Enabled = false;
-            progressBar.Value = 0;
+            progressBar.Progress = 0;
             lblProgress.Text = "0%";
             transferClock = Stopwatch.StartNew();
             lblEta.Text = "Calculando tiempo restante...";
@@ -882,7 +882,7 @@ namespace ONKOSFileTransfer
             isSending = false;
             if (transferClock != null) transferClock.Stop();
             btnSend.Enabled = true;
-            progressBar.Value = 100;
+            progressBar.Progress = 100;
             lblProgress.Text = "100%";
 
             string summary = "Transferencia finalizada.\r\n\r\nCorrectos: " + sentCount +
@@ -912,7 +912,7 @@ namespace ONKOSFileTransfer
             }
 
             int percent = total <= 0 ? 100 : (int)Math.Min(100, sent * 100.0 / total);
-            progressBar.Value = Math.Max(0, Math.Min(100, percent));
+            progressBar.Progress = Math.Max(0, Math.Min(100, percent));
             lblProgress.Text = percent + "%";
             lblStatus.Text = "Enviando " + name + " — " + FormatBytes(fileSent) + " / " + FormatBytes(fileSize);
             UpdateCurrentAction("Enviando: " + name + " · " + FormatBytes(fileSent) + " de " + FormatBytes(fileSize));
@@ -1026,6 +1026,66 @@ namespace ONKOSFileTransfer
     {
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, string lParam);
+    }
+
+    internal sealed class RoundedProgressBar : Control
+    {
+        private int progress;
+        public Color ProgressColor { get; set; }
+        public Color ProgressEndColor { get; set; }
+
+        public int Progress
+        {
+            get { return progress; }
+            set
+            {
+                int next = Math.Max(0, Math.Min(100, value));
+                if (progress == next) return;
+                progress = next;
+                Invalidate();
+            }
+        }
+
+        public RoundedProgressBar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Height = 10;
+            ProgressColor = Color.FromArgb(139, 92, 246);
+            ProgressEndColor = Color.FromArgb(99, 102, 241);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int radius = Math.Max(2, Height / 2);
+            Rectangle bounds = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+
+            using (GraphicsPath track = RoundedGeometry.Path(bounds, radius))
+            using (SolidBrush trackBrush = new SolidBrush(Color.FromArgb(48, 52, 73)))
+            {
+                e.Graphics.FillPath(trackBrush, track);
+            }
+
+            if (progress <= 0 || Width <= 2) return;
+
+            int fillWidth = Math.Max(1, (int)Math.Round((Width - 1) * progress / 100.0));
+            Rectangle fillBounds = new Rectangle(0, 0, Math.Min(Width - 1, fillWidth), Math.Max(1, Height - 1));
+            using (GraphicsPath fillPath = RoundedGeometry.Path(fillBounds, radius))
+            using (LinearGradientBrush fillBrush = new LinearGradientBrush(
+                fillBounds, ProgressColor, ProgressEndColor, LinearGradientMode.Horizontal))
+            {
+                e.Graphics.FillPath(fillBrush, fillPath);
+            }
+
+            // Brillo sutil en el extremo del progreso para dar profundidad sin distraer.
+            if (progress < 100 && fillWidth > 5)
+            {
+                using (Pen highlight = new Pen(Color.FromArgb(95, Color.White), 1F))
+                    e.Graphics.DrawLine(highlight, fillWidth - 2, 3, fillWidth - 2, Height - 4);
+            }
+        }
     }
 
     internal sealed class FocusInputPanel : Panel
