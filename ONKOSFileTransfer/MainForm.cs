@@ -868,7 +868,14 @@ namespace ONKOSFileTransfer
                 listFiles.Visible = hasAttachments;
                 dropZone.Visible = !hasAttachments;
                 chkSelectAll.Visible = hasAttachments;
+
+                // La carga de adjuntos y el envío son etapas independientes.
+                // Al terminar de preparar, reinicia la barra para medir el envío desde cero.
+                progressBar.Progress = 0;
+                lblProgress.Text = "0%";
                 lblEta.Text = "Tiempo restante: —";
+                if (loaded == pending.Count && loaded > 0)
+                    UpdateCurrentAction("Adjuntos preparados. Listo para iniciar el envío.");
             }
         }
 
