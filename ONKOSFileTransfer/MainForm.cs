@@ -105,11 +105,45 @@ namespace ONKOSFileTransfer
             };
             header.Controls.Add(product);
 
+            // Estado del equipo en la franja superior, visible sin ocupar espacio del área de trabajo.
+            RoundedPanel headerStatus = new RoundedPanel(12)
+            {
+                Location = new Point(350, 12),
+                Size = new Size(410, 52),
+                BackColor = Color.FromArgb(35, 39, 58),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            Label headerIp = new Label
+            {
+                Text = "ESTE EQUIPO    IP " + NetworkManager.GetLocalIPv4(),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(12, 7),
+                AutoSize = true
+            };
+            headerStatus.Controls.Add(headerIp);
+            Label headerReceive = new Label
+            {
+                Text = "●  RECEPCIÓN AUTOMÁTICA ACTIVA",
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(133, 225, 169),
+                Location = new Point(12, 30),
+                AutoSize = true
+            };
+            headerStatus.Controls.Add(headerReceive);
+            header.Controls.Add(headerStatus);
+
             Button admin = MakeButton("⚙ Administración", 0, 22, 150, 38, Color.FromArgb(43, 46, 66));
             admin.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             admin.Click += OpenAdministration;
             header.Controls.Add(admin);
-            header.Resize += delegate { admin.Left = header.ClientSize.Width - admin.Width - 24; };
+            Action adjustHeader = delegate
+            {
+                admin.Left = header.ClientSize.Width - admin.Width - 24;
+                headerStatus.Width = Math.Max(245, admin.Left - headerStatus.Left - 18);
+            };
+            header.Resize += delegate { adjustHeader(); };
+            adjustHeader();
 
             pageHost = new Panel
             {
@@ -213,39 +247,10 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(subtitle);
 
-            RoundedPanel statusCard = new RoundedPanel(18)
-            {
-                Location = new Point(22, 76),
-                Size = new Size(850, 64),
-                BackColor = Color.FromArgb(35, 39, 58),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-            };
-            content.Controls.Add(statusCard);
-
-            Label localIp = new Label
-            {
-                Text = "ESTE EQUIPO     IP " + NetworkManager.GetLocalIPv4(),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold),
-                Location = new Point(18, 9),
-                AutoSize = true
-            };
-            statusCard.Controls.Add(localIp);
-
-            Label receiveState = new Label
-            {
-                Text = "●  RECEPCIÓN AUTOMÁTICA ACTIVA",
-                ForeColor = Color.FromArgb(133, 225, 169),
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                Location = new Point(18, 36),
-                AutoSize = true
-            };
-            statusCard.Controls.Add(receiveState);
-
-            content.Controls.Add(MakeLabel("DESTINO", 24, 157));
+            content.Controls.Add(MakeLabel("DESTINO", 24, 77));
             txtIP = new TextBox
             {
-                Location = new Point(24, 181),
+                Location = new Point(24, 101),
                 Size = new Size(520, 32),
                 Font = new Font("Segoe UI", 11),
                 BackColor = Color.FromArgb(35, 39, 58),
@@ -254,11 +259,11 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(txtIP);
 
-            content.Controls.Add(MakeLabel("CARPETA DE RECEPCIÓN", 24, 229));
+            content.Controls.Add(MakeLabel("CARPETA DE RECEPCIÓN", 24, 149));
             txtFolder = new TextBox
             {
                 Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
-                Location = new Point(24, 253),
+                Location = new Point(24, 173),
                 Size = new Size(690, 32),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.FromArgb(35, 39, 58),
@@ -267,15 +272,15 @@ namespace ONKOSFileTransfer
             };
             content.Controls.Add(txtFolder);
 
-            Button browse = MakeButton("Cambiar", 735, 252, 143, 34, Color.FromArgb(62, 66, 91));
+            Button browse = MakeButton("Cambiar", 735, 172, 143, 34, Color.FromArgb(62, 66, 91));
             browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             browse.Click += BrowseFolder;
             content.Controls.Add(browse);
 
-            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 300));
+            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 220));
             listFiles = new ListView
             {
-                Location = new Point(24, 324),
+                Location = new Point(24, 244),
                 Size = new Size(848, 158),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
@@ -294,30 +299,30 @@ namespace ONKOSFileTransfer
             listFiles.DragDrop += MainDragDrop;
             content.Controls.Add(listFiles);
 
-            Button add = MakeButton("+ Archivos", 24, 494, 205, 36, Color.FromArgb(62, 66, 91));
+            Button add = MakeButton("+ Archivos", 24, 414, 205, 36, Color.FromArgb(62, 66, 91));
             add.Click += AddFiles;
             content.Controls.Add(add);
 
-            Button addFolders = MakeButton("+ Carpetas", 247, 494, 205, 36, Color.FromArgb(62, 66, 91));
+            Button addFolders = MakeButton("+ Carpetas", 247, 414, 205, 36, Color.FromArgb(62, 66, 91));
             addFolders.Click += AddFolders;
             content.Controls.Add(addFolders);
 
-            Button remove = MakeButton("Quitar seleccionados", 464, 494, 205, 36, Color.FromArgb(62, 66, 91));
+            Button remove = MakeButton("Quitar seleccionados", 464, 414, 205, 36, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
             content.Controls.Add(remove);
 
-            btnSend = MakeButton("Enviar ahora  →", 681, 494, 197, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 681, 414, 197, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
 
-            content.Controls.Add(MakeLabel("PROGRESO", 24, 548));
+            content.Controls.Add(MakeLabel("PROGRESO", 24, 468));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(808, 544),
+                Location = new Point(808, 464),
                 Size = new Size(70, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -325,7 +330,7 @@ namespace ONKOSFileTransfer
 
             progressBar = new ProgressBar
             {
-                Location = new Point(24, 570),
+                Location = new Point(24, 490),
                 Size = new Size(848, 12),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Minimum = 0,
@@ -338,7 +343,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Listo para enviar o recibir archivos.",
                 ForeColor = Color.FromArgb(218, 220, 235),
-                Location = new Point(24, 592),
+                Location = new Point(24, 512),
                 Size = new Size(610, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -349,7 +354,7 @@ namespace ONKOSFileTransfer
                 Text = "Tiempo restante: —",
                 ForeColor = Color.FromArgb(160, 166, 190),
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(650, 592),
+                Location = new Point(650, 512),
                 Size = new Size(222, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -359,7 +364,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Recepción automática activa.",
                 ForeColor = Color.FromArgb(145, 195, 255),
-                Location = new Point(24, 620),
+                Location = new Point(24, 540),
                 Size = new Size(848, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -371,7 +376,6 @@ namespace ONKOSFileTransfer
                 int right = Math.Max(420, content.ClientSize.Width - 24);
                 int available = Math.Max(360, right - 24);
 
-                statusCard.Width = available;
                 browse.Left = right - browse.Width;
                 txtFolder.Width = Math.Max(180, browse.Left - txtFolder.Left - 14);
                 listFiles.Width = available;
