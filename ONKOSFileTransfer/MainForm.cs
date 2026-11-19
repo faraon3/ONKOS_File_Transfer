@@ -818,6 +818,9 @@ namespace ONKOSFileTransfer
                     item.Checked = true;
                     item.BackColor = Color.FromArgb(67, 49, 103);
                     listFiles.Items.Add(item);
+                    // Al incorporar el primer elemento, cambia el área vacía por la tabla.
+                    listFiles.Visible = true;
+                    dropZone.Visible = false;
                     chkSelectAll.Visible = true;
                     listFiles.EnsureVisible(item.Index);
                     Timer rowHighlight = new Timer { Interval = 45 };
@@ -860,6 +863,11 @@ namespace ONKOSFileTransfer
             {
                 isLoadingAttachments = false;
                 btnSend.Enabled = true;
+                // Mantiene sincronizadas la tabla, el área para soltar y la selección.
+                bool hasAttachments = listFiles.Items.Count > 0;
+                listFiles.Visible = hasAttachments;
+                dropZone.Visible = !hasAttachments;
+                chkSelectAll.Visible = hasAttachments;
                 lblEta.Text = "Tiempo restante: —";
             }
         }
