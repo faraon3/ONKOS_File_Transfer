@@ -281,13 +281,29 @@ namespace ONKOSFileTransfer
                 FullRowSelect = true,
                 GridLines = false,
                 MultiSelect = true,
-                BackColor = Color.FromArgb(27, 30, 47),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
+                BackColor = Color.FromArgb(25, 28, 44),
+                ForeColor = Color.FromArgb(235, 237, 248),
+                BorderStyle = BorderStyle.None,
+                OwnerDraw = true,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                HideSelection = false,
+                Font = new Font("Segoe UI", 9F)
             };
-            listFiles.Columns.Add("Archivo", 450);
-            listFiles.Columns.Add("Tamaño", 135);
-            listFiles.Columns.Add("Estado", 170);
+            listFiles.Columns.Add("  ARCHIVO", 450);
+            listFiles.Columns.Add("TAMAÑO", 135);
+            listFiles.Columns.Add("ESTADO", 170);
+            listFiles.DrawColumnHeader += DrawFileColumnHeader;
+            listFiles.DrawItem += DrawFileItem;
+            listFiles.DrawSubItem += DrawFileSubItem;
+
+            // Aumenta la altura de cada fila para dar aire y facilitar la lectura.
+            ImageList rowHeight = new ImageList
+            {
+                ImageSize = new Size(1, 38),
+                ColorDepth = ColorDepth.Depth32Bit
+            };
+            rowHeight.Images.Add(new Bitmap(1, 38));
+            listFiles.SmallImageList = rowHeight;
             listFiles.AllowDrop = true;
             listFiles.DragEnter += MainDragEnter;
             listFiles.DragDrop += MainDragDrop;
@@ -569,6 +585,56 @@ namespace ONKOSFileTransfer
                 MessageBox.Show(
                     "No se pudo iniciar la recepción automática. Comprueba que el puerto 5050 esté libre y que tengas permisos para la carpeta.\r\n\r\n" + ex.Message,
                     "ONKOS File Transfer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void DrawFileColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using (SolidBrush background = new SolidBrush(Color.FromArgb(38, 42, 62)))
+            using (Pen separator = new Pen(Color.FromArgb(65, 71, 98)))
+            using (SolidBrush text = new SolidBrush(Color.FromArgb(177, 184, 211)))
+            using (Font headerFont = new Font("Segoe UI Semibold", 8F, FontStyle.Bold))
+            {
+                e.Graphics.FillRectangle(background, e.Bounds);
+                e.Graphics.DrawLine(separator, e.Bounds.Left, e.Bounds.Bottom - 1,
+                    e.Bounds.Right, e.Bounds.Bottom - 1);
+                Rectangle textBounds = new Rectangle(e.Bounds.X + 12, e.Bounds.Y + 1,
+                    Math.Max(0, e.Bounds.Width - 18), e.Bounds.Height - 2);
+                e.Graphics.DrawString(e.Header.Text, headerFont, text, textBounds,
+                    new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter });
+            }
+        }
+
+        private void DrawFileItem(object sender, DrawListViewItemEventArgs e)
+        {
+            // El dibujo completo se realiza en DrawSubItem para controlar cada columna.
+            if (e.Item.SubItems.Count == 0)
+                e.DrawBackground();
+        }
+
+        private void DrawFileSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            bool selected = e.Item.Selected;
+            Color rowColor = selected
+                ? Color.FromArgb(63, 49, 91)
+                : (e.ItemIndex % 2 == 0 ? Color.FromArgb(27, 30, 46) : Color.FromArgb(24, 27, 43));
+            using (SolidBrush background = new SolidBrush(rowColor))
+            using (SolidBrush foreground = new SolidBrush(
+                selected ? Color.White :
+                (e.ColumnIndex == 2 && string.Equals(e.SubItem.Text, "Pendiente", StringComparison.OrdinalIgnoreCase)
+                    ? Color.FromArgb(179, 169, 218) : Color.FromArgb(225, 228, 241))))
+            using (Pen separator = new Pen(Color.FromArgb(43, 47, 67)))
+            using (Font rowFont = new Font("Segoe UI", 9F, FontStyle.Regular))
+            {
+                e.Graphics.FillRectangle(background, e.Bounds);
+                if (e.ColumnIndex > 0)
+                    e.Graphics.DrawLine(separator, e.Bounds.Left, e.Bounds.Top + 7,
+                        e.Bounds.Left, e.Bounds.Bottom - 7);
+
+                Rectangle textBounds = new Rectangle(e.Bounds.X + (e.ColumnIndex == 0 ? 13 : 12),
+                    e.Bounds.Y + 1, Math.Max(0, e.Bounds.Width - 22), e.Bounds.Height - 2);
+                e.Graphics.DrawString(e.SubItem.Text, rowFont, foreground, textBounds,
+                    new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter });
             }
         }
 
