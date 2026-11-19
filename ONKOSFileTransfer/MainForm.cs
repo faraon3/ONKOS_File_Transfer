@@ -113,26 +113,26 @@ namespace ONKOSFileTransfer
             // Estado del equipo en la franja superior, visible sin ocupar espacio del área de trabajo.
             RoundedPanel headerStatus = new RoundedPanel(12)
             {
-                Location = new Point(350, 12),
-                Size = new Size(410, 52),
+                Location = new Point(350, 18),
+                Size = new Size(410, 38),
                 BackColor = Color.FromArgb(35, 39, 58),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             Label headerIp = new Label
             {
-                Text = "ESTE EQUIPO    IP " + NetworkManager.GetLocalIPv4(),
+                Text = "IP " + NetworkManager.GetLocalIPv4(),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = Color.White,
-                Location = new Point(12, 7),
+                Location = new Point(14, 10),
                 AutoSize = true
             };
             headerStatus.Controls.Add(headerIp);
             Label headerReceive = new Label
             {
-                Text = "●  RECEPCIÓN AUTOMÁTICA ACTIVA",
+                Text = "●  Recepción automática activa",
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(133, 225, 169),
-                Location = new Point(12, 30),
+                Location = new Point(headerIp.Right + 18, 11),
                 AutoSize = true
             };
             headerStatus.Controls.Add(headerReceive);
@@ -146,6 +146,9 @@ namespace ONKOSFileTransfer
             {
                 admin.Left = header.ClientSize.Width - admin.Width - 24;
                 headerStatus.Width = Math.Max(245, admin.Left - headerStatus.Left - 18);
+                headerIp.Top = (headerStatus.Height - headerIp.Height) / 2;
+                headerReceive.Left = headerIp.Right + 18;
+                headerReceive.Top = (headerStatus.Height - headerReceive.Height) / 2;
             };
             header.Resize += delegate { adjustHeader(); };
             adjustHeader();
