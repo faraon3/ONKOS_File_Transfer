@@ -19,7 +19,6 @@ namespace ONKOSFileTransfer
         private const int Port = 5050;
         private readonly FileReceiver receiver;
         private TextBox txtIP;
-        private TextBox txtFolder;
         private Label lblStatus;
         private Label lblProgress;
         private ProgressBar progressBar;
@@ -272,28 +271,10 @@ namespace ONKOSFileTransfer
             destinationInput.Controls.Add(txtIP);
             content.Controls.Add(destinationInput);
 
-            content.Controls.Add(MakeLabel("CARPETA DE RECEPCIÓN", 24, 149));
-            txtFolder = new TextBox
-            {
-                Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "ONKOS_Received"),
-                Location = new Point(24, 173),
-                Size = new Size(690, 32),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                BackColor = Color.FromArgb(35, 39, 58),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            content.Controls.Add(txtFolder);
-
-            Button browse = MakeButton("Cambiar", 735, 172, 143, 34, Color.FromArgb(62, 66, 91));
-            browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            browse.Click += BrowseFolder;
-            content.Controls.Add(browse);
-
-            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 220));
+            content.Controls.Add(MakeLabel("ARCHIVOS Y CARPETAS  ·  ARRASTRA AQUÍ PARA AÑADIR", 24, 160));
             listFiles = new ListView
             {
-                Location = new Point(24, 244),
+                Location = new Point(24, 184),
                 Size = new Size(848, 158),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
@@ -312,30 +293,30 @@ namespace ONKOSFileTransfer
             listFiles.DragDrop += MainDragDrop;
             content.Controls.Add(listFiles);
 
-            Button add = MakeButton("+ Archivos", 24, 414, 205, 36, Color.FromArgb(62, 66, 91));
+            Button add = MakeButton("+ Archivos", 24, 354, 205, 36, Color.FromArgb(62, 66, 91));
             add.Click += AddFiles;
             content.Controls.Add(add);
 
-            Button addFolders = MakeButton("+ Carpetas", 247, 414, 205, 36, Color.FromArgb(62, 66, 91));
+            Button addFolders = MakeButton("+ Carpetas", 247, 354, 205, 36, Color.FromArgb(62, 66, 91));
             addFolders.Click += AddFolders;
             content.Controls.Add(addFolders);
 
-            Button remove = MakeButton("Quitar seleccionados", 464, 414, 205, 36, Color.FromArgb(62, 66, 91));
+            Button remove = MakeButton("Quitar seleccionados", 464, 354, 205, 36, Color.FromArgb(62, 66, 91));
             remove.Click += RemoveSelected;
             content.Controls.Add(remove);
 
-            btnSend = MakeButton("Enviar ahora  →", 681, 414, 197, 36, Color.FromArgb(112, 70, 194));
+            btnSend = MakeButton("Enviar ahora  →", 681, 354, 197, 36, Color.FromArgb(112, 70, 194));
             btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnSend.Click += SendFiles;
             content.Controls.Add(btnSend);
 
-            content.Controls.Add(MakeLabel("PROGRESO", 24, 468));
+            content.Controls.Add(MakeLabel("PROGRESO", 24, 408));
             lblProgress = new Label
             {
                 Text = "0%",
                 ForeColor = Color.White,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(808, 464),
+                Location = new Point(808, 404),
                 Size = new Size(70, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -343,7 +324,7 @@ namespace ONKOSFileTransfer
 
             progressBar = new ProgressBar
             {
-                Location = new Point(24, 490),
+                Location = new Point(24, 430),
                 Size = new Size(848, 12),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Minimum = 0,
@@ -356,7 +337,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Listo para enviar o recibir archivos.",
                 ForeColor = Color.FromArgb(218, 220, 235),
-                Location = new Point(24, 512),
+                Location = new Point(24, 452),
                 Size = new Size(610, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -367,7 +348,7 @@ namespace ONKOSFileTransfer
                 Text = "Tiempo restante: —",
                 ForeColor = Color.FromArgb(160, 166, 190),
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(650, 512),
+                Location = new Point(650, 452),
                 Size = new Size(222, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -377,7 +358,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Recepción automática activa.",
                 ForeColor = Color.FromArgb(145, 195, 255),
-                Location = new Point(24, 540),
+                Location = new Point(24, 480),
                 Size = new Size(848, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -389,8 +370,6 @@ namespace ONKOSFileTransfer
                 int right = Math.Max(420, content.ClientSize.Width - 24);
                 int available = Math.Max(360, right - 24);
 
-                browse.Left = right - browse.Width;
-                txtFolder.Width = Math.Max(180, browse.Left - txtFolder.Left - 14);
                 listFiles.Width = available;
 
                 int gap = 12;
@@ -570,11 +549,18 @@ namespace ONKOSFileTransfer
             return button;
         }
 
+        private static string GetReceiveFolder()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "ONKOS_Received");
+        }
+
         private void StartReceiver()
         {
             try
             {
-                receiver.Start(Port, txtFolder.Text);
+                receiver.Start(Port, GetReceiveFolder());
                 UpdateStatus("Recepción automática activa. Puerto " + Port + ".");
             }
             catch (Exception ex)
@@ -583,20 +569,6 @@ namespace ONKOSFileTransfer
                 MessageBox.Show(
                     "No se pudo iniciar la recepción automática. Comprueba que el puerto 5050 esté libre y que tengas permisos para la carpeta.\r\n\r\n" + ex.Message,
                     "ONKOS File Transfer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
-        private void BrowseFolder(object sender, EventArgs e)
-        {
-            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
-            {
-                dialog.SelectedPath = Directory.Exists(txtFolder.Text) ? txtFolder.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                if (dialog.ShowDialog() != DialogResult.OK)
-                    return;
-
-                txtFolder.Text = dialog.SelectedPath;
-                receiver.Stop();
-                StartReceiver();
             }
         }
 
