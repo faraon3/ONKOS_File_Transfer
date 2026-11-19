@@ -74,8 +74,8 @@ namespace ONKOSFileTransfer
         private void BuildInterface()
         {
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(980, 700);
-            MinimumSize = new Size(820, 620);
+            Size = new Size(1020, 700);
+            MinimumSize = new Size(900, 650);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(17, 19, 31);
             ForeColor = Color.White;
@@ -420,7 +420,7 @@ namespace ONKOSFileTransfer
                 int available = Math.Max(360, right - 24);
 
                 listFiles.Width = available;
-                txtIP.Width = available;
+                txtIP.Width = Math.Max(280, available - (txtIP.Left - 24));
                 dropZone.Width = available;
                 btnSend.Left = 24;
                 btnSend.Width = available;
