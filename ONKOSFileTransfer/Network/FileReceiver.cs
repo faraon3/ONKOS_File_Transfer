@@ -10,6 +10,7 @@ namespace ONKOSFileTransfer.Network
     public class FileReceiver
     {
         private TcpListener listener;
+        private static readonly object SenderFolderLock = new object();
 
         public bool IsRunning { get; private set; }
         public event Action<string> FileReceived;
@@ -70,7 +71,8 @@ namespace ONKOSFileTransfer.Network
                         size < 0 || size > 20L * 1024 * 1024 * 1024)
                         throw new InvalidDataException("Archivo no válido o tamaño fuera del límite.");
 
-                    destination = Path.Combine(folder, name);
+                    string senderFolder = GetSenderFolder(client, folder);
+                    destination = Path.Combine(senderFolder, name);
                     if (File.Exists(destination))
                     {
                         destination = Path.Combine(folder,
@@ -105,7 +107,7 @@ namespace ONKOSFileTransfer.Network
                             folderName = folderName.Substring(0, guidSeparator);
                         if (string.IsNullOrWhiteSpace(folderName))
                             folderName = "Carpeta_recibida_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                        string extractRoot = Path.Combine(folder, folderName);
+                        string extractRoot = Path.Combine(senderFolder, folderName);
                         int suffix = 1;
                         while (Directory.Exists(extractRoot))
                             extractRoot = Path.Combine(folder, folderName + "_" + suffix++);
@@ -150,6 +152,55 @@ namespace ONKOSFileTransfer.Network
                     catch { }
                 }
                 Error?.Invoke(ex.Message);
+            }
+        }
+
+        private static string GetSenderFolder(TcpClient client, string rootFolder)
+        {
+            string senderIp = "IP_desconocida";
+            try
+            {
+                IPEndPoint remote = client.Client.RemoteEndPoint as IPEndPoint;
+                if (remote != null && remote.Address != null)
+                    senderIp = remote.Address.ToString().Replace(':', '_');
+            }
+            catch
+            {
+                // Keep a safe fallback name if the remote endpoint is unavailable.
+            }
+
+            string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
+            lock (SenderFolderLock)
+            {
+                Directory.CreateDirectory(dayFolder);
+
+                // Reuse the first folder created for this sender on the current day.
+                string prefix = senderIp + "_";
+                string existing = null;
+                try
+                {
+                    foreach (string candidate in Directory.GetDirectories(dayFolder, prefix + "*"))
+                    {
+                        if (existing == null ||
+                            Directory.GetCreationTime(candidate) < Directory.GetCreationTime(existing))
+                            existing = candidate;
+                    }
+                }
+                catch
+                {
+                    // If enumeration fails, create a new uniquely named sender folder below.
+                }
+
+                if (!string.IsNullOrEmpty(existing))
+                    return existing;
+
+                string folderName = senderIp + "_" + DateTime.Now.ToString("HH-mm-ss");
+                string senderFolder = Path.Combine(dayFolder, folderName);
+                int suffix = 1;
+                while (Directory.Exists(senderFolder))
+                    senderFolder = Path.Combine(dayFolder, folderName + "_" + suffix++);
+                Directory.CreateDirectory(senderFolder);
+                return senderFolder;
             }
         }
 
