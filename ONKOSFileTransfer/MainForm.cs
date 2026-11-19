@@ -23,6 +23,8 @@ namespace ONKOSFileTransfer
         private Label lblProgress;
         private RoundedProgressBar progressBar;
         private ListView listFiles;
+        private ImageList fileIcons;
+        private bool isLoadingAttachments;
         private CheckBox chkSelectAll;
         private bool updatingChecks;
         private Button btnSend;
@@ -292,6 +294,12 @@ namespace ONKOSFileTransfer
                 HideSelection = false,
                 Font = new Font("Segoe UI", 9F)
             };
+            fileIcons = new ImageList
+            {
+                ImageSize = new Size(18, 18),
+                ColorDepth = ColorDepth.Depth32Bit
+            };
+            listFiles.SmallImageList = fileIcons;
             listFiles.Columns.Add("  ARCHIVO", 450);
             listFiles.Columns.Add("TAMAÑO", 135);
             listFiles.Columns.Add("ESTADO", 170);
@@ -678,7 +686,14 @@ namespace ONKOSFileTransfer
                     e.Graphics.DrawLine(separator, e.Bounds.Left, e.Bounds.Top + 7,
                         e.Bounds.Left, e.Bounds.Bottom - 7);
 
-                Rectangle textBounds = new Rectangle(e.Bounds.X + (e.ColumnIndex == 0 ? 34 : 12),
+                if (e.ColumnIndex == 0 && !string.IsNullOrEmpty(e.Item.ImageKey) &&
+                    fileIcons != null && fileIcons.Images.ContainsKey(e.Item.ImageKey))
+                {
+                    Image fileIcon = fileIcons.Images[e.Item.ImageKey];
+                    e.Graphics.DrawImage(fileIcon, e.Bounds.X + 31,
+                        e.Bounds.Y + (e.Bounds.Height - 18) / 2, 18, 18);
+                }
+                Rectangle textBounds = new Rectangle(e.Bounds.X + (e.ColumnIndex == 0 ? 55 : 12),
                     e.Bounds.Y + 1, Math.Max(0, e.Bounds.Width - 22), e.Bounds.Height - 2);
                 e.Graphics.DrawString(e.SubItem.Text, rowFont, foreground, textBounds,
                     new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter });
@@ -709,8 +724,11 @@ namespace ONKOSFileTransfer
             }
         }
 
-        private void AddPaths(IEnumerable<string> paths)
+        private async void AddPaths(IEnumerable<string> paths)
         {
+            if (isLoadingAttachments || isSending) return;
+
+            List<string> pending = new List<string>();
             foreach (string path in paths)
             {
                 if (!File.Exists(path) && !Directory.Exists(path)) continue;
@@ -718,18 +736,95 @@ namespace ONKOSFileTransfer
                 foreach (ListViewItem existing in listFiles.Items)
                     if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
                         exists = true;
-                if (exists) continue;
-
-                string name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                string size = Directory.Exists(path) ? "Carpeta completa" : FormatBytes(new FileInfo(path).Length);
-                ListViewItem item = new ListViewItem((Directory.Exists(path) ? "📁  " : "📄  ") + name);
-                item.SubItems.Add(size);
-                item.SubItems.Add("Pendiente");
-                item.Tag = path;
-                item.Checked = true;
-                listFiles.Items.Add(item);
+                if (!exists) pending.Add(path);
             }
-            UpdateStatus(listFiles.Items.Count + " elemento(s) listo(s) para enviar.");
+            if (pending.Count == 0)
+            {
+                UpdateStatus("Los elementos seleccionados ya están en la lista.");
+                return;
+            }
+
+            isLoadingAttachments = true;
+            btnSend.Enabled = false;
+            progressBar.Progress = 0;
+            lblProgress.Text = "0%";
+            lblEta.Text = "Preparando adjuntos...";
+            UpdateCurrentAction("Cargando archivos y carpetas seleccionados...");
+
+            int loaded = 0;
+            try
+            {
+                foreach (string path in pending)
+                {
+                    string displayName = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    UpdateCurrentAction("Leyendo: " + displayName);
+                    UpdateStatus("Preparando adjunto " + (loaded + 1) + " de " + pending.Count + "...");
+
+                    long bytes = await Task.Run(() => CalculatePathSize(path));
+                    bool isDirectory = Directory.Exists(path);
+                    string size = isDirectory ? FormatBytes(bytes) + " · carpeta" : FormatBytes(bytes);
+                    string iconKey = GetFileIconKey(path, isDirectory);
+
+                    ListViewItem item = new ListViewItem(displayName);
+                    item.ImageKey = iconKey;
+                    item.SubItems.Add(size);
+                    item.SubItems.Add("Pendiente");
+                    item.Tag = path;
+                    item.Checked = true;
+                    listFiles.Items.Add(item);
+
+                    loaded++;
+                    int percent = (int)Math.Round(loaded * 100.0 / pending.Count);
+                    progressBar.Progress = percent;
+                    lblProgress.Text = percent + "%";
+                    lblEta.Text = "Adjuntos: " + loaded + " de " + pending.Count;
+                }
+                UpdateStatus(loaded + " elemento(s) listo(s) para enviar.");
+                UpdateCurrentAction("Adjuntos preparados. Puedes revisar la selección y enviar.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("No se pudieron preparar todos los adjuntos.");
+                ShowNotification("Error al adjuntar", ex.Message, ToolTipIcon.Error);
+            }
+            finally
+            {
+                isLoadingAttachments = false;
+                btnSend.Enabled = true;
+                lblEta.Text = "Tiempo restante: —";
+            }
+        }
+
+        private static long CalculatePathSize(string path)
+        {
+            if (File.Exists(path)) return new FileInfo(path).Length;
+            long total = 0;
+            foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                total += new FileInfo(file).Length;
+            return total;
+        }
+
+        private string GetFileIconKey(string path, bool isDirectory)
+        {
+            string key = isDirectory ? "__folder" : Path.GetExtension(path).ToLowerInvariant();
+            if (string.IsNullOrEmpty(key)) key = "__file";
+            if (fileIcons.Images.ContainsKey(key)) return key;
+
+            Icon icon = null;
+            try
+            {
+                if (isDirectory)
+                    icon = Icon.ExtractAssociatedIcon(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+                else
+                    icon = Icon.ExtractAssociatedIcon(path);
+            }
+            catch { }
+
+            if (icon == null) icon = isDirectory ? SystemIcons.WinLogo : SystemIcons.Application;
+            fileIcons.Images.Add(key, (Icon)icon.Clone());
+            if (!ReferenceEquals(icon, SystemIcons.WinLogo) && !ReferenceEquals(icon, SystemIcons.Application))
+                icon.Dispose();
+            return key;
         }
 
         private static string CreateFolderPackage(string folderPath)
