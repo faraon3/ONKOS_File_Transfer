@@ -26,17 +26,17 @@ namespace ONKOSFileTransfer.Network
             listener = new TcpListener(IPAddress.Any, port);
             listener.Start();
             IsRunning = true;
-            AcceptLoop(folder);
+            _ = AcceptLoop(folder);
         }
 
-        private async void AcceptLoop(string folder)
+        private async Task AcceptLoop(string folder)
         {
             try
             {
                 while (IsRunning)
                 {
                     TcpClient client = await listener.AcceptTcpClientAsync();
-                    Task.Run(() => ReceiveFile(client, folder));
+                    _ = Task.Run(() => ReceiveFile(client, folder));
                 }
             }
             catch (ObjectDisposedException)
