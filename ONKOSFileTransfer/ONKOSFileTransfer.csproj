@@ -8,6 +8,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>ONKOSFileTransfer</RootNamespace>
     <AssemblyName>ONKOSFileTransfer</AssemblyName>
+    <ApplicationIcon>onkos.ico</ApplicationIcon>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
@@ -55,6 +56,11 @@
     </Compile>
     <Compile Include="ONKOSTray\TrayApplicationContext.cs" />
     <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="onkos.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
