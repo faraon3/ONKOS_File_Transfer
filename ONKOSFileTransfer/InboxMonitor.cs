@@ -1,60 +1,140 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Threading;
 
 namespace ONKOSFileTransfer
 {
-    public class InboxMonitor : IDisposable
+    public static class InboxMonitor
     {
-        private readonly FileSystemWatcher _watcher;
-        private readonly ConcurrentDictionary<string, DateTime> _recientes = new ConcurrentDictionary<string, DateTime>();
+        public static readonly string CarpetaRecibidos =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
 
-        public InboxMonitor(string rutaInbox = @"C:\ProgramData\ONKOS\Inbox")
+        private static readonly object _lock = new object();
+        private static readonly List<string> _pendientes = new List<string>();
+        private static FileSystemWatcher _watcher;
+        private static Timer _debounceTimer;
+        private static bool _iniciado;
+
+        public static void Iniciar()
         {
-            if (!Directory.Exists(rutaInbox))
+            lock (_lock)
             {
-                Directory.CreateDirectory(rutaInbox);
+                if (_iniciado) return;
+
+                Directory.CreateDirectory(CarpetaRecibidos);
+
+                _debounceTimer = new Timer(ProcesarLote, null, Timeout.Infinite, Timeout.Infinite);
+
+                _watcher = new FileSystemWatcher(CarpetaRecibidos)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true
+                };
+
+                _watcher.Created += OnArchivoDetectado;
+                _watcher.Changed += OnArchivoDetectado;
+
+                _iniciado = true;
+            }
+        }
+
+        private static void OnArchivoDetectado(object sender, FileSystemEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(e.FullPath))
+                return;
+
+            string nombre = Path.GetFileName(e.FullPath);
+            if (string.Equals(nombre, "desktop.ini", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (Directory.Exists(e.FullPath))
+                return;
+
+            lock (_lock)
+            {
+                if (!_pendientes.Contains(e.FullPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    _pendientes.Add(e.FullPath);
+                }
+
+                _debounceTimer.Change(600, Timeout.Infinite);
+            }
+        }
+
+        private static void ProcesarLote(object state)
+        {
+            List<string> lote;
+            lock (_lock)
+            {
+                if (_pendientes.Count == 0)
+                    return;
+
+                lote = _pendientes.ToList();
+                _pendientes.Clear();
             }
 
-            _watcher = new FileSystemWatcher(rutaInbox)
+            List<string> listos = new List<string>();
+            foreach (string ruta in lote)
             {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite,
-                Filter = "*.*",
-                EnableRaisingEvents = true
-            };
-
-            _watcher.Created += OnArchivoDetectado;
-        }
-
-        private void OnArchivoDetectado(object sender, FileSystemEventArgs e)
-        {
-            // Ignorar carpetas y archivos temporales mientras se escriben
-            if (Directory.Exists(e.FullPath) || e.Name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            // Evitar notificaciones duplicadas por el mismo archivo en menos de 3 segundos
-            DateTime ahora = DateTime.UtcNow;
-            if (_recientes.TryGetValue(e.FullPath, out DateTime ultimoAviso) && (ahora - ultimoAviso).TotalSeconds < 3)
-                return;
-
-            _recientes[e.FullPath] = ahora;
-
-            Task.Run(async () =>
-            {
-                // Espera breve para asegurar que el servicio terminó de escribir el archivo
-                await Task.Delay(700);
-                if (File.Exists(e.FullPath))
+                if (EsperarArchivoLibre(ruta))
                 {
-                    ModernToastNotifier.MostrarArchivoRecibido(e.FullPath);
+                    listos.Add(ruta);
                 }
-            });
+            }
+
+            if (listos.Count > 0)
+            {
+                ModernToastNotifier.MostrarLoteRecibido(listos);
+            }
         }
 
-        public void Dispose()
+        private static bool EsperarArchivoLibre(string ruta)
         {
-            _watcher?.Dispose();
+            for (int i = 0; i < 15; i++)
+            {
+                try
+                {
+                    if (!File.Exists(ruta))
+                        return false;
+
+                    using (FileStream fs = new FileStream(ruta, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        return true;
+                    }
+                }
+                catch (IOException)
+                {
+                    Thread.Sleep(200);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            return File.Exists(ruta);
+        }
+
+        public static void Detener()
+        {
+            lock (_lock)
+            {
+                _iniciado = false;
+                if (_watcher != null)
+                {
+                    _watcher.EnableRaisingEvents = false;
+                    _watcher.Dispose();
+                    _watcher = null;
+                }
+                if (_debounceTimer != null)
+                {
+                    _debounceTimer.Dispose();
+                    _debounceTimer = null;
+                }
+            }
         }
     }
 }
