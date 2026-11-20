@@ -327,8 +327,6 @@ namespace ONKOSFileTransfer
                 Size = new Size(778, 30),
                 Font = new Font("Segoe UI", 10F),
                 DropDownStyle = ComboBoxStyle.DropDown,
-                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
-                AutoCompleteSource = AutoCompleteSource.ListItems,
                 BackColor = BgInput,
                 ForeColor = TextPrimary
             };
@@ -340,7 +338,7 @@ namespace ONKOSFileTransfer
 
             lblPuenteInfo = new Label
             {
-                Text = "Selecciona un usuario activo o escribe su nombre (la IP se usa automáticamente como puente).",
+                Text = "Selecciona un usuario activo o escribe su nombre para buscarlo.",
                 Font = new Font("Segoe UI", 8.2F),
                 ForeColor = TextSecondary,
                 Location = new Point(112, 46),
@@ -550,17 +548,30 @@ namespace ONKOSFileTransfer
                 return;
             }
 
-            List<PeerInfo> peers = discovery.GetActivePeers();
+            List<PeerInfo> allPeers = discovery.GetActivePeers();
             string typedText = cmbDestinatario.Text ?? string.Empty;
+            int caretPos = cmbDestinatario.SelectionStart;
+
+            List<PeerInfo> matching = string.IsNullOrWhiteSpace(typedText)
+                ? allPeers
+                : allPeers.Where(p =>
+                    (!string.IsNullOrEmpty(p.FullName) && p.FullName.IndexOf(typedText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (!string.IsNullOrEmpty(p.Area) && p.Area.IndexOf(typedText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (!string.IsNullOrEmpty(p.DisplayText) && p.DisplayText.IndexOf(typedText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (!string.IsNullOrEmpty(p.IPv4) && p.IPv4.IndexOf(typedText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
 
             updatingCombo = true;
             cmbDestinatario.BeginUpdate();
             cmbDestinatario.Items.Clear();
-            foreach (PeerInfo p in peers)
+            foreach (PeerInfo p in matching)
                 cmbDestinatario.Items.Add(p);
 
-            if (!string.IsNullOrWhiteSpace(typedText))
+            if (!string.IsNullOrEmpty(typedText))
+            {
                 cmbDestinatario.Text = typedText;
+                cmbDestinatario.SelectionStart = Math.Min(caretPos, cmbDestinatario.Text.Length);
+                cmbDestinatario.SelectionLength = 0;
+            }
             cmbDestinatario.EndUpdate();
             updatingCombo = false;
 
@@ -572,8 +583,12 @@ namespace ONKOSFileTransfer
             if (updatingCombo) return;
             if (cmbDestinatario.SelectedItem is PeerInfo peer)
             {
+                updatingCombo = true;
+                cmbDestinatario.Text = peer.DisplayText;
+                updatingCombo = false;
+
                 resolvedTargetIp = peer.IPv4;
-                lblPuenteInfo.Text = $"Destino: {peer.FullName} ({peer.Area})  •  Puente IP: {peer.IPv4}";
+                lblPuenteInfo.Text = $"Seleccionado: {peer.FullName} ({peer.Area}) • IP {peer.IPv4}";
                 lblPuenteInfo.ForeColor = StatusGreen;
             }
         }
@@ -581,7 +596,14 @@ namespace ONKOSFileTransfer
         private void OnDestinatarioTextChanged(object sender, EventArgs e)
         {
             if (updatingCombo) return;
-            ResolveCurrentTarget();
+            RefreshPeersList();
+
+            string raw = (cmbDestinatario.Text ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(raw) && cmbDestinatario.Items.Count > 0 && cmbDestinatario.Focused)
+            {
+                if (!cmbDestinatario.DroppedDown)
+                    cmbDestinatario.DroppedDown = true;
+            }
         }
 
         private void ResolveCurrentTarget()
@@ -591,16 +613,15 @@ namespace ONKOSFileTransfer
 
             if (string.IsNullOrWhiteSpace(raw))
             {
-                lblPuenteInfo.Text = "Selecciona un usuario activo o escribe su nombre (la IP se usa automáticamente como puente).";
+                lblPuenteInfo.Text = "Selecciona un usuario activo o escribe su nombre para buscarlo.";
                 lblPuenteInfo.ForeColor = TextSecondary;
                 return;
             }
 
-            if (cmbDestinatario.SelectedItem is PeerInfo selected &&
-                string.Equals(selected.DisplayText, raw, StringComparison.OrdinalIgnoreCase))
+            if (cmbDestinatario.SelectedItem is PeerInfo selected)
             {
                 resolvedTargetIp = selected.IPv4;
-                lblPuenteInfo.Text = $"Destino: {selected.FullName} ({selected.Area})  •  Puente IP: {selected.IPv4}";
+                lblPuenteInfo.Text = $"Seleccionado: {selected.FullName} ({selected.Area}) • IP {selected.IPv4}";
                 lblPuenteInfo.ForeColor = StatusGreen;
                 return;
             }
@@ -609,7 +630,7 @@ namespace ONKOSFileTransfer
             if (match != null)
             {
                 resolvedTargetIp = match.IPv4;
-                lblPuenteInfo.Text = $"Coincidencia: {match.FullName} ({match.Area})  •  Puente IP: {match.IPv4}";
+                lblPuenteInfo.Text = $"Encontrado: {match.FullName} ({match.Area}) • IP {match.IPv4}";
                 lblPuenteInfo.ForeColor = StatusGreen;
                 return;
             }
@@ -622,7 +643,7 @@ namespace ONKOSFileTransfer
                 return;
             }
 
-            lblPuenteInfo.Text = "Buscando usuario en la red... asegúrate de que tenga la aplicación abierta.";
+            lblPuenteInfo.Text = "No hay coincidencia por nombre aún (verifica que el otro equipo tenga el programa abierto y UDP 5051 habilitado).";
             lblPuenteInfo.ForeColor = StatusAmber;
         }
 
