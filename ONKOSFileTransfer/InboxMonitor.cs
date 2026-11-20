@@ -6,44 +6,37 @@ using System.Threading;
 
 namespace ONKOSFileTransfer
 {
-    public static class InboxMonitor
+    public sealed class InboxMonitor : IDisposable
     {
         public static readonly string CarpetaRecibidos =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
 
-        private static readonly object _lock = new object();
-        private static readonly List<string> _pendientes = new List<string>();
-        private static FileSystemWatcher _watcher;
-        private static Timer _debounceTimer;
-        private static bool _iniciado;
+        private readonly object _lock = new object();
+        private readonly List<string> _pendientes = new List<string>();
+        private FileSystemWatcher _watcher;
+        private Timer _debounceTimer;
+        private bool _disposed;
 
-        public static void Iniciar()
+        public InboxMonitor()
         {
-            lock (_lock)
+            Directory.CreateDirectory(CarpetaRecibidos);
+
+            _debounceTimer = new Timer(ProcesarLote, null, Timeout.Infinite, Timeout.Infinite);
+
+            _watcher = new FileSystemWatcher(CarpetaRecibidos)
             {
-                if (_iniciado) return;
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                EnableRaisingEvents = true
+            };
 
-                Directory.CreateDirectory(CarpetaRecibidos);
-
-                _debounceTimer = new Timer(ProcesarLote, null, Timeout.Infinite, Timeout.Infinite);
-
-                _watcher = new FileSystemWatcher(CarpetaRecibidos)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
-                    EnableRaisingEvents = true
-                };
-
-                _watcher.Created += OnArchivoDetectado;
-                _watcher.Changed += OnArchivoDetectado;
-
-                _iniciado = true;
-            }
+            _watcher.Created += OnArchivoDetectado;
+            _watcher.Changed += OnArchivoDetectado;
         }
 
-        private static void OnArchivoDetectado(object sender, FileSystemEventArgs e)
+        private void OnArchivoDetectado(object sender, FileSystemEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(e.FullPath))
+            if (_disposed || string.IsNullOrWhiteSpace(e.FullPath))
                 return;
 
             string nombre = Path.GetFileName(e.FullPath);
@@ -55,6 +48,9 @@ namespace ONKOSFileTransfer
 
             lock (_lock)
             {
+                if (_disposed)
+                    return;
+
                 if (!_pendientes.Contains(e.FullPath, StringComparer.OrdinalIgnoreCase))
                 {
                     _pendientes.Add(e.FullPath);
@@ -64,12 +60,12 @@ namespace ONKOSFileTransfer
             }
         }
 
-        private static void ProcesarLote(object state)
+        private void ProcesarLote(object state)
         {
             List<string> lote;
             lock (_lock)
             {
-                if (_pendientes.Count == 0)
+                if (_disposed || _pendientes.Count == 0)
                     return;
 
                 lote = _pendientes.ToList();
@@ -85,7 +81,7 @@ namespace ONKOSFileTransfer
                 }
             }
 
-            if (listos.Count > 0)
+            if (listos.Count > 0 && !_disposed)
             {
                 ModernToastNotifier.MostrarLoteRecibido(listos);
             }
@@ -118,17 +114,22 @@ namespace ONKOSFileTransfer
             return File.Exists(ruta);
         }
 
-        public static void Detener()
+        public void Dispose()
         {
             lock (_lock)
             {
-                _iniciado = false;
+                if (_disposed)
+                    return;
+
+                _disposed = true;
+
                 if (_watcher != null)
                 {
                     _watcher.EnableRaisingEvents = false;
                     _watcher.Dispose();
                     _watcher = null;
                 }
+
                 if (_debounceTimer != null)
                 {
                     _debounceTimer.Dispose();
