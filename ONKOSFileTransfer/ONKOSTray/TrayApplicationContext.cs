@@ -2,194 +2,109 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.IO.Pipes;
-using System.ServiceProcess;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace ONKOSFileTransfer.ONKOSTray
 {
     public class TrayApplicationContext : ApplicationContext
     {
-        private const string ServiceName = "ONKOSTransferService";
-        private const string PipeName = "ONKOS_Transfer_Events";
-        private readonly string _inboxPath = @"C:\ProgramData\ONKOS\Inbox";
-
-        private readonly NotifyIcon _trayIcon;
-        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        private readonly NotifyIcon trayIcon;
+        private readonly InboxMonitor inboxMonitor;
+        private MainForm mainForm;
 
         public TrayApplicationContext()
         {
-            Directory.CreateDirectory(_inboxPath);
-
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => OpenMainForm());
-            menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) => OpenInboxFolder());
+            ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add("Enviar archivos...", null, OnOpenMainForm);
+            menu.Items.Add("Abrir carpeta de recibidos", null, OnOpenInboxFolder);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Estado del servicio", null, (s, e) => ShowServiceStatus());
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Cerrar ícono de bandeja", null, (s, e) => ExitTray());
+            menu.Items.Add("Salir", null, OnExit);
 
-            _trayIcon = new NotifyIcon
+            trayIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
-                Text = "ONKOS File Transfer - En espera",
+                Text = "ONKOS File Transfer (Bandeja activa)",
+                Icon = LoadAppIcon(),
                 ContextMenuStrip = menu,
                 Visible = true
             };
 
-            _trayIcon.DoubleClick += (s, e) => OpenMainForm();
+            trayIcon.DoubleClick += OnOpenMainForm;
 
-            Task.Run(() => ListenServiceEventsAsync(_cts.Token));
+            string inboxPath = @"C:\ProgramData\ONKOS\Inbox";
+            inboxMonitor = new InboxMonitor(inboxPath, OnFilesReceived);
+            inboxMonitor.Start();
         }
 
-        private async Task ListenServiceEventsAsync(CancellationToken token)
-        {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    using (var pipeServer = new NamedPipeServerStream(
-                        PipeName,
-                        PipeDirection.In,
-                        1,
-                        PipeTransmissionMode.Message,
-                        PipeOptions.Asynchronous))
-                    {
-                        await pipeServer.WaitForConnectionAsync(token);
-
-                        using (var reader = new StreamReader(pipeServer, Encoding.UTF8))
-                        {
-                            string payload = await reader.ReadToEndAsync();
-                            HandleEventPayload(payload);
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch
-                {
-                    await Task.Delay(1000, token);
-                }
-            }
-        }
-
-        private void HandleEventPayload(string payload)
-        {
-            if (string.IsNullOrWhiteSpace(payload))
-                return;
-
-            // Formato esperado: TIPO|TITULO|MENSAJE
-            string[] parts = payload.Split(new[] { '|' }, 3);
-            if (parts.Length < 3)
-                return;
-
-            ToastType type = ParseToastType(parts[0]);
-            string title = parts[1].Trim();
-            string message = parts[2].Trim();
-
-            SynchronizationContext.Current?.Post(_ =>
-            {
-                ToastNotificationForm.ShowToast(title, message, type, () => OpenInboxFolder());
-            }, null);
-        }
-
-        private static ToastType ParseToastType(string rawType)
-        {
-            if (string.Equals(rawType, "SUCCESS", StringComparison.OrdinalIgnoreCase))
-                return ToastType.Success;
-            if (string.Equals(rawType, "WARNING", StringComparison.OrdinalIgnoreCase))
-                return ToastType.Warning;
-            if (string.Equals(rawType, "ERROR", StringComparison.OrdinalIgnoreCase))
-                return ToastType.Error;
-
-            return ToastType.Info;
-        }
-
-        private void OpenMainForm()
+        private Icon LoadAppIcon()
         {
             try
             {
-                string exePath = Application.ExecutablePath;
-                Process.Start(exePath);
-            }
-            catch (Exception ex)
-            {
-                ToastNotificationForm.ShowToast(
-                    "No se pudo abrir la ventana",
-                    ex.Message,
-                    ToastType.Error);
-            }
-        }
-
-        private void OpenInboxFolder()
-        {
-            try
-            {
-                Directory.CreateDirectory(_inboxPath);
-                Process.Start("explorer.exe", _inboxPath);
-            }
-            catch (Exception ex)
-            {
-                ToastNotificationForm.ShowToast(
-                    "Error al abrir carpeta",
-                    ex.Message,
-                    ToastType.Error);
-            }
-        }
-
-        private void ShowServiceStatus()
-        {
-            try
-            {
-                using (var controller = new ServiceController(ServiceName))
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
+                if (File.Exists(icoPath))
                 {
-                    if (controller.Status == ServiceControllerStatus.Running)
-                    {
-                        ToastNotificationForm.ShowToast(
-                            "Servicio activo",
-                            $"{ServiceName} está ejecutándose en segundo plano.",
-                            ToastType.Success);
-                    }
-                    else
-                    {
-                        ToastNotificationForm.ShowToast(
-                            "Servicio no activo",
-                            $"Estado actual de {ServiceName}: {controller.Status}",
-                            ToastType.Warning);
-                    }
+                    return new Icon(icoPath);
+                }
+
+                Icon exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (exeIcon != null)
+                {
+                    return exeIcon;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                ToastNotificationForm.ShowToast(
-                    "Error consultando servicio",
-                    ex.Message,
-                    ToastType.Error);
             }
+
+            return SystemIcons.Application;
         }
 
-        private void ExitTray()
+        private void OnFilesReceived(string folderPath, int fileCount)
         {
-            _cts.Cancel();
-            _trayIcon.Visible = false;
-            _trayIcon.Dispose();
-            Application.ExitThread();
+            string title = fileCount == 1
+                ? "Nuevo archivo recibido"
+                : $"{fileCount} archivos recibidos";
+
+            string message = "Haz clic aquí para abrir la carpeta de llegada.";
+            ModernToastNotifier.Show(title, message, folderPath);
         }
 
-        protected override void Dispose(bool disposing)
+        private void OnOpenMainForm(object sender, EventArgs e)
         {
-            if (disposing)
+            if (mainForm == null || mainForm.IsDisposed)
             {
-                _cts.Cancel();
-                _cts.Dispose();
-                _trayIcon?.Dispose();
+                mainForm = new MainForm();
             }
-            base.Dispose(disposing);
+
+            if (!mainForm.Visible)
+            {
+                mainForm.Show();
+            }
+
+            if (mainForm.WindowState == FormWindowState.Minimized)
+            {
+                mainForm.WindowState = FormWindowState.Normal;
+            }
+
+            mainForm.Activate();
+        }
+
+        private void OnOpenInboxFolder(object sender, EventArgs e)
+        {
+            string inboxPath = @"C:\ProgramData\ONKOS\Inbox";
+            if (!Directory.Exists(inboxPath))
+            {
+                Directory.CreateDirectory(inboxPath);
+            }
+
+            Process.Start("explorer.exe", inboxPath);
+        }
+
+        private void OnExit(object sender, EventArgs e)
+        {
+            inboxMonitor?.Stop();
+            trayIcon.Visible = false;
+            trayIcon.Dispose();
+            Application.Exit();
         }
     }
 }
