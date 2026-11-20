@@ -1,121 +1,140 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace ONKOSFileTransfer
 {
-    public class InboxMonitor : IDisposable
+    public static class InboxMonitor
     {
-        private readonly FileSystemWatcher _watcher;
-        private readonly ConcurrentDictionary<string, DateTime> _vistosRecientemente = new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
-        private readonly object _batchLock = new object();
-        private readonly List<string> _pendientes = new List<string>();
-        private CancellationTokenSource _debounceCts;
-        private bool _disposed;
+        public static readonly string CarpetaRecibidos =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
 
-        public InboxMonitor(string rutaInbox = @"C:\ProgramData\ONKOS\Inbox")
+        private static readonly object _lock = new object();
+        private static readonly List<string> _pendientes = new List<string>();
+        private static FileSystemWatcher _watcher;
+        private static Timer _debounceTimer;
+        private static bool _iniciado;
+
+        public static void Iniciar()
         {
-            if (!Directory.Exists(rutaInbox))
+            lock (_lock)
             {
-                Directory.CreateDirectory(rutaInbox);
-            }
+                if (_iniciado) return;
 
-            _watcher = new FileSystemWatcher(rutaInbox)
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite,
-                Filter = "*.*",
-                EnableRaisingEvents = true
-            };
+                Directory.CreateDirectory(CarpetaRecibidos);
 
-            _watcher.Created += OnArchivoCreado;
-        }
+                _debounceTimer = new Timer(ProcesarLote, null, Timeout.Infinite, Timeout.Infinite);
 
-        private void OnArchivoCreado(object sender, FileSystemEventArgs e)
-        {
-            if (_disposed || Directory.Exists(e.FullPath))
-                return;
-
-            string nombre = e.Name ?? string.Empty;
-            if (nombre.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
-                nombre.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            DateTime ahora = DateTime.UtcNow;
-            if (_vistosRecientemente.TryGetValue(e.FullPath, out DateTime ultimaVez) &&
-                (ahora - ultimaVez).TotalSeconds < 2)
-                return;
-
-            _vistosRecientemente[e.FullPath] = ahora;
-            EncolarArchivo(e.FullPath);
-        }
-
-        private void EncolarArchivo(string rutaArchivo)
-        {
-            CancellationToken token;
-
-            lock (_batchLock)
-            {
-                if (_disposed) return;
-
-                if (!_pendientes.Contains(rutaArchivo, StringComparer.OrdinalIgnoreCase))
+                _watcher = new FileSystemWatcher(CarpetaRecibidos)
                 {
-                    _pendientes.Add(rutaArchivo);
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true
+                };
+
+                _watcher.Created += OnArchivoDetectado;
+                _watcher.Changed += OnArchivoDetectado;
+
+                _iniciado = true;
+            }
+        }
+
+        private static void OnArchivoDetectado(object sender, FileSystemEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(e.FullPath))
+                return;
+
+            string nombre = Path.GetFileName(e.FullPath);
+            if (string.Equals(nombre, "desktop.ini", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (Directory.Exists(e.FullPath))
+                return;
+
+            lock (_lock)
+            {
+                if (!_pendientes.Contains(e.FullPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    _pendientes.Add(e.FullPath);
                 }
 
-                _debounceCts?.Cancel();
-                _debounceCts?.Dispose();
-                _debounceCts = new CancellationTokenSource();
-                token = _debounceCts.Token;
+                _debounceTimer.Change(600, Timeout.Infinite);
+            }
+        }
+
+        private static void ProcesarLote(object state)
+        {
+            List<string> lote;
+            lock (_lock)
+            {
+                if (_pendientes.Count == 0)
+                    return;
+
+                lote = _pendientes.ToList();
+                _pendientes.Clear();
             }
 
-            Task.Run(async () =>
+            List<string> listos = new List<string>();
+            foreach (string ruta in lote)
+            {
+                if (EsperarArchivoLibre(ruta))
+                {
+                    listos.Add(ruta);
+                }
+            }
+
+            if (listos.Count > 0)
+            {
+                ModernToastNotifier.MostrarLoteRecibido(listos);
+            }
+        }
+
+        private static bool EsperarArchivoLibre(string ruta)
+        {
+            for (int i = 0; i < 15; i++)
             {
                 try
                 {
-                    // Espera 1.2s para agrupar archivos que lleguen seguidos (ej. 10 o 20 archivos)
-                    await Task.Delay(1200, token);
+                    if (!File.Exists(ruta))
+                        return false;
 
-                    List<string> lote;
-                    lock (_batchLock)
+                    using (FileStream fs = new FileStream(ruta, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
-                        if (_disposed || token.IsCancellationRequested) return;
-                        lote = _pendientes.ToList();
-                        _pendientes.Clear();
+                        return true;
                     }
-
-                    // Espera breve adicional para confirmar que el servicio liberó el archivo
-                    await Task.Delay(400, token);
-                    if (token.IsCancellationRequested) return;
-
-                    ModernToastNotifier.MostrarLoteRecibido(lote);
                 }
-                catch (TaskCanceledException)
+                catch (IOException)
                 {
-                    // Reiniciado porque llegó otro archivo dentro de la ventana de agrupación
+                    Thread.Sleep(200);
                 }
                 catch
                 {
+                    return false;
                 }
-            }, token);
-        }
-
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-
-            lock (_batchLock)
-            {
-                _debounceCts?.Cancel();
-                _debounceCts?.Dispose();
             }
 
-            _watcher?.Dispose();
+            return File.Exists(ruta);
+        }
+
+        public static void Detener()
+        {
+            lock (_lock)
+            {
+                _iniciado = false;
+                if (_watcher != null)
+                {
+                    _watcher.EnableRaisingEvents = false;
+                    _watcher.Dispose();
+                    _watcher = null;
+                }
+                if (_debounceTimer != null)
+                {
+                    _debounceTimer.Dispose();
+                    _debounceTimer = null;
+                }
+            }
         }
     }
 }
