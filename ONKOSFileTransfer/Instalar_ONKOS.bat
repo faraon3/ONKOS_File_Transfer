@@ -31,12 +31,13 @@ timeout /t 2 /nobreak >nul
 sc delete ONKOSTransferService >nul 2>&1
 taskkill /F /IM ONKOSFileTransfer.exe >nul 2>&1
 
-:: 3. Copiar binarios permanentes a C:\ONKOS
-echo [2/8] Instalando archivos en %DESTINO%...
+:: 3. Copiar binarios permanentes a C:\ONKOS y desbloquear marca de descarga de Windows
+echo [2/8] Instalando y desbloqueando archivos en %DESTINO%...
 if not exist "%DESTINO%\Servicio" mkdir "%DESTINO%\Servicio"
 if not exist "%DESTINO%\Interfaz" mkdir "%DESTINO%\Interfaz"
 xcopy "%ORIGEN%Servicio\*" "%DESTINO%\Servicio\" /E /I /Y >nul
 xcopy "%ORIGEN%Interfaz\*" "%DESTINO%\Interfaz\" /E /I /Y >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path '%DESTINO%' -Recurse | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 
 if not exist "%DESTINO%\Servicio\ONKOS.TransferService.exe" (
     echo [ERROR] No se encontro Servicio\ONKOS.TransferService.exe junto al instalador.
