@@ -147,7 +147,9 @@ namespace ONKOSFileTransfer
         public string MachineName { get; set; }
         public DateTime LastSeenUtc { get; set; }
 
-        public string DisplayText => $"{FullName} — {Area}";
+        public string DisplayText => string.IsNullOrWhiteSpace(Area)
+            ? FullName
+            : $"{FullName} — {Area}";
 
         public override string ToString() => DisplayText;
     }
@@ -208,6 +210,9 @@ namespace ONKOSFileTransfer
         private const int BroadcastIntervalMs = 2000;
         private const int PeerTimeoutSeconds = 30;
 
+        private static readonly string ContactsPath =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "contactos.txt");
+
         private readonly object _sync = new object();
         private readonly Dictionary<string, PeerInfo> _peersByKey =
             new Dictionary<string, PeerInfo>(StringComparer.OrdinalIgnoreCase);
@@ -221,6 +226,8 @@ namespace ONKOSFileTransfer
 
         public void Start(PeerInfo localProfile)
         {
+            LoadSavedContacts();
+
             if (_running)
             {
                 UpdateLocalProfile(localProfile);
@@ -241,6 +248,73 @@ namespace ONKOSFileTransfer
             _ = Task.Run(() => CleanupLoop(_cts.Token));
         }
 
+        private void LoadSavedContacts()
+        {
+            try
+            {
+                if (!File.Exists(ContactsPath))
+                    return;
+
+                foreach (string line in File.ReadAllLines(ContactsPath, Encoding.UTF8))
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    string[] parts = line.Split('|');
+                    if (parts.Length < 3)
+                        continue;
+
+                    string name = parts[0].Trim();
+                    string area = parts[1].Trim();
+                    string ip = parts[2].Trim();
+                    string machine = parts.Length > 3 ? parts[3].Trim() : string.Empty;
+
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(ip))
+                        continue;
+
+                    string key = name.ToLowerInvariant();
+                    lock (_sync)
+                    {
+                        _peersByKey[key] = new PeerInfo
+                        {
+                            FullName = name,
+                            Area = area,
+                            IPv4 = ip,
+                            MachineName = machine,
+                            LastSeenUtc = DateTime.UtcNow
+                        };
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void SaveContactsLocked()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(ContactsPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                var lines = _peersByKey.Values
+                    .OrderBy(p => p.FullName)
+                    .Select(p => string.Join("|",
+                        (p.FullName ?? string.Empty).Replace("|", "/"),
+                        (p.Area ?? string.Empty).Replace("|", "/"),
+                        p.IPv4 ?? string.Empty,
+                        p.MachineName ?? string.Empty))
+                    .ToArray();
+
+                File.WriteAllLines(ContactsPath, lines, Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+
         public void UpdateLocalProfile(PeerInfo profile)
         {
             _localProfile = profile;
@@ -257,9 +331,7 @@ namespace ONKOSFileTransfer
             List<PeerInfo> snapshot;
             lock (_sync)
             {
-                snapshot = _peersByKey.Values
-                    .Where(p => (DateTime.UtcNow - p.LastSeenUtc).TotalSeconds <= PeerTimeoutSeconds)
-                    .ToList();
+                snapshot = _peersByKey.Values.ToList();
             }
 
             if (!string.IsNullOrWhiteSpace(filterText))
@@ -332,7 +404,7 @@ namespace ONKOSFileTransfer
                     if (isSameMachine && isSameIp)
                         continue;
 
-                    string key = !string.IsNullOrWhiteSpace(machine) ? machine : ip;
+                    string key = name.ToLowerInvariant();
 
                     bool changed = false;
                     lock (_sync)
@@ -354,6 +426,9 @@ namespace ONKOSFileTransfer
                             MachineName = machine,
                             LastSeenUtc = DateTime.UtcNow
                         };
+
+                        if (changed)
+                            SaveContactsLocked();
                     }
 
                     if (changed)
@@ -426,30 +501,12 @@ namespace ONKOSFileTransfer
             {
                 try
                 {
-                    await Task.Delay(4000, token);
+                    await Task.Delay(PeerTimeoutSeconds * 1000, token);
                 }
                 catch (TaskCanceledException)
                 {
                     break;
                 }
-
-                bool removed = false;
-                lock (_sync)
-                {
-                    var expired = _peersByKey
-                        .Where(kv => (DateTime.UtcNow - kv.Value.LastSeenUtc).TotalSeconds > PeerTimeoutSeconds)
-                        .Select(kv => kv.Key)
-                        .ToList();
-
-                    foreach (string key in expired)
-                    {
-                        _peersByKey.Remove(key);
-                        removed = true;
-                    }
-                }
-
-                if (removed)
-                    PeersUpdated?.Invoke();
             }
         }
 
