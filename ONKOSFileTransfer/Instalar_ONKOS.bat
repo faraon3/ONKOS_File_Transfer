@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
 
 set "ORIGEN=%~dp0"
 set "DESTINO=C:\ONKOS"
-set "INBOX=C:\ProgramData\ONKOS\Inbox"
+set "INBOX=C:\Users\Public\Desktop\Archivos Recibidos ONKOS"
 set "INBOX_ICON=%DESTINO%\recibidos.ico"
 set "START_MENU=C:\ProgramData\Microsoft\Windows\Start Menu\Programs"
 set "STARTUP_ALL=C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
@@ -45,8 +45,8 @@ if not exist "%DESTINO%\Servicio\ONKOS.TransferService.exe" (
     exit /b 1
 )
 
-:: 4. Copiar icono recibidos.ico y preparar carpeta Inbox
-echo [3/8] Configurando carpeta de llegada e icono...
+:: 4. Crear carpeta directa en el Escritorio con el icono recibidos.ico
+echo [3/8] Configurando carpeta de recibidos en el Escritorio...
 if not exist "%INBOX%" mkdir "%INBOX%"
 if exist "%ORIGEN%recibidos.ico" (
     copy /Y "%ORIGEN%recibidos.ico" "%INBOX_ICON%" >nul
@@ -76,13 +76,12 @@ echo [5/8] Habilitando puerto TCP 5050 en Firewall...
 netsh advfirewall firewall delete rule name="ONKOS Transfer Service (TCP 5050)" >nul 2>&1
 netsh advfirewall firewall add rule name="ONKOS Transfer Service (TCP 5050)" dir=in action=allow protocol=TCP localport=5050 >nul
 
-:: 7. Borrar TODOS los accesos directos previos de ONKOS/Recibidos y dejar solo 2 en el Escritorio
-echo [6/8] Limpiando duplicados y dejando solo 2 accesos en el Escritorio...
+:: 7. Borrar accesos directos viejos de ONKOS/Recibidos y dejar solo el acceso del programa
+echo [6/8] Limpiando duplicados y configurando accesos directos...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ws = New-Object -ComObject WScript.Shell; " ^
   "$appExe = '%DESTINO%\Interfaz\ONKOSFileTransfer.exe'; " ^
   "$appDir = '%DESTINO%\Interfaz'; " ^
-  "$iconRec = if (Test-Path '%INBOX_ICON%') { '%INBOX_ICON%,0' } else { '$appExe,0' }; " ^
   "$carpetasEsc = Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'Desktop' }; " ^
   "$carpetasEsc += '%PUBLIC_DESKTOP%'; " ^
   "foreach ($esc in ($carpetasEsc | Select-Object -Unique)) { " ^
@@ -92,8 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "}; " ^
   "$s1 = $ws.CreateShortcut('%START_MENU%\ONKOS File Transfer.lnk'); $s1.TargetPath = $appExe; $s1.WorkingDirectory = $appDir; $s1.Description = 'Enviar archivos por red local con ONKOS'; $s1.Save(); " ^
   "$s2 = $ws.CreateShortcut('%STARTUP_ALL%\ONKOS Tray.lnk'); $s2.TargetPath = $appExe; $s2.Arguments = '--tray'; $s2.WorkingDirectory = $appDir; $s2.Save(); " ^
-  "$a = $ws.CreateShortcut('%PUBLIC_DESKTOP%\ONKOS File Transfer.lnk'); $a.TargetPath = $appExe; $a.WorkingDirectory = $appDir; $a.Description = 'Enviar archivos por red local con ONKOS'; $a.Save(); " ^
-  "$r = $ws.CreateShortcut('%PUBLIC_DESKTOP%\Archivos Recibidos ONKOS.lnk'); $r.TargetPath = '%INBOX%'; $r.WorkingDirectory = '%INBOX%'; $r.IconLocation = $iconRec; $r.Description = 'Carpeta de archivos recibidos por ONKOS'; $r.Save()" >nul
+  "$a = $ws.CreateShortcut('%PUBLIC_DESKTOP%\ONKOS File Transfer.lnk'); $a.TargetPath = $appExe; $a.WorkingDirectory = $appDir; $a.Description = 'Enviar archivos por red local con ONKOS'; $a.Save()" >nul
 
 :: 8. Reforzar arranque automatico en el Registro de Windows
 echo [7/8] Registrando inicio automatico al encender Windows...
