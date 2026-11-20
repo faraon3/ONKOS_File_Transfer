@@ -743,3 +743,633 @@ namespace ONKOSFileTransfer
                             g.FillPath(bTab, tab);
 
                         using (GraphicsPath body = GetRoundedRect(new Rectangle(2, 6, 16, 11), 2))
+                        using (SolidBrush bBody = new SolidBrush(AccentPurpleLight))
+                            g.FillPath(bBody, body);
+
+                        fileIcons.Images.Add(key, (Image)bmp.Clone());
+                        return key;
+                    }
+                }
+
+                using (Icon sysIcon = Icon.ExtractAssociatedIcon(path))
+                {
+                    if (sysIcon != null)
+                    {
+                        using (Bitmap icoBmp = sysIcon.ToBitmap())
+                        using (Bitmap resized = new Bitmap(20, 20))
+                        using (Graphics g = Graphics.FromImage(resized))
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.SmoothingMode = SmoothingMode.AntiAlias;
+                            g.DrawImage(icoBmp, 0, 0, 20, 20);
+                            fileIcons.Images.Add(key, (Image)resized.Clone());
+                            return key;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private void PaintAnimatedProgressBar(object sender, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Rectangle track = new Rectangle(0, 0, pnlProgressBar.Width - 1, pnlProgressBar.Height - 1);
+            using (GraphicsPath trackPath = GetRoundedRect(track, 6))
+            using (SolidBrush trackBrush = new SolidBrush(BgProgressTrack))
+            using (Pen trackPen = new Pen(BorderProgress, 1.2f))
+            {
+                pnlProgressBar.Region = new Region(trackPath);
+                g.FillPath(trackBrush, trackPath);
+                g.DrawPath(trackPen, trackPath);
+
+                int fillWidth = (int)Math.Round(pnlProgressBar.Width * (Math.Max(0, Math.Min(100, animatedProgress)) / 100.0));
+                if (fillWidth > 4)
+                {
+                    Rectangle fillRect = new Rectangle(0, 0, fillWidth, pnlProgressBar.Height);
+                    using (GraphicsPath fillPath = GetRoundedRect(fillRect, 6))
+                    using (LinearGradientBrush grad = new LinearGradientBrush(
+                        new Point(0, 0),
+                        new Point(Math.Max(fillWidth, 10), 0),
+                        AccentPurple,
+                        AccentPurpleLight))
+                    {
+                        g.FillPath(grad, fillPath);
+
+                        if (isSending)
+                        {
+                            int bandCenter = (int)(fillWidth * shimmerOffset);
+                            Rectangle clip = new Rectangle(0, 0, fillWidth, pnlProgressBar.Height);
+                            g.SetClip(clip);
+                            using (SolidBrush sheen = new SolidBrush(Color.FromArgb(65, Color.White)))
+                                g.FillRectangle(sheen, bandCenter - 28, 0, 56, pnlProgressBar.Height);
+                            g.ResetClip();
+                        }
+                    }
+                }
+            }
+        }
+
+        private void PaintDropZone(object sender, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Rectangle rect = new Rectangle(1, 1, pnlDropZone.Width - 3, pnlDropZone.Height - 3);
+            float pulse = 0.5f + 0.5f * (float)Math.Sin(pulsePhase * 1.4f);
+            Color borderCol = isDragOver ? AccentPurpleLight : BorderSubtle;
+
+            using (GraphicsPath path = GetRoundedRect(rect, 10))
+            {
+                if (dropFlashAlpha > 0.01f)
+                {
+                    int a = (int)(dropFlashAlpha * 55);
+                    using (SolidBrush flash = new SolidBrush(Color.FromArgb(a, AccentPurpleLight)))
+                        g.FillPath(flash, path);
+                }
+                else if (isDragOver)
+                {
+                    using (SolidBrush hoverFill = new SolidBrush(Color.FromArgb(24, AccentPurpleLight)))
+                        g.FillPath(hoverFill, path);
+                }
+
+                using (Pen dashPen = new Pen(borderCol, isDragOver ? 2f : 1.5f) { DashStyle = DashStyle.Dash })
+                    g.DrawPath(dashPen, path);
+            }
+
+            int cx = pnlDropZone.Width / 2;
+            int lift = isDragOver ? (int)(-3 * pulse) : 0;
+            using (Pen iconPen = new Pen(AccentPurpleLight, 2f))
+            {
+                g.DrawLine(iconPen, cx, 15 + lift, cx, 31 + lift);
+                g.DrawLine(iconPen, cx - 6, 21 + lift, cx, 15 + lift);
+                g.DrawLine(iconPen, cx + 6, 21 + lift, cx, 15 + lift);
+                g.DrawLine(iconPen, cx - 10, 35 + lift, cx + 10, 35 + lift);
+            }
+
+            using (Font fTitle = new Font("Segoe UI", 10F, FontStyle.Bold))
+            using (Font fSub = new Font("Segoe UI", 8.5F))
+            using (Brush bTitle = new SolidBrush(TextPrimary))
+            using (Brush bSub = new SolidBrush(TextSecondary))
+            {
+                StringFormat sf = new StringFormat { Alignment = StringAlignment.Center };
+                g.DrawString(isDragOver ? "¡Suelta aquí para añadir a la cola!" : "Arrastra aquí tus archivos o haz clic para seleccionarlos",
+                    fTitle, bTitle, new RectangleF(20, 44, pnlDropZone.Width - 40, 22), sf);
+                g.DrawString("Puedes adjuntar varios archivos o carpetas a la vez. Pulsa Supr para quitar seleccionados.",
+                    fSub, bSub, new RectangleF(20, 69, pnlDropZone.Width - 40, 20), sf);
+            }
+        }
+
+        private static Button MakeAnimatedButton(
+            string text,
+            Point loc,
+            Size size,
+            Color normalColor,
+            Color hoverColor,
+            Color borderColor,
+            int radius,
+            float fontSize,
+            Func<bool> getHover,
+            Action<bool> setHover,
+            Func<bool> getPressed,
+            Action<bool> setPressed)
+        {
+            Button btn = new Button
+            {
+                Text = text,
+                Location = loc,
+                Size = size,
+                BackColor = normalColor,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", fontSize, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderSize = 0;
+
+            btn.MouseEnter += (s, e) => { setHover(true); btn.Invalidate(); };
+            btn.MouseLeave += (s, e) => { setHover(false); setPressed(false); btn.Invalidate(); };
+            btn.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) { setPressed(true); btn.Invalidate(); } };
+            btn.MouseUp += (s, e) => { setPressed(false); btn.Invalidate(); };
+
+            btn.Paint += (s, e) =>
+            {
+                Graphics g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                bool hov = getHover();
+                bool pr = getPressed();
+
+                Color bg = pr ? AccentPurple : (hov ? hoverColor : normalColor);
+                int yOffset = pr ? 1 : 0;
+
+                Rectangle rect = new Rectangle(0, yOffset, btn.Width - 1, btn.Height - 2);
+                using (GraphicsPath path = GetRoundedRect(rect, radius))
+                using (SolidBrush brush = new SolidBrush(bg))
+                using (Pen pen = new Pen(hov ? borderColor : BorderSubtle, 1f))
+                {
+                    btn.Region = new Region(path);
+                    g.FillPath(brush, path);
+                    g.DrawPath(pen, path);
+                }
+
+                TextRenderer.DrawText(
+                    g,
+                    btn.Text,
+                    btn.Font,
+                    new Rectangle(0, yOffset, btn.Width, btn.Height - 1),
+                    btn.ForeColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            };
+
+            return btn;
+        }
+
+        private static Panel CreateRoundedPanel(Point loc, Size size, Color fill, Color border, int radius)
+        {
+            Panel panel = new Panel { Location = loc, Size = size, BackColor = fill };
+            panel.Paint += (s, e) =>
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                Rectangle rect = new Rectangle(0, 0, panel.Width - 1, panel.Height - 1);
+                using (GraphicsPath path = GetRoundedRect(rect, radius))
+                using (Pen pen = new Pen(border, 1f))
+                {
+                    panel.Region = new Region(path);
+                    e.Graphics.DrawPath(pen, path);
+                }
+            };
+            return panel;
+        }
+
+        private static GraphicsPath GetRoundedRect(Rectangle bounds, int radius)
+        {
+            int r = Math.Max(1, Math.Min(radius, Math.Min(bounds.Width, bounds.Height) / 2));
+            int d = r * 2;
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private static Label MakeTableHeaderLabel(string text, int x, int width)
+        {
+            return new Label
+            {
+                Text = text,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                ForeColor = TextSecondary,
+                Location = new Point(x, 6),
+                Size = new Size(width, 16)
+            };
+        }
+
+        private void OpenAdminOptions(object sender, EventArgs e)
+        {
+            using (var dlg = new WelcomeRegistrationForm(currentProfile))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK && dlg.RegisteredProfile != null)
+                {
+                    currentProfile = dlg.RegisteredProfile;
+                    lblUserHeader.Text = $"{currentProfile.FullName} • {currentProfile.Area}";
+                    discovery.UpdateLocalProfile(currentProfile);
+                    lblStatus.Text = $"Perfil actualizado: {currentProfile.FullName} • {currentProfile.Area}";
+                }
+            }
+        }
+
+        private void StartReceiver(string targetFolder)
+        {
+            try
+            {
+                receiver.Start(Port, targetFolder);
+                activeFolder = targetFolder;
+                UpdateReceiverFooter("Recepción automática activa  •  Carpeta: " + targetFolder + "  •  Clic para abrir");
+            }
+            catch (Exception ex)
+            {
+                UpdateReceiverFooter("Recepción inactiva: " + ex.Message);
+            }
+        }
+
+        private void AddFilesOrFolders(object sender, EventArgs e)
+        {
+            if (isSending) return;
+
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Selecciona los archivos que deseas enviar";
+                dialog.Multiselect = true;
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    dropFlashAlpha = 0.75f;
+                    AddPathsToQueue(dialog.FileNames);
+                }
+            }
+        }
+
+        private void AddPathsToQueue(IEnumerable<string> paths)
+        {
+            int addedCount = 0;
+
+            foreach (string path in paths)
+            {
+                if (IsAlreadyQueued(path))
+                    continue;
+
+                if (File.Exists(path))
+                {
+                    FileInfo info = new FileInfo(path);
+                    string iconKey = GetOrAddIconKey(path, false);
+                    ListViewItem item = new ListViewItem(info.Name, iconKey);
+                    item.SubItems.Add(FormatBytes(info.Length));
+                    item.SubItems.Add("Pendiente");
+                    item.BackColor = Color.FromArgb(46, 38, 76);
+                    item.Tag = path;
+                    listFiles.Items.Add(item);
+                    addedCount++;
+                }
+                else if (Directory.Exists(path))
+                {
+                    string folderName = new DirectoryInfo(path).Name;
+                    long dirSize = GetDirectorySize(path);
+                    string iconKey = GetOrAddIconKey(path, true);
+                    ListViewItem item = new ListViewItem(folderName, iconKey);
+                    item.SubItems.Add(FormatBytes(dirSize));
+                    item.SubItems.Add("Pendiente");
+                    item.BackColor = Color.FromArgb(46, 38, 76);
+                    item.Tag = path;
+                    listFiles.Items.Add(item);
+                    addedCount++;
+                }
+            }
+
+            if (addedCount > 0)
+            {
+                rowFlashSteps = 18;
+                lblStatus.Text = "Se añadieron " + addedCount + " elemento(s) a la cola.";
+            }
+
+            listFiles.Invalidate();
+        }
+
+        private bool IsAlreadyQueued(string path)
+        {
+            foreach (ListViewItem existing in listFiles.Items)
+            {
+                if (string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        private void RemoveSelectedItems()
+        {
+            while (listFiles.SelectedItems.Count > 0)
+                listFiles.Items.Remove(listFiles.SelectedItems[0]);
+        }
+
+        private async void SendFiles(object sender, EventArgs e)
+        {
+            ResolveCurrentTargets(persistManual: true);
+
+            if (resolvedTargets.Count == 0)
+            {
+                MessageBox.Show(
+                    "Selecciona al menos una persona en la lista o escribe Nombre = IP (ej: ANAMARIA = 172.16.13.45).",
+                    "ONKOS File Transfer 2.0",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                cmbDestinatario.Focus();
+                return;
+            }
+
+            if (listFiles.Items.Count == 0)
+            {
+                MessageBox.Show("Agrega al menos un archivo o carpeta para enviar.", "ONKOS File Transfer 2.0",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            List<PeerInfo> targets = resolvedTargets.ToList();
+            List<ListViewItem> items = new List<ListViewItem>();
+            foreach (ListViewItem item in listFiles.Items)
+                items.Add(item);
+
+            isSending = true;
+            btnSend.Enabled = false;
+            btnSend.Text = $"Enviando a {targets.Count} destino(s)...";
+            targetProgress = 0;
+            animatedProgress = 0;
+            lblRemaining.Text = "Tiempo restante: calculando...";
+            sendStopwatch.Restart();
+
+            List<string> tempPackages = new List<string>();
+            var preparedFiles = new List<(ListViewItem Item, string SendPath, string DisplayName, long Size)>();
+
+            try
+            {
+                foreach (ListViewItem item in items)
+                {
+                    string originalPath = item.Tag as string;
+                    string displayName = Path.GetFileName(originalPath);
+
+                    if (Directory.Exists(originalPath))
+                    {
+                        item.SubItems[2].Text = "Empaquetando...";
+                        item.SubItems[2].ForeColor = StatusAmber;
+                        string tempPackage = Path.Combine(Path.GetTempPath(),
+                            displayName + "_" + Guid.NewGuid().ToString("N") + ".onkosfolder");
+                        await Task.Run(() => ZipFile.CreateFromDirectory(originalPath, tempPackage));
+                        tempPackages.Add(tempPackage);
+                        long pkgSize = new FileInfo(tempPackage).Length;
+                        preparedFiles.Add((item, tempPackage, displayName, pkgSize));
+                    }
+                    else if (File.Exists(originalPath))
+                    {
+                        long fileSize = new FileInfo(originalPath).Length;
+                        preparedFiles.Add((item, originalPath, displayName, fileSize));
+                    }
+                    else
+                    {
+                        item.SubItems[2].Text = "No existe";
+                        item.SubItems[2].ForeColor = StatusRed;
+                    }
+                }
+
+                long grandTotalBytes = preparedFiles.Sum(f => f.Size) * targets.Count;
+                long grandSentBytes = 0;
+                int okTargets = 0;
+                List<string> failures = new List<string>();
+
+                foreach (var f in preparedFiles)
+                {
+                    f.Item.SubItems[2].Text = $"Enviando (0/{targets.Count})...";
+                    f.Item.SubItems[2].ForeColor = AccentPurpleLight;
+                }
+
+                var fileCompletedCount = new Dictionary<ListViewItem, int>();
+                var fileErrorCount = new Dictionary<ListViewItem, int>();
+                foreach (var f in preparedFiles)
+                {
+                    fileCompletedCount[f.Item] = 0;
+                    fileErrorCount[f.Item] = 0;
+                }
+
+                object progressLock = new object();
+
+                var sendTasks = targets.Select(async target =>
+                {
+                    bool targetHadError = false;
+                    foreach (var f in preparedFiles)
+                    {
+                        long lastFileSent = 0;
+                        try
+                        {
+                            await FileSender.SendFileAsync(target.IPv4, Port, f.SendPath,
+                                (sent, size) =>
+                                {
+                                    long delta = sent - lastFileSent;
+                                    lastFileSent = sent;
+                                    long currentTotal = Interlocked.Add(ref grandSentBytes, delta);
+                                    UpdateProgress(currentTotal, grandTotalBytes, $"{f.DisplayName} → {target.FullName}", sent, size);
+                                });
+
+                            lock (progressLock)
+                            {
+                                fileCompletedCount[f.Item]++;
+                                int done = fileCompletedCount[f.Item];
+                                BeginInvoke(new Action(() =>
+                                {
+                                    if (done + fileErrorCount[f.Item] >= targets.Count)
+                                    {
+                                        f.Item.SubItems[2].Text = fileErrorCount[f.Item] == 0
+                                            ? (targets.Count == 1 ? "Enviado" : $"Enviado ({done}/{targets.Count})")
+                                            : $"Parcial ({done}/{targets.Count})";
+                                        f.Item.SubItems[2].ForeColor = fileErrorCount[f.Item] == 0 ? StatusGreen : StatusAmber;
+                                    }
+                                    else
+                                    {
+                                        f.Item.SubItems[2].Text = $"Enviando ({done}/{targets.Count})...";
+                                    }
+                                }));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            targetHadError = true;
+                            lock (progressLock)
+                            {
+                                fileErrorCount[f.Item]++;
+                                failures.Add($"{target.FullName} ({target.IPv4}) — {f.DisplayName}: {ex.Message}");
+                                BeginInvoke(new Action(() =>
+                                {
+                                    f.Item.SubItems[2].Text = $"Error ({fileCompletedCount[f.Item]}/{targets.Count})";
+                                    f.Item.SubItems[2].ForeColor = StatusRed;
+                                }));
+                            }
+                        }
+                    }
+
+                    if (!targetHadError)
+                        Interlocked.Increment(ref okTargets);
+                }).ToList();
+
+                await Task.WhenAll(sendTasks);
+
+                sendStopwatch.Stop();
+                isSending = false;
+                btnSend.Enabled = true;
+                btnSend.Text = "Enviar ahora  →";
+
+                int finalPercent = grandTotalBytes <= 0 ? 100 : (int)Math.Min(100, grandSentBytes * 100.0 / grandTotalBytes);
+                targetProgress = failures.Count == 0 ? 100 : finalPercent;
+                lblRemaining.Text = "Tiempo restante: —";
+
+                string summary = $"Transferencia simultánea finalizada.\r\n\r\nDestinatarios completados: {okTargets} de {targets.Count}.";
+                if (failures.Count > 0)
+                    summary += "\r\n\r\nErrores:\r\n" + string.Join("\r\n", failures);
+
+                lblStatus.Text = $"Completado: {okTargets} de {targets.Count} destinatarios.";
+                MessageBox.Show(summary, "ONKOS File Transfer 2.0", MessageBoxButtons.OK,
+                    failures.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+
+                if (failures.Count == 0)
+                {
+                    listFiles.Items.Clear();
+                    listFiles.Invalidate();
+                    targetProgress = 0;
+                    animatedProgress = 0;
+                    lblPercent.Text = "0%";
+                    pnlProgressBar.Invalidate();
+                    lblStatus.Text = "Listo para enviar o recibir archivos.";
+                }
+            }
+            finally
+            {
+                isSending = false;
+                btnSend.Enabled = true;
+                btnSend.Text = "Enviar ahora  →";
+                foreach (string pkg in tempPackages)
+                {
+                    try { if (File.Exists(pkg)) File.Delete(pkg); } catch { }
+                }
+            }
+        }
+
+        private void UpdateProgress(long sent, long total, string name, long fileSent, long fileSize)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<long, long, string, long, long>(UpdateProgress),
+                    sent, total, name, fileSent, fileSize);
+                return;
+            }
+
+            int percent = total <= 0 ? 100 : (int)Math.Min(100, sent * 100.0 / total);
+            targetProgress = Math.Max(0, Math.Min(100, percent));
+            lblStatus.Text = "Enviando " + name + " (" + FormatBytes(fileSent) + " / " + FormatBytes(fileSize) + ")";
+
+            double elapsedSeconds = sendStopwatch.Elapsed.TotalSeconds;
+            if (sent > 0 && total > sent && elapsedSeconds > 0.35)
+            {
+                double bytesPerSec = sent / elapsedSeconds;
+                if (bytesPerSec > 1)
+                {
+                    double remainingSeconds = (total - sent) / bytesPerSec;
+                    lblRemaining.Text = "Tiempo restante: " + FormatDuration(remainingSeconds);
+                }
+            }
+            else if (sent >= total && total > 0)
+            {
+                lblRemaining.Text = "Tiempo restante: 0 s";
+            }
+        }
+
+        private static string FormatDuration(double seconds)
+        {
+            if (seconds < 1) return "menos de 1 s";
+            TimeSpan ts = TimeSpan.FromSeconds(Math.Ceiling(seconds));
+            if (ts.TotalHours >= 1)
+                return string.Format("{0} h {1} min", (int)ts.TotalHours, ts.Minutes);
+            if (ts.TotalMinutes >= 1)
+                return string.Format("{0} min {1} s", (int)ts.TotalMinutes, ts.Seconds);
+            return string.Format("{0} s", ts.Seconds);
+        }
+
+        private void UpdateReceiverFooter(string message)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string>(UpdateReceiverFooter), message);
+                return;
+            }
+            lblReceiverFooter.Text = message;
+        }
+
+        private static long GetDirectorySize(string folderPath)
+        {
+            long total = 0;
+            try
+            {
+                foreach (string file in Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories))
+                    total += new FileInfo(file).Length;
+            }
+            catch { }
+            return total;
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            double value = bytes;
+            int unit = 0;
+            while (value >= 1024 && unit < units.Length - 1)
+            {
+                value /= 1024;
+                unit++;
+            }
+            return value.ToString("0.##") + " " + units[unit];
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (isSending && e.CloseReason == CloseReason.UserClosing)
+            {
+                DialogResult ans = MessageBox.Show(
+                    "Hay una transferencia de archivos en curso. Si cierras ahora, se interrumpirá el envío.\r\n\r\n¿Deseas cerrar de todas formas?",
+                    "Transferencia en curso - ONKOS File Transfer 2.0",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+
+                if (ans == DialogResult.No)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+
+            animTimer.Stop();
+            animTimer.Dispose();
+            if (fileIcons != null)
+            {
+                fileIcons.Dispose();
+                fileIcons = null;
+            }
+            discovery?.Dispose();
+            receiver.Stop();
+            base.OnFormClosing(e);
+        }
+    }
+}
