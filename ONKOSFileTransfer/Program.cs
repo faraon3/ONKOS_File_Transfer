@@ -48,6 +48,14 @@ namespace ONKOSFileTransfer
                 if (esModoBandeja)
                 {
                     ModernToastNotifier.Inicializar();
+                    PeerDiscoveryService trayDiscovery = null;
+                    if (UserProfileStore.TryLoad(out PeerInfo trayProfile))
+                    {
+                        trayDiscovery = new PeerDiscoveryService();
+                        trayDiscovery.Start(trayProfile);
+                    }
+
+                    using (trayDiscovery)
                     using (var monitor = new InboxMonitor())
                     {
                         Application.Run(new TrayHostContext());
@@ -139,7 +147,7 @@ namespace ONKOSFileTransfer
         public string MachineName { get; set; }
         public DateTime LastSeenUtc { get; set; }
 
-        public string DisplayText => $"{FullName} — {Area} ({IPv4})";
+        public string DisplayText => $"{FullName} — {Area}";
 
         public override string ToString() => DisplayText;
     }
@@ -197,11 +205,11 @@ namespace ONKOSFileTransfer
     public class PeerDiscoveryService : IDisposable
     {
         private const int DiscoveryPort = 5051;
-        private const int BroadcastIntervalMs = 3500;
-        private const int PeerTimeoutSeconds = 18;
+        private const int BroadcastIntervalMs = 2000;
+        private const int PeerTimeoutSeconds = 25;
 
         private readonly object _sync = new object();
-        private readonly Dictionary<string, PeerInfo> _peersByIp =
+        private readonly Dictionary<string, PeerInfo> _peersByKey =
             new Dictionary<string, PeerInfo>(StringComparer.OrdinalIgnoreCase);
 
         private UdpClient _listener;
@@ -236,7 +244,12 @@ namespace ONKOSFileTransfer
         public void UpdateLocalProfile(PeerInfo profile)
         {
             _localProfile = profile;
-            _ = Task.Run(() => BroadcastOnce());
+            _ = Task.Run(async () =>
+            {
+                await BroadcastOnce();
+                await Task.Delay(250);
+                await BroadcastOnce();
+            });
         }
 
         public List<PeerInfo> GetActivePeers(string filterText = null)
@@ -244,7 +257,7 @@ namespace ONKOSFileTransfer
             List<PeerInfo> snapshot;
             lock (_sync)
             {
-                snapshot = _peersByIp.Values
+                snapshot = _peersByKey.Values
                     .Where(p => (DateTime.UtcNow - p.LastSeenUtc).TotalSeconds <= PeerTimeoutSeconds)
                     .ToList();
             }
@@ -267,6 +280,33 @@ namespace ONKOSFileTransfer
                 .ToList();
         }
 
+        public PeerInfo FindPeerByNameOrIp(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return null;
+
+            string clean = input.Trim();
+            List<PeerInfo> active = GetActivePeers();
+
+            // Coincidencia exacta por nombre o DisplayText
+            PeerInfo exact = active.FirstOrDefault(p =>
+                string.Equals(p.FullName, clean, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.DisplayText, clean, StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
+                return exact;
+
+            // Coincidencia por IP
+            PeerInfo byIp = active.FirstOrDefault(p =>
+                string.Equals(p.IPv4, clean, StringComparison.OrdinalIgnoreCase));
+            if (byIp != null)
+                return byIp;
+
+            // Coincidencia parcial por nombre o área
+            return active.FirstOrDefault(p =>
+                (!string.IsNullOrEmpty(p.FullName) && p.FullName.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                (!string.IsNullOrEmpty(p.Area) && p.Area.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
         private async Task ListenLoop(CancellationToken token)
         {
             while (!token.IsCancellationRequested && _running)
@@ -287,17 +327,29 @@ namespace ONKOSFileTransfer
                     if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(ip))
                         continue;
 
-                    if (string.Equals(ip, NetworkManager.GetLocalIPv4(), StringComparison.OrdinalIgnoreCase))
+                    string localIp = NetworkManager.GetLocalIPv4();
+                    bool isSameMachine = !string.IsNullOrWhiteSpace(machine) &&
+                        string.Equals(machine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+                    bool isSameIp = string.Equals(ip, localIp, StringComparison.OrdinalIgnoreCase);
+
+                    if (isSameMachine && isSameIp)
                         continue;
+
+                    string key = !string.IsNullOrWhiteSpace(machine) ? machine : ip;
 
                     bool changed = false;
                     lock (_sync)
                     {
-                        bool existed = _peersByIp.TryGetValue(ip, out PeerInfo existing);
-                        if (!existed || existing.FullName != name || existing.Area != area)
+                        bool existed = _peersByKey.TryGetValue(key, out PeerInfo existing);
+                        if (!existed ||
+                            existing.FullName != name ||
+                            existing.Area != area ||
+                            existing.IPv4 != ip)
+                        {
                             changed = true;
+                        }
 
-                        _peersByIp[ip] = new PeerInfo
+                        _peersByKey[key] = new PeerInfo
                         {
                             FullName = name,
                             Area = area,
@@ -316,7 +368,7 @@ namespace ONKOSFileTransfer
                 }
                 catch
                 {
-                    await Task.Delay(500, token);
+                    await Task.Delay(300, token);
                 }
             }
         }
@@ -377,7 +429,7 @@ namespace ONKOSFileTransfer
             {
                 try
                 {
-                    await Task.Delay(5000, token);
+                    await Task.Delay(4000, token);
                 }
                 catch (TaskCanceledException)
                 {
@@ -387,14 +439,14 @@ namespace ONKOSFileTransfer
                 bool removed = false;
                 lock (_sync)
                 {
-                    var expired = _peersByIp
+                    var expired = _peersByKey
                         .Where(kv => (DateTime.UtcNow - kv.Value.LastSeenUtc).TotalSeconds > PeerTimeoutSeconds)
                         .Select(kv => kv.Key)
                         .ToList();
 
                     foreach (string key in expired)
                     {
-                        _peersByIp.Remove(key);
+                        _peersByKey.Remove(key);
                         removed = true;
                     }
                 }
