@@ -17,6 +17,7 @@ namespace ONKOSFileTransfer
     {
         private const int Port = 5050;
 
+        // Paleta moderna oscura con acentos violeta
         private static readonly Color BgWindow = Color.FromArgb(15, 16, 26);
         private static readonly Color BgCard = Color.FromArgb(24, 26, 40);
         private static readonly Color BgSurface = Color.FromArgb(30, 33, 51);
@@ -61,6 +62,7 @@ namespace ONKOSFileTransfer
         private bool isSending;
         private bool isDragOver;
 
+        // Estados de animación
         private double targetProgress;
         private double animatedProgress;
         private float shimmerOffset;
