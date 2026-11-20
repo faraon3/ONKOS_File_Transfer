@@ -73,7 +73,7 @@ namespace ONKOSFileTransfer
             {
                 string rutaInbox = InboxMonitor.CarpetaRecibidos;
                 Directory.CreateDirectory(rutaInbox);
-                System.Diagnostics.Process.Start("explorer.exe", \$"\"{rutaInbox}\"");
+                System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
             });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Salir", null, (s, e) =>
@@ -139,7 +139,7 @@ namespace ONKOSFileTransfer
         public string MachineName { get; set; }
         public DateTime LastSeenUtc { get; set; }
 
-        public string DisplayText => \$"{FullName} — {Area} ({IPv4})";
+        public string DisplayText => $"{FullName} — {Area} ({IPv4})";
 
         public override string ToString() => DisplayText;
     }
@@ -360,7 +360,7 @@ namespace ONKOSFileTransfer
                     string[] octets = localIp.Split('.');
                     if (octets.Length == 4)
                     {
-                        string subnetBroadcast = \$"{octets[0]}.{octets[1]}.{octets[2]}.255";
+                        string subnetBroadcast = $"{octets[0]}.{octets[1]}.{octets[2]}.255";
                         if (IPAddress.TryParse(subnetBroadcast, out IPAddress subIp))
                             await sender.SendAsync(data, data.Length, new IPEndPoint(subIp, DiscoveryPort));
                     }
