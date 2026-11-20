@@ -42,9 +42,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="InboxMonitor.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ModernToastNotifier.cs" />
     <Compile Include="Network\FileReceiver.cs" />
     <Compile Include="Network\FileSender.cs" />
     <Compile Include="Network\NetworkManager.cs" />
