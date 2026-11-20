@@ -11,6 +11,9 @@ namespace ONKOSFileTransfer
     public static class ModernToastNotifier
     {
         private static readonly object _syncLock = new object();
+        private static readonly HashSet<string> _notificadosRecientes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static Thread _uiThread;
+        private static ToastNotificationForm _activeToast;
         private static bool _inicializado;
 
         public static void Inicializar()
@@ -29,55 +32,120 @@ namespace ONKOSFileTransfer
 
             try
             {
-                var archivosValidos = rutasArchivos
-                    .Where(File.Exists)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                List<string> nuevosArchivos;
+                lock (_syncLock)
+                {
+                    if (_notificadosRecientes.Count > 2000)
+                        _notificadosRecientes.Clear();
 
-                if (archivosValidos.Count == 0)
+                    nuevosArchivos = rutasArchivos
+                        .Where(r => !string.IsNullOrWhiteSpace(r) && File.Exists(r))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Where(r => _notificadosRecientes.Add(r))
+                        .ToList();
+                }
+
+                if (nuevosArchivos.Count == 0)
                     return;
 
-                string ultimoArchivo = archivosValidos.Last();
-                string carpetaDestino = Path.GetDirectoryName(ultimoArchivo) ?? @"C:\ProgramData\ONKOS\Inbox";
+                string ultimoArchivo = nuevosArchivos.Last();
+                string carpetaDestino = Path.GetDirectoryName(ultimoArchivo) ?? InboxMonitor.CarpetaRecibidos;
                 string nombreSubcarpeta = new DirectoryInfo(carpetaDestino).Name;
                 string origen = nombreSubcarpeta.Contains("_")
                     ? nombreSubcarpeta.Split('_')[0]
                     : nombreSubcarpeta;
 
-                string titulo = archivosValidos.Count == 1
-                    ? "Archivo recibido"
-                    : $"{archivosValidos.Count} archivos recibidos";
+                string titulo = nuevosArchivos.Count == 1
+                    ? "1 archivo recibido"
+                    : $"{nuevosArchivos.Count} archivos recibidos";
 
-                string mensaje = archivosValidos.Count == 1
-                    ? $"{Path.GetFileName(ultimoArchivo)} · Desde {origen}"
-                    : $"Último: {Path.GetFileName(ultimoArchivo)} · Desde {origen}";
+                string mensaje = nuevosArchivos.Count == 1
+                    ? $"{Path.GetFileName(ultimoArchivo)} · {origen}"
+                    : $"Último: {Path.GetFileName(ultimoArchivo)} · {origen}";
 
-                var thread = new Thread(() =>
-                {
-                    try
-                    {
-                        Application.EnableVisualStyles();
-                        ToastNotificationForm toast = new ToastNotificationForm(
-                            titulo,
-                            mensaje,
-                            carpetaDestino,
-                            5500,
-                            true
-                        );
-                        Application.Run(toast);
-                    }
-                    catch
-                    {
-                    }
-                });
-
-                thread.SetApartmentState(ApartmentState.STA);
-                thread.IsBackground = true;
-                thread.Start();
+                MostrarEnHiloUnico(titulo, mensaje, carpetaDestino);
             }
             catch
             {
             }
+        }
+
+        private static void MostrarEnHiloUnico(string titulo, string mensaje, string carpetaDestino)
+        {
+            lock (_syncLock)
+            {
+                if (_uiThread == null || !_uiThread.IsAlive)
+                {
+                    _uiThread = new Thread(() =>
+                    {
+                        Application.EnableVisualStyles();
+                        Application.Run(new ApplicationContext());
+                    });
+                    _uiThread.SetApartmentState(ApartmentState.STA);
+                    _uiThread.IsBackground = true;
+                    _uiThread.Start();
+
+                    Thread.Sleep(150);
+                }
+
+                try
+                {
+                    if (_activeToast != null && !_activeToast.IsDisposed)
+                    {
+                        if (_activeToast.InvokeRequired)
+                        {
+                            _activeToast.BeginInvoke(new Action(() =>
+                            {
+                                try { _activeToast.Close(); } catch { }
+                            }));
+                        }
+                        else
+                        {
+                            _activeToast.Close();
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            var abrirToast = new Thread(() =>
+            {
+                try
+                {
+                    ToastNotificationForm toast = new ToastNotificationForm(
+                        titulo,
+                        mensaje,
+                        carpetaDestino,
+                        4500,
+                        true
+                    );
+
+                    lock (_syncLock)
+                    {
+                        _activeToast = toast;
+                    }
+
+                    toast.FormClosed += (s, e) =>
+                    {
+                        lock (_syncLock)
+                        {
+                            if (ReferenceEquals(_activeToast, toast))
+                                _activeToast = null;
+                        }
+                    };
+
+                    Application.Run(toast);
+                }
+                catch
+                {
+                }
+            });
+
+            abrirToast.SetApartmentState(ApartmentState.STA);
+            abrirToast.IsBackground = true;
+            abrirToast.Start();
         }
     }
 }
