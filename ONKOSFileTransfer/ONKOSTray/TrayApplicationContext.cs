@@ -9,7 +9,6 @@ namespace ONKOSFileTransfer.ONKOSTray
     public class TrayApplicationContext : ApplicationContext
     {
         private readonly NotifyIcon trayIcon;
-        private readonly InboxMonitor inboxMonitor;
         private MainForm mainForm;
 
         public TrayApplicationContext()
@@ -29,10 +28,6 @@ namespace ONKOSFileTransfer.ONKOSTray
             };
 
             trayIcon.DoubleClick += OnOpenMainForm;
-
-            string inboxPath = @"C:\ProgramData\ONKOS\Inbox";
-            inboxMonitor = new InboxMonitor(inboxPath, OnFilesReceived);
-            inboxMonitor.Start();
         }
 
         private Icon LoadAppIcon()
@@ -56,16 +51,6 @@ namespace ONKOSFileTransfer.ONKOSTray
             }
 
             return SystemIcons.Application;
-        }
-
-        private void OnFilesReceived(string folderPath, int fileCount)
-        {
-            string title = fileCount == 1
-                ? "Nuevo archivo recibido"
-                : $"{fileCount} archivos recibidos";
-
-            string message = "Haz clic aquí para abrir la carpeta de llegada.";
-            ModernToastNotifier.Show(title, message, folderPath);
         }
 
         private void OnOpenMainForm(object sender, EventArgs e)
@@ -101,7 +86,6 @@ namespace ONKOSFileTransfer.ONKOSTray
 
         private void OnExit(object sender, EventArgs e)
         {
-            inboxMonitor?.Stop();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             Application.Exit();
