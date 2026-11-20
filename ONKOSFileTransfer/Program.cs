@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
+using ONKOSFileTransfer.Network;
 
 namespace ONKOSFileTransfer
 {
@@ -24,35 +25,35 @@ namespace ONKOSFileTransfer
             using (var mutex = new Mutex(true, nombreMutex, out bool esPrimeraInstancia))
             {
                 if (!esPrimeraInstancia)
-                {
-                    // Ya existe una instancia activa de este modo
                     return;
+
+                PeerInfo profile = null;
+                if (!esModoBandeja && !UserProfileStore.TryLoad(out profile))
+                {
+                    using (var welcome = new WelcomeRegistrationForm())
+                    {
+                        if (welcome.ShowDialog() != DialogResult.OK || welcome.RegisteredProfile == null)
+                            return;
+                        profile = welcome.RegisteredProfile;
+                    }
                 }
 
                 if (esModoBandeja)
                 {
                     ModernToastNotifier.Inicializar();
-
                     using (var monitor = new InboxMonitor())
                     {
-                        // Si ya tienes una clase TrayApplicationContext o similar, úsala aquí:
-                        // Application.Run(new TrayApplicationContext());
                         Application.Run(new TrayHostContext());
                     }
                 }
                 else
                 {
-                    // Cambia "MainForm" por el nombre de tu formulario principal si se llama distinto
-                    Application.Run(new MainForm());
+                    Application.Run(new MainForm(profile));
                 }
             }
         }
     }
 
-    /// <summary>
-    /// Contexto ligero de bandeja por si aún no tienes una clase TrayApplicationContext propia.
-    /// Si ya tienes una, reemplaza "new TrayHostContext()" arriba por la tuya.
-    /// </summary>
     internal sealed class TrayHostContext : ApplicationContext
     {
         private readonly NotifyIcon _notifyIcon;
@@ -61,9 +62,9 @@ namespace ONKOSFileTransfer
         {
             var menu = new ContextMenuStrip();
             menu.Items.Add("Abrir ventana de envío", null, (s, e) => AbrirVentanaPrincipal());
-            menu.Items.Add("Abrir carpeta Inbox", null, (s, e) =>
+            menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
-                string rutaInbox = @"C:\ProgramData\ONKOS\Inbox";
+                string rutaInbox = InboxMonitor.CarpetaRecibidos;
                 System.IO.Directory.CreateDirectory(rutaInbox);
                 System.Diagnostics.Process.Start("explorer.exe", $"\"{rutaInbox}\"");
             });
@@ -76,8 +77,8 @@ namespace ONKOSFileTransfer
 
             _notifyIcon = new NotifyIcon
             {
-                Text = "ONKOS File Transfer (Bandeja activa)",
-                Icon = System.Drawing.SystemIcons.Application, // Puedes cambiarlo por tu ícono .ico si deseas
+                Text = "ONKOS File Transfer (Activo)",
+                Icon = System.Drawing.SystemIcons.Application,
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -87,11 +88,20 @@ namespace ONKOSFileTransfer
 
         private void AbrirVentanaPrincipal()
         {
-            // Cambia "MainForm" por el nombre de tu formulario principal si se llama distinto
+            if (!UserProfileStore.TryLoad(out PeerInfo profile))
+            {
+                using (var welcome = new WelcomeRegistrationForm())
+                {
+                    if (welcome.ShowDialog() != DialogResult.OK || welcome.RegisteredProfile == null)
+                        return;
+                    profile = welcome.RegisteredProfile;
+                }
+            }
+
             var form = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
             if (form == null)
             {
-                form = new MainForm();
+                form = new MainForm(profile);
                 form.Show();
             }
             else
@@ -105,13 +115,10 @@ namespace ONKOSFileTransfer
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing && _notifyIcon != null)
             {
-                if (_notifyIcon != null)
-                {
-                    _notifyIcon.Visible = false;
-                    _notifyIcon.Dispose();
-                }
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
             }
             base.Dispose(disposing);
         }
