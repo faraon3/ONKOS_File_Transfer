@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -17,6 +18,7 @@ namespace ONKOSFileTransfer
     {
         private const int Port = 5050;
 
+        // Paleta moderna oscura con acentos violeta
         private static readonly Color BgWindow = Color.FromArgb(15, 16, 26);
         private static readonly Color BgCard = Color.FromArgb(24, 26, 40);
         private static readonly Color BgSurface = Color.FromArgb(30, 33, 51);
@@ -41,9 +43,8 @@ namespace ONKOSFileTransfer
         private readonly Stopwatch sendStopwatch = new Stopwatch();
         private PeerInfo currentProfile;
 
-        private TextBox txtSearchPeer;
-        private ComboBox cmbPeers;
-        private TextBox txtIP;
+        private ComboBox cmbDestinatario;
+        private Label lblPuenteInfo;
         private Panel pnlDestCard;
         private Panel pnlDropZone;
         private ListView listFiles;
@@ -58,8 +59,10 @@ namespace ONKOSFileTransfer
         private Label lblUserHeader;
 
         private string activeFolder;
+        private string resolvedTargetIp;
         private bool isSending;
         private bool isDragOver;
+        private bool updatingCombo;
 
         private double targetProgress;
         private double animatedProgress;
@@ -174,9 +177,9 @@ namespace ONKOSFileTransfer
         private void BuildInterface()
         {
             Text = "ONKOS File Transfer 2.0";
-            ClientSize = new Size(960, 720);
-            MinimumSize = new Size(960, 720);
-            MaximumSize = new Size(960, 720);
+            ClientSize = new Size(960, 710);
+            MinimumSize = new Size(960, 710);
+            MaximumSize = new Size(960, 710);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = BgWindow;
             ForeColor = TextPrimary;
@@ -280,28 +283,28 @@ namespace ONKOSFileTransfer
 
             Controls.Add(new Label
             {
-                Text = "Selecciona una persona registrada en vivo o escribe la IP del computador destino.",
+                Text = "Elige a la persona por su nombre en vivo y envía tus archivos sin preocuparte por la IP.",
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = TextSecondary,
                 Location = new Point(28, 106),
                 Size = new Size(906, 20)
             });
 
-            // --- TARJETA DESTINO (PERSONA EN VIVO + IP PUENTE) ---
+            // --- TARJETA DESTINO POR NOMBRE ---
             pnlDestCard = new Panel
             {
                 Location = new Point(28, 132),
-                Size = new Size(906, 86),
+                Size = new Size(906, 74),
                 BackColor = BgCard
             };
             pnlDestCard.Paint += (s, e) =>
             {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 Rectangle rect = new Rectangle(0, 0, pnlDestCard.Width - 1, pnlDestCard.Height - 1);
-                Color border = (txtIP != null && txtIP.Focused) ? AccentPurpleLight : BorderSubtle;
+                Color border = (cmbDestinatario != null && cmbDestinatario.Focused) ? AccentPurpleLight : BorderSubtle;
                 using (GraphicsPath path = GetRoundedRect(rect, 10))
                 using (SolidBrush fill = new SolidBrush(BgCard))
-                using (Pen pen = new Pen(border, (txtIP != null && txtIP.Focused) ? 1.5f : 1f))
+                using (Pen pen = new Pen(border, (cmbDestinatario != null && cmbDestinatario.Focused) ? 1.5f : 1f))
                 {
                     pnlDestCard.Region = new Region(path);
                     e.Graphics.FillPath(fill, path);
@@ -311,59 +314,39 @@ namespace ONKOSFileTransfer
 
             pnlDestCard.Controls.Add(new Label
             {
-                Text = "PERSONA",
+                Text = "ENVIAR A",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = TextSecondary,
-                Location = new Point(16, 13),
+                Location = new Point(16, 17),
                 Size = new Size(88, 20)
             });
 
-            txtSearchPeer = new TextBox
+            cmbDestinatario = new ComboBox
             {
-                Location = new Point(112, 10),
-                Size = new Size(270, 26),
-                Font = new Font("Segoe UI", 9F),
-                BackColor = BgInput,
-                ForeColor = TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            txtSearchPeer.TextChanged += (s, e) => RefreshPeersList();
-            pnlDestCard.Controls.Add(txtSearchPeer);
-
-            cmbPeers = new ComboBox
-            {
-                Location = new Point(390, 10),
-                Size = new Size(500, 26),
-                DropDownStyle = ComboBoxStyle.DropDownList,
+                Location = new Point(110, 12),
+                Size = new Size(778, 30),
+                Font = new Font("Segoe UI", 10F),
+                DropDownStyle = ComboBoxStyle.DropDown,
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems,
                 BackColor = BgInput,
                 ForeColor = TextPrimary
             };
-            cmbPeers.SelectedIndexChanged += OnPeerSelected;
-            pnlDestCard.Controls.Add(cmbPeers);
+            cmbDestinatario.SelectedIndexChanged += OnDestinatarioChanged;
+            cmbDestinatario.TextChanged += OnDestinatarioTextChanged;
+            cmbDestinatario.GotFocus += (s, e) => pnlDestCard.Invalidate();
+            cmbDestinatario.LostFocus += (s, e) => pnlDestCard.Invalidate();
+            pnlDestCard.Controls.Add(cmbDestinatario);
 
-            pnlDestCard.Controls.Add(new Label
+            lblPuenteInfo = new Label
             {
-                Text = "IP DESTINO",
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Text = "Selecciona un usuario activo o escribe su nombre (la IP se usa automáticamente como puente).",
+                Font = new Font("Segoe UI", 8.2F),
                 ForeColor = TextSecondary,
-                Location = new Point(16, 48),
-                Size = new Size(88, 20)
-            });
-
-            Panel pnlInputWrap = CreateRoundedPanel(new Point(112, 44), new Size(778, 32), BgInput, BorderSubtle, 7);
-            txtIP = new TextBox
-            {
-                Location = new Point(12, 6),
-                Size = new Size(754, 20),
-                Font = new Font("Segoe UI", 9.5F),
-                BackColor = BgInput,
-                ForeColor = TextPrimary,
-                BorderStyle = BorderStyle.None
+                Location = new Point(112, 46),
+                Size = new Size(776, 18)
             };
-            txtIP.GotFocus += (s, e) => pnlDestCard.Invalidate();
-            txtIP.LostFocus += (s, e) => pnlDestCard.Invalidate();
-            pnlInputWrap.Controls.Add(txtIP);
-            pnlDestCard.Controls.Add(pnlInputWrap);
+            pnlDestCard.Controls.Add(lblPuenteInfo);
             Controls.Add(pnlDestCard);
 
             // --- ZONA DRAG & DROP ---
@@ -372,13 +355,13 @@ namespace ONKOSFileTransfer
                 Text = "ARCHIVOS Y CARPETAS  •  ARRASTRA AQUÍ PARA AÑADIR",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = TextSecondary,
-                Location = new Point(28, 228),
+                Location = new Point(28, 218),
                 Size = new Size(500, 18)
             });
 
             pnlDropZone = new Panel
             {
-                Location = new Point(28, 250),
+                Location = new Point(28, 240),
                 Size = new Size(906, 104),
                 BackColor = BgCard,
                 Cursor = Cursors.Hand,
@@ -413,7 +396,7 @@ namespace ONKOSFileTransfer
             // --- TABLA DE ARCHIVOS ---
             Panel pnlTableHeader = new Panel
             {
-                Location = new Point(28, 366),
+                Location = new Point(28, 356),
                 Size = new Size(906, 28),
                 BackColor = BgHeaderTable
             };
@@ -430,7 +413,7 @@ namespace ONKOSFileTransfer
 
             listFiles = new ListView
             {
-                Location = new Point(28, 394),
+                Location = new Point(28, 384),
                 Size = new Size(906, 110),
                 View = View.Details,
                 HeaderStyle = ColumnHeaderStyle.None,
@@ -475,7 +458,7 @@ namespace ONKOSFileTransfer
             // --- BOTÓN ENVIAR ---
             btnSend = MakeAnimatedButton(
                 "Enviar ahora  →",
-                new Point(28, 518),
+                new Point(28, 508),
                 new Size(906, 40),
                 AccentPurple,
                 AccentPurpleHover,
@@ -495,7 +478,7 @@ namespace ONKOSFileTransfer
                 Text = "PROGRESO",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = TextSecondary,
-                Location = new Point(28, 570),
+                Location = new Point(28, 560),
                 Size = new Size(120, 18)
             });
 
@@ -505,14 +488,14 @@ namespace ONKOSFileTransfer
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = AccentPurpleLight,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(854, 570),
+                Location = new Point(854, 560),
                 Size = new Size(80, 18)
             };
             Controls.Add(lblPercent);
 
             pnlProgressBar = new Panel
             {
-                Location = new Point(28, 592),
+                Location = new Point(28, 582),
                 Size = new Size(906, 13),
                 BackColor = BgProgressTrack
             };
@@ -525,7 +508,7 @@ namespace ONKOSFileTransfer
                 Text = "Listo para enviar o recibir archivos.",
                 Font = new Font("Segoe UI", 8.5F),
                 ForeColor = TextPrimary,
-                Location = new Point(28, 613),
+                Location = new Point(28, 603),
                 Size = new Size(650, 20)
             };
             Controls.Add(lblStatus);
@@ -536,7 +519,7 @@ namespace ONKOSFileTransfer
                 Font = new Font("Segoe UI", 8.5F),
                 ForeColor = TextSecondary,
                 TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(684, 613),
+                Location = new Point(684, 603),
                 Size = new Size(250, 20)
             };
             Controls.Add(lblRemaining);
@@ -546,7 +529,7 @@ namespace ONKOSFileTransfer
                 Text = "Recepción automática activa.",
                 Font = new Font("Segoe UI", 8.5F),
                 ForeColor = TextLink,
-                Location = new Point(28, 644),
+                Location = new Point(28, 634),
                 Size = new Size(906, 22),
                 Cursor = Cursors.Hand
             };
@@ -567,35 +550,80 @@ namespace ONKOSFileTransfer
                 return;
             }
 
-            string q = txtSearchPeer?.Text ?? string.Empty;
-            List<PeerInfo> peers = discovery.GetActivePeers(q);
-            string selectedIp = (cmbPeers.SelectedItem as PeerInfo)?.IPv4;
+            List<PeerInfo> peers = discovery.GetActivePeers();
+            string typedText = cmbDestinatario.Text ?? string.Empty;
 
-            cmbPeers.BeginUpdate();
-            cmbPeers.Items.Clear();
+            updatingCombo = true;
+            cmbDestinatario.BeginUpdate();
+            cmbDestinatario.Items.Clear();
             foreach (PeerInfo p in peers)
-                cmbPeers.Items.Add(p);
+                cmbDestinatario.Items.Add(p);
 
-            if (!string.IsNullOrEmpty(selectedIp))
-            {
-                for (int i = 0; i < cmbPeers.Items.Count; i++)
-                {
-                    if (string.Equals(((PeerInfo)cmbPeers.Items[i]).IPv4, selectedIp, StringComparison.OrdinalIgnoreCase))
-                    {
-                        cmbPeers.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-            cmbPeers.EndUpdate();
+            if (!string.IsNullOrWhiteSpace(typedText))
+                cmbDestinatario.Text = typedText;
+            cmbDestinatario.EndUpdate();
+            updatingCombo = false;
+
+            ResolveCurrentTarget();
         }
 
-        private void OnPeerSelected(object sender, EventArgs e)
+        private void OnDestinatarioChanged(object sender, EventArgs e)
         {
-            if (cmbPeers.SelectedItem is PeerInfo peer && !string.IsNullOrWhiteSpace(peer.IPv4))
+            if (updatingCombo) return;
+            if (cmbDestinatario.SelectedItem is PeerInfo peer)
             {
-                txtIP.Text = peer.IPv4;
+                resolvedTargetIp = peer.IPv4;
+                lblPuenteInfo.Text = $"Destino: {peer.FullName} ({peer.Area})  •  Puente IP: {peer.IPv4}";
+                lblPuenteInfo.ForeColor = StatusGreen;
             }
+        }
+
+        private void OnDestinatarioTextChanged(object sender, EventArgs e)
+        {
+            if (updatingCombo) return;
+            ResolveCurrentTarget();
+        }
+
+        private void ResolveCurrentTarget()
+        {
+            string raw = (cmbDestinatario.Text ?? string.Empty).Trim();
+            resolvedTargetIp = null;
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                lblPuenteInfo.Text = "Selecciona un usuario activo o escribe su nombre (la IP se usa automáticamente como puente).";
+                lblPuenteInfo.ForeColor = TextSecondary;
+                return;
+            }
+
+            if (cmbDestinatario.SelectedItem is PeerInfo selected &&
+                string.Equals(selected.DisplayText, raw, StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedTargetIp = selected.IPv4;
+                lblPuenteInfo.Text = $"Destino: {selected.FullName} ({selected.Area})  •  Puente IP: {selected.IPv4}";
+                lblPuenteInfo.ForeColor = StatusGreen;
+                return;
+            }
+
+            PeerInfo match = discovery.FindPeerByNameOrIp(raw);
+            if (match != null)
+            {
+                resolvedTargetIp = match.IPv4;
+                lblPuenteInfo.Text = $"Coincidencia: {match.FullName} ({match.Area})  •  Puente IP: {match.IPv4}";
+                lblPuenteInfo.ForeColor = StatusGreen;
+                return;
+            }
+
+            if (IPAddress.TryParse(raw, out IPAddress parsedIp) && parsedIp.AddressFamily == AddressFamily.InterNetwork)
+            {
+                resolvedTargetIp = parsedIp.ToString();
+                lblPuenteInfo.Text = $"Envío directo por IP: {resolvedTargetIp}";
+                lblPuenteInfo.ForeColor = TextLink;
+                return;
+            }
+
+            lblPuenteInfo.Text = "Buscando usuario en la red... asegúrate de que tenga la aplicación abierta.";
+            lblPuenteInfo.ForeColor = StatusAmber;
         }
 
         private string GetOrAddIconKey(string path, bool isDirectory)
@@ -962,12 +990,15 @@ namespace ONKOSFileTransfer
 
         private async void SendFiles(object sender, EventArgs e)
         {
-            if (!IPAddress.TryParse(txtIP.Text.Trim(), out IPAddress address) ||
+            ResolveCurrentTarget();
+
+            if (string.IsNullOrWhiteSpace(resolvedTargetIp) ||
+                !IPAddress.TryParse(resolvedTargetIp, out IPAddress address) ||
                 address.AddressFamily != AddressFamily.InterNetwork)
             {
-                MessageBox.Show("Selecciona una persona registrada o escribe una IPv4 válida en IP DESTINO.", "ONKOS File Transfer 2.0",
+                MessageBox.Show("Selecciona a la persona por su nombre en la lista o escribe un nombre/IP válido.", "ONKOS File Transfer 2.0",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
-                txtIP.Focus();
+                cmbDestinatario.Focus();
                 return;
             }
 
