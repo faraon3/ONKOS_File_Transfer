@@ -149,7 +149,7 @@ namespace ONKOSFileTransfer
 
         public string DisplayText => string.IsNullOrWhiteSpace(Area)
             ? FullName
-            : \$"{FullName} — {Area}";
+            : FullName + " — " + Area;
 
         public override string ToString() => DisplayText;
     }
@@ -516,7 +516,7 @@ namespace ONKOSFileTransfer
                     string[] octets = localIp.Split('.');
                     if (octets.Length == 4)
                     {
-                        string subnetBroadcast = \$"{octets[0]}.{octets[1]}.{octets[2]}.255";
+                        string subnetBroadcast = octets[0] + "." + octets[1] + "." + octets[2] + ".255";
                         if (IPAddress.TryParse(subnetBroadcast, out IPAddress subIp))
                             await sender.SendAsync(data, data.Length, new IPEndPoint(subIp, DiscoveryPort));
                     }
@@ -610,7 +610,7 @@ namespace ONKOSFileTransfer
 
             Controls.Add(new Label
             {
-                Text = "ÁREA",
+                Text = "AREA",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(152, 160, 182),
                 Location = new Point(24, 140),
@@ -652,7 +652,7 @@ namespace ONKOSFileTransfer
             if (string.IsNullOrWhiteSpace(fullName) || string.IsNullOrWhiteSpace(area))
             {
                 MessageBox.Show(
-                    "Ingresa tu nombre completo y tu área para continuar.",
+                    "Ingresa tu nombre completo y tu area para continuar.",
                     "ONKOS File Transfer 2.0",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
