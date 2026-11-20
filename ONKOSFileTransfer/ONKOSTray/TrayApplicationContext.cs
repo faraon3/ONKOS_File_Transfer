@@ -21,12 +21,13 @@ namespace ONKOSFileTransfer.ONKOSTray
 
             trayIcon = new NotifyIcon
             {
-                Text = "ONKOS File Transfer (Bandeja activa)",
+                Text = "ONKOS File Transfer · Activo",
                 Icon = LoadAppIcon(),
                 ContextMenuStrip = menu,
-                Visible = true
+                Visible = false
             };
 
+            trayIcon.Visible = true;
             trayIcon.DoubleClick += OnOpenMainForm;
         }
 
@@ -37,13 +38,16 @@ namespace ONKOSFileTransfer.ONKOSTray
                 string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
                 if (File.Exists(icoPath))
                 {
-                    return new Icon(icoPath);
+                    using (Icon tempIcon = new Icon(icoPath))
+                    {
+                        return (Icon)tempIcon.Clone();
+                    }
                 }
 
                 Icon exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
                 if (exeIcon != null)
                 {
-                    return exeIcon;
+                    return (Icon)exeIcon.Clone();
                 }
             }
             catch
