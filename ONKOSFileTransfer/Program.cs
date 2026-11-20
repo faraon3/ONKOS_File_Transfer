@@ -149,7 +149,7 @@ namespace ONKOSFileTransfer
 
         public string DisplayText => string.IsNullOrWhiteSpace(Area)
             ? FullName
-            : $"{FullName} — {Area}";
+            : \$"{FullName} — {Area}";
 
         public override string ToString() => DisplayText;
     }
@@ -313,6 +313,38 @@ namespace ONKOSFileTransfer
             catch
             {
             }
+        }
+
+        public PeerInfo RegisterManualContact(string fullName, string area, string ipv4)
+        {
+            string cleanName = (fullName ?? string.Empty).Replace("|", "/").Trim();
+            string cleanArea = string.IsNullOrWhiteSpace(area) ? "Manual" : area.Replace("|", "/").Trim();
+            string cleanIp = (ipv4 ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(cleanName) ||
+                !IPAddress.TryParse(cleanIp, out IPAddress parsed) ||
+                parsed.AddressFamily != AddressFamily.InterNetwork)
+            {
+                return null;
+            }
+
+            var peer = new PeerInfo
+            {
+                FullName = cleanName,
+                Area = cleanArea,
+                IPv4 = parsed.ToString(),
+                MachineName = string.Empty,
+                LastSeenUtc = DateTime.UtcNow
+            };
+
+            lock (_sync)
+            {
+                _peersByKey[cleanName.ToLowerInvariant()] = peer;
+                SaveContactsLocked();
+            }
+
+            PeersUpdated?.Invoke();
+            return peer;
         }
 
         public void UpdateLocalProfile(PeerInfo profile)
@@ -484,7 +516,7 @@ namespace ONKOSFileTransfer
                     string[] octets = localIp.Split('.');
                     if (octets.Length == 4)
                     {
-                        string subnetBroadcast = $"{octets[0]}.{octets[1]}.{octets[2]}.255";
+                        string subnetBroadcast = \$"{octets[0]}.{octets[1]}.{octets[2]}.255";
                         if (IPAddress.TryParse(subnetBroadcast, out IPAddress subIp))
                             await sender.SendAsync(data, data.Length, new IPEndPoint(subIp, DiscoveryPort));
                     }
