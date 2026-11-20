@@ -8,7 +8,8 @@ namespace ONKOSTransferService
 {
     public partial class TransferWindowsService : ServiceBase
     {
-        private const string DefaultInboxFolder = @"C:\ProgramData\ONKOS\Inbox";
+        private static readonly string DefaultInboxFolder =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
         private const int DefaultListenPort = 5050;
 
         private FileReceiver _receiver;
