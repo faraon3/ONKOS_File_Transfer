@@ -206,7 +206,7 @@ namespace ONKOSFileTransfer
     {
         private const int DiscoveryPort = 5051;
         private const int BroadcastIntervalMs = 2000;
-        private const int PeerTimeoutSeconds = 25;
+        private const int PeerTimeoutSeconds = 30;
 
         private readonly object _sync = new object();
         private readonly Dictionary<string, PeerInfo> _peersByKey =
@@ -288,20 +288,17 @@ namespace ONKOSFileTransfer
             string clean = input.Trim();
             List<PeerInfo> active = GetActivePeers();
 
-            // Coincidencia exacta por nombre o DisplayText
             PeerInfo exact = active.FirstOrDefault(p =>
                 string.Equals(p.FullName, clean, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(p.DisplayText, clean, StringComparison.OrdinalIgnoreCase));
             if (exact != null)
                 return exact;
 
-            // Coincidencia por IP
             PeerInfo byIp = active.FirstOrDefault(p =>
                 string.Equals(p.IPv4, clean, StringComparison.OrdinalIgnoreCase));
             if (byIp != null)
                 return byIp;
 
-            // Coincidencia parcial por nombre o área
             return active.FirstOrDefault(p =>
                 (!string.IsNullOrEmpty(p.FullName) && p.FullName.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0) ||
                 (!string.IsNullOrEmpty(p.Area) && p.Area.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0));
