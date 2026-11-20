@@ -21,33 +21,43 @@ namespace ONKOSFileTransfer.ONKOSTray
 
             trayIcon = new NotifyIcon
             {
-                Text = "ONKOS File Transfer · Activo",
-                Icon = LoadAppIcon(),
+                Text = "ONKOS File Transfer - Activo",
+                Icon = LoadTrayIcon(),
                 ContextMenuStrip = menu,
-                Visible = false
+                Visible = true
             };
 
-            trayIcon.Visible = true;
             trayIcon.DoubleClick += OnOpenMainForm;
         }
 
-        private Icon LoadAppIcon()
+        private Icon LoadTrayIcon()
         {
             try
             {
                 string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
                 if (File.Exists(icoPath))
                 {
-                    using (Icon tempIcon = new Icon(icoPath))
+                    using (Icon raw = new Icon(icoPath, new Size(32, 32)))
                     {
-                        return (Icon)tempIcon.Clone();
+                        return (Icon)raw.Clone();
                     }
                 }
+            }
+            catch
+            {
+            }
 
-                Icon exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-                if (exeIcon != null)
+            try
+            {
+                Icon assoc = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (assoc != null)
                 {
-                    return (Icon)exeIcon.Clone();
+                    using (Bitmap bmp = assoc.ToBitmap())
+                    using (Bitmap resized = new Bitmap(bmp, new Size(32, 32)))
+                    {
+                        IntPtr hIcon = resized.GetHicon();
+                        return Icon.FromHandle(hIcon);
+                    }
                 }
             }
             catch
@@ -79,13 +89,13 @@ namespace ONKOSFileTransfer.ONKOSTray
 
         private void OnOpenInboxFolder(object sender, EventArgs e)
         {
-            string inboxPath = @"C:\ProgramData\ONKOS\Inbox";
+            string inboxPath = InboxMonitor.CarpetaRecibidos;
             if (!Directory.Exists(inboxPath))
             {
                 Directory.CreateDirectory(inboxPath);
             }
 
-            Process.Start("explorer.exe", inboxPath);
+            Process.Start("explorer.exe", $"\"{inboxPath}\"");
         }
 
         private void OnExit(object sender, EventArgs e)
