@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using Microsoft.Toolkit.Uwp.Notifications;
+using System.Windows.Forms;
 
 namespace ONKOSFileTransfer
 {
@@ -9,25 +9,7 @@ namespace ONKOSFileTransfer
     {
         public static void Inicializar()
         {
-            ToastNotificationManagerCompat.OnActivated += toastArgs =>
-            {
-                try
-                {
-                    ToastArguments args = ToastArguments.Parse(toastArgs.Argument);
-
-                    if (args.TryGetValue("action", out string action) && action == "openFolder")
-                    {
-                        if (args.TryGetValue("folderPath", out string folderPath) && Directory.Exists(folderPath))
-                        {
-                            Process.Start("explorer.exe", $"\"{folderPath}\"");
-                        }
-                    }
-                }
-                catch
-                {
-                    // Evita cerrar la bandeja si ocurre un error al abrir el explorador
-                }
-            };
+            // Inicialización lista para notificaciones emergentes desde la bandeja
         }
 
         public static void MostrarArchivoRecibido(string rutaCompletaArchivo)
@@ -36,37 +18,47 @@ namespace ONKOSFileTransfer
             {
                 string nombreArchivo = Path.GetFileName(rutaCompletaArchivo);
                 string carpetaContenedora = Path.GetDirectoryName(rutaCompletaArchivo);
-                string nombreCarpetaOrigen = new DirectoryInfo(carpetaContenedora).Name;
+                string nombreCarpetaOrigen = !string.IsNullOrEmpty(carpetaContenedora)
+                    ? new DirectoryInfo(carpetaContenedora).Name
+                    : "Red";
 
-                // Extrae la IP o equipo origen si la carpeta tiene formato "IP_fecha" o similar
                 string origen = nombreCarpetaOrigen.Contains("_")
                     ? nombreCarpetaOrigen.Split('_')[0]
                     : nombreCarpetaOrigen;
 
-                var builder = new ToastContentBuilder()
-                    .AddArgument("action", "openFolder")
-                    .AddArgument("folderPath", carpetaContenedora)
-                    .AddText("Archivo recibido • ONKOS Transfer")
-                    .AddText($"Origen: {origen}")
-                    .AddText(nombreArchivo)
-                    .AddButton(new ToastButton()
-                        .SetContent("Abrir carpeta")
-                        .AddArgument("action", "openFolder")
-                        .AddArgument("folderPath", carpetaContenedora))
-                    .AddButton(new ToastButtonDismiss("Descartar"));
+                // Si tienes ToastNotificationForm en ONKOSTray, puedes mostrarlo o usar BalloonTip
+                var tray = Application.OpenForms.Count > 0 ? null : null;
+                System.Media.SystemSounds.Asterisk.Play();
 
-                // Si colocas un logo PNG llamado onkos_logo.png junto al .exe, lo muestra en círculo
-                string rutaLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos_logo.png");
-                if (File.Exists(rutaLogo))
+                // Abre la carpeta si se requiere o muestra aviso nativo desde la bandeja
+                var tempIcon = new NotifyIcon
                 {
-                    builder.AddAppLogoOverride(new Uri(rutaLogo), ToastGenericAppLogoCrop.Circle);
-                }
+                    Icon = System.Drawing.SystemIcons.Information,
+                    Visible = true,
+                    BalloonTipTitle = "Archivo recibido • ONKOS Transfer",
+                    BalloonTipText = $"De: {origen}\nArchivo: {nombreArchivo}"
+                };
 
-                builder.Show();
+                tempIcon.BalloonTipClicked += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(carpetaContenedora) && Directory.Exists(carpetaContenedora))
+                    {
+                        Process.Start("explorer.exe", $"\"{carpetaContenedora}\"");
+                    }
+                    tempIcon.Visible = false;
+                    tempIcon.Dispose();
+                };
+
+                tempIcon.BalloonTipClosed += (s, e) =>
+                {
+                    tempIcon.Visible = false;
+                    tempIcon.Dispose();
+                };
+
+                tempIcon.ShowBalloonTip(5000);
             }
             catch
             {
-                // Si el sistema bloquea notificaciones (ej. No molestar), no interrumpe la recepción
             }
         }
     }
