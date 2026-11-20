@@ -30,11 +30,9 @@ namespace ONKOSFileTransfer
 
         private void OnArchivoDetectado(object sender, FileSystemEventArgs e)
         {
-            // Ignorar carpetas y archivos temporales mientras se escriben
             if (Directory.Exists(e.FullPath) || e.Name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            // Evitar notificaciones duplicadas por el mismo archivo en menos de 3 segundos
             DateTime ahora = DateTime.UtcNow;
             if (_recientes.TryGetValue(e.FullPath, out DateTime ultimoAviso) && (ahora - ultimoAviso).TotalSeconds < 3)
                 return;
@@ -43,7 +41,6 @@ namespace ONKOSFileTransfer
 
             Task.Run(async () =>
             {
-                // Espera breve para asegurar que el servicio terminó de escribir el archivo
                 await Task.Delay(700);
                 if (File.Exists(e.FullPath))
                 {
