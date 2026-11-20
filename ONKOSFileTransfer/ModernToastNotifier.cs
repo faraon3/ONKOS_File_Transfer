@@ -9,7 +9,7 @@ namespace ONKOSFileTransfer
     {
         public static void Inicializar()
         {
-            // Inicialización lista para notificaciones emergentes desde la bandeja
+            // Listo para notificaciones emergentes desde la bandeja
         }
 
         public static void MostrarArchivoRecibido(string rutaCompletaArchivo)
@@ -26,11 +26,8 @@ namespace ONKOSFileTransfer
                     ? nombreCarpetaOrigen.Split('_')[0]
                     : nombreCarpetaOrigen;
 
-                // Si tienes ToastNotificationForm en ONKOSTray, puedes mostrarlo o usar BalloonTip
-                var tray = Application.OpenForms.Count > 0 ? null : null;
                 System.Media.SystemSounds.Asterisk.Play();
 
-                // Abre la carpeta si se requiere o muestra aviso nativo desde la bandeja
                 var tempIcon = new NotifyIcon
                 {
                     Icon = System.Drawing.SystemIcons.Information,
