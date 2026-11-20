@@ -44,9 +44,20 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
-          Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse
-          Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse
-          Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt
+          Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse -Force
+          Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse -Force
+          Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt -Force
+
+          if (Test-Path "ONKOSFileTransfer/Instalar_ONKOS.bat") {
+            Copy-Item "ONKOSFileTransfer/Instalar_ONKOS.bat" package/Instalar_ONKOS.bat -Force
+          }
+          if (Test-Path "ONKOSFileTransfer/recibidos.ico") {
+            Copy-Item "ONKOSFileTransfer/recibidos.ico" package/recibidos.ico -Force
+          }
+          if (Test-Path "ONKOSFileTransfer/onkos.ico") {
+            Copy-Item "ONKOSFileTransfer/onkos.ico" package/Interfaz/onkos.ico -Force
+          }
+
           Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
 
       # La cuota de almacenamiento de Actions puede estar llena.
