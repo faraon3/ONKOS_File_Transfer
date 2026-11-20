@@ -1,73 +1,200 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
-using Microsoft.Toolkit.Uwp.Notifications;
+using System.Linq;
+using System.Threading;
+using System.Windows.Forms;
 
 namespace ONKOSFileTransfer
 {
     public static class ModernToastNotifier
     {
+        private static readonly object _syncLock = new object();
+        private static List<string> _ultimosArchivos = new List<string>();
+        private static NotifyIcon _notifyIcon;
+        private static bool _inicializado;
+
         public static void Inicializar()
         {
-            ToastNotificationManagerCompat.OnActivated += toastArgs =>
+            lock (_syncLock)
             {
-                try
-                {
-                    ToastArguments args = ToastArguments.Parse(toastArgs.Argument);
-
-                    if (args.TryGetValue("action", out string action) && action == "openFolder")
-                    {
-                        if (args.TryGetValue("folderPath", out string folderPath) && Directory.Exists(folderPath))
-                        {
-                            Process.Start("explorer.exe", $"\"{folderPath}\"");
-                        }
-                    }
-                }
-                catch
-                {
-                    // Evita cerrar la bandeja si ocurre un error al abrir el explorador
-                }
-            };
+                if (_inicializado) return;
+                _inicializado = true;
+            }
         }
 
-        public static void MostrarArchivoRecibido(string rutaCompletaArchivo)
+        public static void MostrarLoteRecibido(IReadOnlyList<string> rutasArchivos)
         {
+            if (rutasArchivos == null || rutasArchivos.Count == 0)
+                return;
+
             try
             {
-                string nombreArchivo = Path.GetFileName(rutaCompletaArchivo);
-                string carpetaContenedora = Path.GetDirectoryName(rutaCompletaArchivo);
-                string nombreCarpetaOrigen = new DirectoryInfo(carpetaContenedora).Name;
+                var archivosValidos = rutasArchivos
+                    .Where(File.Exists)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-                // Extrae la IP o equipo origen si la carpeta tiene formato "IP_fecha" o similar
-                string origen = nombreCarpetaOrigen.Contains("_")
-                    ? nombreCarpetaOrigen.Split('_')[0]
-                    : nombreCarpetaOrigen;
+                if (archivosValidos.Count == 0)
+                    return;
 
-                var builder = new ToastContentBuilder()
-                    .AddArgument("action", "openFolder")
-                    .AddArgument("folderPath", carpetaContenedora)
-                    .AddText("Archivo recibido • ONKOS Transfer")
-                    .AddText($"Origen: {origen}")
-                    .AddText(nombreArchivo)
-                    .AddButton(new ToastButton()
-                        .SetContent("Abrir carpeta")
-                        .AddArgument("action", "openFolder")
-                        .AddArgument("folderPath", carpetaContenedora))
-                    .AddButton(new ToastButtonDismiss("Descartar"));
+                string ultimoArchivo = archivosValidos.Last();
+                string carpetaDestino = Path.GetDirectoryName(ultimoArchivo) ?? @"C:\ProgramData\ONKOS\Inbox";
+                string nombreSubcarpeta = new DirectoryInfo(carpetaDestino).Name;
+                string origen = nombreSubcarpeta.Contains("_")
+                    ? nombreSubcarpeta.Split('_')[0]
+                    : nombreSubcarpeta;
 
-                // Si colocas un logo PNG llamado onkos_logo.png junto al .exe, lo muestra en círculo
-                string rutaLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos_logo.png");
-                if (File.Exists(rutaLogo))
+                lock (_syncLock)
                 {
-                    builder.AddAppLogoOverride(new Uri(rutaLogo), ToastGenericAppLogoCrop.Circle);
+                    _ultimosArchivos = archivosValidos;
                 }
 
-                builder.Show();
+                string titulo = archivosValidos.Count == 1
+                    ? "ONKOS • Archivo recibido"
+                    : $"ONKOS • {archivosValidos.Count} archivos recibidos";
+
+                string cuerpo = archivosValidos.Count == 1
+                    ? $"{Path.GetFileName(ultimoArchivo)} ({origen})"
+                    : $"Desde {origen} • Clic para abrir y seleccionar";
+
+                if (cuerpo.Length > 120)
+                {
+                    cuerpo = cuerpo.Substring(0, 117) + "...";
+                }
+
+                // Ejecutar en hilo UI/STA para que el globo y su clic funcionen sin fallos
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        DestruirIconoAnterior();
+
+                        Icon iconoApp = ObtenerIconoAplicacion();
+                        var icon = new NotifyIcon
+                        {
+                            Icon = iconoApp,
+                            Visible = true,
+                            BalloonTipTitle = titulo,
+                            BalloonTipText = cuerpo,
+                            BalloonTipIcon = ToolTipIcon.Info
+                        };
+
+                        lock (_syncLock)
+                        {
+                            _notifyIcon = icon;
+                        }
+
+                        icon.BalloonTipClicked += (s, e) =>
+                        {
+                            AbrirSeleccionEnExplorador();
+                            LimpiarIcono(icon);
+                        };
+
+                        icon.BalloonTipClosed += (s, e) =>
+                        {
+                            LimpiarIcono(icon);
+                        };
+
+                        icon.ShowBalloonTip(5000);
+
+                        // Mantener vivo el hilo un momento para recibir el clic del usuario
+                        DateTime limite = DateTime.UtcNow.AddSeconds(7);
+                        while (DateTime.UtcNow < limite)
+                        {
+                            Application.DoEvents();
+                            Thread.Sleep(50);
+                        }
+
+                        LimpiarIcono(icon);
+                    }
+                    catch
+                    {
+                    }
+                });
+
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.IsBackground = true;
+                thread.Start();
             }
             catch
             {
-                // Si el sistema bloquea notificaciones (ej. No molestar), no interrumpe la recepción
             }
+        }
+
+        private static Icon ObtenerIconoAplicacion()
+        {
+            try
+            {
+                string exePath = Application.ExecutablePath;
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                {
+                    Icon extraido = Icon.ExtractAssociatedIcon(exePath);
+                    if (extraido != null)
+                        return extraido;
+                }
+            }
+            catch
+            {
+            }
+
+            return SystemIcons.Information;
+        }
+
+        private static void AbrirSeleccionEnExplorador()
+        {
+            try
+            {
+                List<string> archivos;
+                lock (_syncLock)
+                {
+                    archivos = _ultimosArchivos.Where(File.Exists).ToList();
+                }
+
+                if (archivos.Count > 0)
+                {
+                    string archivoObjetivo = archivos.Last();
+                    Process.Start("explorer.exe", $"/select,\"{archivoObjetivo}\"");
+                    return;
+                }
+
+                string inbox = @"C:\ProgramData\ONKOS\Inbox";
+                if (Directory.Exists(inbox))
+                {
+                    Process.Start("explorer.exe", $"\"{inbox}\"");
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void LimpiarIcono(NotifyIcon icon)
+        {
+            try
+            {
+                if (icon != null)
+                {
+                    icon.Visible = false;
+                    icon.Dispose();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void DestruirIconoAnterior()
+        {
+            NotifyIcon anterior;
+            lock (_syncLock)
+            {
+                anterior = _notifyIcon;
+                _notifyIcon = null;
+            }
+            LimpiarIcono(anterior);
         }
     }
 }
