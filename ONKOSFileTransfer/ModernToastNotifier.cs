@@ -1,32 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using Microsoft.Toolkit.Uwp.Notifications;
+using System.Threading;
+using System.Windows.Forms;
 
 namespace ONKOSFileTransfer
 {
     public static class ModernToastNotifier
     {
-        private const string ToastTag = "onkos_inbox_batch";
-        private static bool _inicializado = false;
         private static readonly object _syncLock = new object();
         private static List<string> _ultimosArchivos = new List<string>();
-
-        [DllImport("shell32.dll", SetLastError = true)]
-        private static extern IntPtr ILCreateFromPathW([MarshalAs(UnmanagedType.LPWStr)] string pszPath);
-
-        [DllImport("shell32.dll")]
-        private static extern void ILFree(IntPtr pidl);
-
-        [DllImport("shell32.dll")]
-        private static extern int SHOpenFolderAndSelectItems(
-            IntPtr pidlFolder,
-            uint cidl,
-            [In, MarshalAs(UnmanagedType.LPArray)] IntPtr[] apidl,
-            uint dwFlags);
+        private static NotifyIcon _notifyIcon;
+        private static bool _inicializado;
 
         public static void Inicializar()
         {
@@ -34,35 +22,6 @@ namespace ONKOSFileTransfer
             {
                 if (_inicializado) return;
                 _inicializado = true;
-
-                ToastNotificationManagerCompat.OnActivated += toastArgs =>
-                {
-                    try
-                    {
-                        List<string> archivosASeleccionar;
-                        lock (_syncLock)
-                        {
-                            archivosASeleccionar = _ultimosArchivos
-                                .Where(File.Exists)
-                                .ToList();
-                        }
-
-                        if (archivosASeleccionar.Count > 0)
-                        {
-                            AbrirCarpetaYSeleccionar(archivosASeleccionar);
-                            return;
-                        }
-
-                        var args = ToastArguments.Parse(toastArgs.Argument);
-                        if (args.TryGetValue("folder", out string folder) && Directory.Exists(folder))
-                        {
-                            Process.Start("explorer.exe", $"\"{folder}\"");
-                        }
-                    }
-                    catch
-                    {
-                    }
-                };
             }
         }
 
@@ -93,93 +52,149 @@ namespace ONKOSFileTransfer
                     _ultimosArchivos = archivosValidos;
                 }
 
-                string lineaPrincipal = archivosValidos.Count == 1
-                    ? Path.GetFileName(ultimoArchivo)
-                    : $"{archivosValidos.Count} archivos recibidos";
+                string titulo = archivosValidos.Count == 1
+                    ? "ONKOS • Archivo recibido"
+                    : $"ONKOS • {archivosValidos.Count} archivos recibidos";
 
-                var builder = new ToastContentBuilder()
-                    .AddArgument("folder", carpetaDestino)
-                    .AddText(lineaPrincipal)
-                    .AddText($"ONKOS • {origen}");
+                string cuerpo = archivosValidos.Count == 1
+                    ? $"{Path.GetFileName(ultimoArchivo)} ({origen})"
+                    : $"Desde {origen} • Clic para abrir y seleccionar";
 
-                string rutaLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos_logo.png");
-                if (File.Exists(rutaLogo))
+                if (cuerpo.Length > 120)
                 {
-                    builder.AddAppLogoOverride(new Uri(rutaLogo), ToastGenericAppLogoCrop.Circle);
+                    cuerpo = cuerpo.Substring(0, 117) + "...";
                 }
 
-                // Reemplaza la notificación previa con el mismo Tag para mantenerla compacta
-                builder.Show(toast =>
+                // Ejecutar en hilo UI/STA para que el globo y su clic funcionen sin fallos
+                var thread = new Thread(() =>
                 {
-                    toast.Tag = ToastTag;
-                    toast.Group = "ONKOS";
+                    try
+                    {
+                        DestruirIconoAnterior();
+
+                        Icon iconoApp = ObtenerIconoAplicacion();
+                        var icon = new NotifyIcon
+                        {
+                            Icon = iconoApp,
+                            Visible = true,
+                            BalloonTipTitle = titulo,
+                            BalloonTipText = cuerpo,
+                            BalloonTipIcon = ToolTipIcon.Info
+                        };
+
+                        lock (_syncLock)
+                        {
+                            _notifyIcon = icon;
+                        }
+
+                        icon.BalloonTipClicked += (s, e) =>
+                        {
+                            AbrirSeleccionEnExplorador();
+                            LimpiarIcono(icon);
+                        };
+
+                        icon.BalloonTipClosed += (s, e) =>
+                        {
+                            LimpiarIcono(icon);
+                        };
+
+                        icon.ShowBalloonTip(5000);
+
+                        // Mantener vivo el hilo un momento para recibir el clic del usuario
+                        DateTime limite = DateTime.UtcNow.AddSeconds(7);
+                        while (DateTime.UtcNow < limite)
+                        {
+                            Application.DoEvents();
+                            Thread.Sleep(50);
+                        }
+
+                        LimpiarIcono(icon);
+                    }
+                    catch
+                    {
+                    }
                 });
+
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.IsBackground = true;
+                thread.Start();
             }
             catch
             {
             }
         }
 
-        private static void AbrirCarpetaYSeleccionar(List<string> archivos)
+        private static Icon ObtenerIconoAplicacion()
         {
-            string carpeta = Path.GetDirectoryName(archivos[0]);
-            if (string.IsNullOrEmpty(carpeta) || !Directory.Exists(carpeta))
-                return;
-
-            IntPtr carpetaPidl = IntPtr.Zero;
-            var itemPidls = new List<IntPtr>();
-
             try
             {
-                carpetaPidl = ILCreateFromPathW(carpeta);
-                if (carpetaPidl == IntPtr.Zero)
+                string exePath = Application.ExecutablePath;
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
                 {
-                    Process.Start("explorer.exe", $"\"{carpeta}\"");
+                    Icon extraido = Icon.ExtractAssociatedIcon(exePath);
+                    if (extraido != null)
+                        return extraido;
+                }
+            }
+            catch
+            {
+            }
+
+            return SystemIcons.Information;
+        }
+
+        private static void AbrirSeleccionEnExplorador()
+        {
+            try
+            {
+                List<string> archivos;
+                lock (_syncLock)
+                {
+                    archivos = _ultimosArchivos.Where(File.Exists).ToList();
+                }
+
+                if (archivos.Count > 0)
+                {
+                    string archivoObjetivo = archivos.Last();
+                    Process.Start("explorer.exe", $"/select,\"{archivoObjetivo}\"");
                     return;
                 }
 
-                foreach (string ruta in archivos)
+                string inbox = @"C:\ProgramData\ONKOS\Inbox";
+                if (Directory.Exists(inbox))
                 {
-                    if (!File.Exists(ruta)) continue;
-                    IntPtr fullPidl = ILCreateFromPathW(ruta);
-                    if (fullPidl != IntPtr.Zero)
-                    {
-                        itemPidls.Add(fullPidl);
-                    }
-                }
-
-                if (itemPidls.Count > 0)
-                {
-                    // Selecciona en el Explorador los archivos recibidos dentro de la carpeta
-                    var soloHijos = new IntPtr[itemPidls.Count];
-                    for (int i = 0; i < itemPidls.Count; i++)
-                    {
-                        // Si SHOpenFolderAndSelectItems requiere PIDLs relativos o se usa explorer /select para 1 archivo:
-                        soloHijos[i] = itemPidls[i];
-                    }
-
-                    if (itemPidls.Count == 1)
-                    {
-                        Process.Start("explorer.exe", $"/select,\"{archivos[0]}\"");
-                    }
-                    else
-                    {
-                        Process.Start("explorer.exe", $"/select,\"{archivos.Last()}\"");
-                    }
-                }
-                else
-                {
-                    Process.Start("explorer.exe", $"\"{carpeta}\"");
+                    Process.Start("explorer.exe", $"\"{inbox}\"");
                 }
             }
-            finally
+            catch
             {
-                foreach (IntPtr pidl in itemPidls)
-                {
-                    if (pidl != IntPtr.Zero) ILFree(pidl);
-                }
-                if (carpetaPidl != IntPtr.Zero) ILFree(carpetaPidl);
             }
+        }
+
+        private static void LimpiarIcono(NotifyIcon icon)
+        {
+            try
+            {
+                if (icon != null)
+                {
+                    icon.Visible = false;
+                    icon.Dispose();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void DestruirIconoAnterior()
+        {
+            NotifyIcon anterior;
+            lock (_syncLock)
+            {
+                anterior = _notifyIcon;
+                _notifyIcon = null;
+            }
+            LimpiarIcono(anterior);
         }
     }
 }
