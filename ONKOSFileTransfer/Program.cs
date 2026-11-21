@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -29,6 +30,8 @@ namespace ONKOSFileTransfer
             {
                 if (!esPrimeraInstancia)
                     return;
+
+                AppSettingsStore.EnsureInboxFolderReady();
 
                 PeerInfo profile = null;
                 if (!esModoBandeja && !UserProfileStore.TryLoad(out profile))
@@ -59,6 +62,7 @@ namespace ONKOSFileTransfer
                 }
                 else
                 {
+                    ModernToastNotifier.Inicializar();
                     Application.Run(new MainForm(profile));
                 }
             }
@@ -75,8 +79,8 @@ namespace ONKOSFileTransfer
             menu.Items.Add("Abrir ventana de envío", null, (s, e) => AbrirVentanaPrincipal());
             menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
-                string rutaInbox = InboxMonitor.CarpetaRecibidos;
-                Directory.CreateDirectory(rutaInbox);
+                string rutaInbox = AppSettingsStore.GetInboxFolder();
+                AppSettingsStore.EnsureInboxFolderReady();
                 System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
             });
             menu.Items.Add(new ToolStripSeparator());
@@ -86,10 +90,21 @@ namespace ONKOSFileTransfer
                 Application.ExitThread();
             });
 
+            Icon trayIcon = SystemIcons.Application;
+            try
+            {
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
+                if (File.Exists(icoPath))
+                    trayIcon = new Icon(icoPath);
+            }
+            catch
+            {
+            }
+
             _notifyIcon = new NotifyIcon
             {
-                Text = "ONKOS File Transfer (Activo)",
-                Icon = SystemIcons.Application,
+                Text = "ONKOS File Transfer 2.0",
+                Icon = trayIcon,
                 ContextMenuStrip = menu,
                 Visible = true
             };
@@ -110,7 +125,7 @@ namespace ONKOSFileTransfer
             }
 
             var form = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
-            if (form == null)
+            if (form == null || form.IsDisposed)
             {
                 form = new MainForm(profile);
                 form.Show();
@@ -212,6 +227,102 @@ namespace ONKOSFileTransfer
                 ProfilePath,
                 new[] { cleanName, cleanArea },
                 Encoding.UTF8);
+        }
+    }
+
+    public static class AppSettingsStore
+    {
+        private static readonly string SettingsPath =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "ruta_recibidos.txt");
+
+        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+        private static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+        public static string GetDefaultInboxFolder()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Archivos Recibidos ONKOS");
+        }
+
+        public static string GetInboxFolder()
+        {
+            try
+            {
+                if (File.Exists(SettingsPath))
+                {
+                    string saved = File.ReadAllText(SettingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(saved))
+                        return saved;
+                }
+            }
+            catch
+            {
+            }
+
+            return GetDefaultInboxFolder();
+        }
+
+        public static void SetInboxFolder(string folderPath)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath))
+                return;
+
+            string cleanPath = folderPath.Trim();
+            string dir = Path.GetDirectoryName(SettingsPath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(SettingsPath, cleanPath, Encoding.UTF8);
+            EnsureInboxFolderReady(cleanPath);
+        }
+
+        public static void EnsureInboxFolderReady(string customFolder = null)
+        {
+            try
+            {
+                string targetFolder = string.IsNullOrWhiteSpace(customFolder) ? GetInboxFolder() : customFolder;
+                Directory.CreateDirectory(targetFolder);
+
+                string iconSource = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recibidos.ico");
+                string localIcon = Path.Combine(targetFolder, "recibidos.ico");
+
+                if (File.Exists(iconSource))
+                {
+                    try
+                    {
+                        if (File.Exists(localIcon))
+                            File.SetAttributes(localIcon, FileAttributes.Normal);
+                        File.Copy(iconSource, localIcon, true);
+                        File.SetAttributes(localIcon, FileAttributes.Hidden | FileAttributes.System);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                string iniPath = Path.Combine(targetFolder, "desktop.ini");
+                string iconRef = File.Exists(localIcon) ? "recibidos.ico,0" : (iconSource + ",0");
+
+                if (File.Exists(iniPath))
+                    File.SetAttributes(iniPath, FileAttributes.Normal);
+
+                File.WriteAllLines(iniPath, new[]
+                {
+                    "[.ShellClassInfo]",
+                    "IconResource=" + iconRef,
+                    "InfoTip=Carpeta de archivos recibidos por ONKOS File Transfer"
+                }, Encoding.Unicode);
+
+                File.SetAttributes(iniPath, FileAttributes.Hidden | FileAttributes.System);
+                var di = new DirectoryInfo(targetFolder);
+                di.Attributes |= FileAttributes.ReadOnly;
+
+                SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);
+            }
+            catch
+            {
+            }
         }
     }
 }
