@@ -40,7 +40,10 @@ jobs:
           if (!(Test-Path $service)) { throw "No se encontró el servicio: $service" }
           Get-Item $gui, $service | Select-Object FullName, Length
 
-      - name: Preparar paquete de prueba
+      - name: Compilar Instalador EXE con Inno Setup
+        run: iscc ONKOS_Setup.iss
+
+      - name: Preparar paquete ZIP de respaldo
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
@@ -63,14 +66,14 @@ jobs:
 
           Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
 
-      # La cuota de almacenamiento de Actions puede estar llena.
-      # Se mantiene la carga de artefactos opcional; para pruebas se usa una Release preliminar.
       - name: Publicar artefacto de compilación (opcional)
         if: ${{ github.event_name == 'workflow_dispatch' && vars.ENABLE_ACTIONS_ARTIFACT_UPLOAD == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ONKOS-File-Transfer-V2
-          path: ONKOS-File-Transfer-V2.zip
+          name: Instalador-ONKOS-File-Transfer
+          path: |
+            Output/Instalador_ONKOS_File_Transfer_2.0.exe
+            ONKOS-File-Transfer-V2.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -82,8 +85,10 @@ jobs:
           name: ONKOS File Transfer 2.0 - Prueba ${{ github.run_number }}
           body: |
             Versión preliminar de ONKOS File Transfer 2.0 compilada desde la rama v2-architecture.
-            Es una versión de prueba. No usar para transferir información clínica sensible.
-          files: ONKOS-File-Transfer-V2.zip
+            Descarga e instala directamente usando Instalador_ONKOS_File_Transfer_2.0.exe.
+          files: |
+            Output/Instalador_ONKOS_File_Transfer_2.0.exe
+            ONKOS-File-Transfer-V2.zip
           prerelease: true
           make_latest: false
 
@@ -95,6 +100,8 @@ jobs:
           name: ONKOS File Transfer - Build ${{ github.run_number }}
           body: |
             Compilación automática de ONKOS File Transfer.
-            Descarga el ZIP y extrae su contenido antes de ejecutar.
-          files: ONKOS-File-Transfer-V2.zip
+            Descarga e instala directamente usando Instalador_ONKOS_File_Transfer_2.0.exe.
+          files: |
+            Output/Instalador_ONKOS_File_Transfer_2.0.exe
+            ONKOS-File-Transfer-V2.zip
           make_latest: true
