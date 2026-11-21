@@ -53,6 +53,49 @@ namespace ONKOSFileTransfer.Network
             }
         }
 
+        private static (string FullName, string Area) ReadLocalProfileSafe()
+        {
+            try
+            {
+                string profilePath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "perfil.txt");
+
+                if (File.Exists(profilePath))
+                {
+                    string[] lines = File.ReadAllLines(profilePath, Encoding.UTF8);
+                    string name = lines.Length > 0 ? lines[0].Trim() : string.Empty;
+                    string area = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                        return (name, string.IsNullOrWhiteSpace(area) ? "General" : area);
+                }
+            }
+            catch
+            {
+            }
+
+            return (Environment.UserName, "General");
+        }
+
+        private static string GetLocalIPv4Safe()
+        {
+            try
+            {
+                foreach (IPAddress addr in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
+                {
+                    if (addr.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr))
+                        return addr.ToString();
+                }
+            }
+            catch
+            {
+            }
+
+            return "127.0.0.1";
+        }
+
         private async Task ReceiveFile(TcpClient client, string folder)
         {
             string destination = null;
@@ -67,17 +110,15 @@ namespace ONKOSFileTransfer.Network
 
                     if (string.Equals(firstToken, "ONKOS_WHOAMI_V1", StringComparison.Ordinal))
                     {
-                        UserProfileStore.TryLoad(out PeerInfo profile);
-                        string fullName = profile?.FullName ?? Environment.UserName;
-                        string area = profile?.Area ?? "General";
-                        string localIp = NetworkManager.GetLocalIPv4();
+                        var profile = ReadLocalProfileSafe();
+                        string localIp = GetLocalIPv4Safe();
                         string machine = Environment.MachineName;
 
                         using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
                         {
                             writer.Write("ONKOS_IDENTITY_V1");
-                            writer.Write(fullName);
-                            writer.Write(area);
+                            writer.Write(profile.FullName);
+                            writer.Write(profile.Area);
                             writer.Write(localIp);
                             writer.Write(machine);
                             writer.Flush();
