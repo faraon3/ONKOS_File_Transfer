@@ -44,9 +44,10 @@ namespace ONKOSFileTransfer
                     }
                 }
 
+                ModernToastNotifier.Inicializar();
+
                 if (esModoBandeja)
                 {
-                    ModernToastNotifier.Inicializar();
                     PeerDiscoveryService trayDiscovery = null;
                     if (UserProfileStore.TryLoad(out PeerInfo trayProfile))
                     {
@@ -62,7 +63,6 @@ namespace ONKOSFileTransfer
                 }
                 else
                 {
-                    ModernToastNotifier.Inicializar();
                     Application.Run(new MainForm(profile));
                 }
             }
@@ -76,11 +76,11 @@ namespace ONKOSFileTransfer
         public TrayHostContext()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Abrir ventana de envío", null, (s, e) => AbrirVentanaPrincipal());
+            menu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => AbrirVentanaPrincipal());
             menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
                 string rutaInbox = AppSettingsStore.GetInboxFolder();
-                AppSettingsStore.EnsureInboxFolderReady();
+                AppSettingsStore.EnsureInboxFolderReady(rutaInbox);
                 System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
             });
             menu.Items.Add(new ToolStripSeparator());
@@ -134,6 +134,7 @@ namespace ONKOSFileTransfer
             {
                 if (form.WindowState == FormWindowState.Minimized)
                     form.WindowState = FormWindowState.Normal;
+                form.Show();
                 form.BringToFront();
                 form.Activate();
             }
