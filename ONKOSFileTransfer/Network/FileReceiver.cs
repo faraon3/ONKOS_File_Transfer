@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace ONKOSFileTransfer.Network
@@ -41,11 +42,9 @@ namespace ONKOSFileTransfer.Network
             }
             catch (ObjectDisposedException)
             {
-                // Listener closed intentionally.
             }
             catch (SocketException)
             {
-                // Listener closed intentionally.
             }
             catch (Exception ex)
             {
@@ -62,9 +61,31 @@ namespace ONKOSFileTransfer.Network
                 using (client)
                 using (NetworkStream stream = client.GetStream())
                 using (BinaryReader reader = new BinaryReader(
-                    stream, System.Text.Encoding.UTF8, true))
+                    stream, Encoding.UTF8, true))
                 {
-                    string name = Path.GetFileName(reader.ReadString());
+                    string firstToken = reader.ReadString();
+
+                    if (string.Equals(firstToken, "ONKOS_WHOAMI_V1", StringComparison.Ordinal))
+                    {
+                        UserProfileStore.TryLoad(out PeerInfo profile);
+                        string fullName = profile?.FullName ?? Environment.UserName;
+                        string area = profile?.Area ?? "General";
+                        string localIp = NetworkManager.GetLocalIPv4();
+                        string machine = Environment.MachineName;
+
+                        using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
+                        {
+                            writer.Write("ONKOS_IDENTITY_V1");
+                            writer.Write(fullName);
+                            writer.Write(area);
+                            writer.Write(localIp);
+                            writer.Write(machine);
+                            writer.Flush();
+                        }
+                        return;
+                    }
+
+                    string name = Path.GetFileName(firstToken);
                     long size = reader.ReadInt64();
 
                     if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
@@ -138,7 +159,6 @@ namespace ONKOSFileTransfer.Network
                         destination = extractRoot;
                     }
 
-                    // Confirm successful disk write and extraction to the sender.
                     stream.WriteByte(1);
                     await stream.FlushAsync();
                     FileReceived?.Invoke(destination);
@@ -166,7 +186,6 @@ namespace ONKOSFileTransfer.Network
             }
             catch
             {
-                // Keep a safe fallback name if the remote endpoint is unavailable.
             }
 
             string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
@@ -187,7 +206,6 @@ namespace ONKOSFileTransfer.Network
                 }
                 catch
                 {
-                    // If enumeration fails, create a new uniquely named sender folder below.
                 }
 
                 if (!string.IsNullOrEmpty(existing))
