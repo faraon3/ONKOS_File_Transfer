@@ -53,6 +53,18 @@ namespace ONKOSFileTransfer.Network
             }
         }
 
+        private static bool IsSystemAccount(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return true;
+
+            string upper = name.Trim().ToUpperInvariant();
+            return upper == "SYSTEM" ||
+                   upper == "NT AUTHORITY\\SYSTEM" ||
+                   upper == "LOCAL SERVICE" ||
+                   upper == "NETWORK SERVICE";
+        }
+
         private static (bool Valid, string FullName, string Area) ReadLocalProfileSafe()
         {
             try
@@ -67,17 +79,9 @@ namespace ONKOSFileTransfer.Network
                     string[] lines = File.ReadAllLines(profilePath, Encoding.UTF8);
                     string name = lines.Length > 0 ? lines[0].Trim() : string.Empty;
                     string area = lines.Length > 1 ? lines[1].Trim() : string.Empty;
-                    string upper = name.ToUpperInvariant();
 
-                    if (!string.IsNullOrWhiteSpace(name) &&
-                        !string.IsNullOrWhiteSpace(area) &&
-                        upper != "SYSTEM" &&
-                        upper != "NT AUTHORITY\\SYSTEM" &&
-                        upper != "LOCAL SERVICE" &&
-                        upper != "NETWORK SERVICE")
-                    {
+                    if (!IsSystemAccount(name) && !string.IsNullOrWhiteSpace(area))
                         return (true, name, area);
-                    }
                 }
             }
             catch
@@ -111,8 +115,7 @@ namespace ONKOSFileTransfer.Network
             {
                 using (client)
                 using (NetworkStream stream = client.GetStream())
-                using (BinaryReader reader = new BinaryReader(
-                    stream, Encoding.UTF8, true))
+                using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
                 {
                     string firstToken = reader.ReadString();
 
