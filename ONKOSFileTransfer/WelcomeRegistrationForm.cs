@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace ONKOSFileTransfer
@@ -9,30 +10,30 @@ namespace ONKOSFileTransfer
         private readonly TextBox _txtFullName;
         private readonly TextBox _txtArea;
         private readonly Label _lblError;
-        private readonly Button _btnSave;
+        private readonly RoundedButton _btnSave;
 
         public PeerInfo RegisteredProfile { get; private set; }
 
         public WelcomeRegistrationForm(PeerInfo existingProfile = null)
         {
             Text = existingProfile == null
-                ? "ONKOS File Transfer 2.0 — Registro de equipo"
+                ? "ONKOS File Transfer 2.0 — Registro"
                 : "ONKOS File Transfer 2.0 — Mi Perfil";
 
-            Size = new Size(460, 310);
-            MinimumSize = new Size(440, 300);
+            Size = new Size(440, 315);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            BackColor = Color.FromArgb(15, 16, 26);
+            BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
 
             try
             {
-                if (System.IO.File.Exists("onkos.ico"))
-                    Icon = new Icon("onkos.ico");
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
+                if (File.Exists(icoPath))
+                    Icon = new Icon(icoPath);
             }
             catch
             {
@@ -40,105 +41,117 @@ namespace ONKOSFileTransfer
 
             var lblTitle = new Label
             {
-                Text = existingProfile == null
-                    ? "Bienvenido a ONKOS File Transfer"
-                    : "Actualizar perfil del equipo",
+                Text = existingProfile == null ? "Configura tu equipo" : "Editar mi perfil",
                 Font = new Font("Segoe UI", 14F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(184, 148, 255),
-                Location = new Point(24, 20),
-                Size = new Size(400, 30)
+                Location = new Point(24, 18),
+                Size = new Size(380, 28)
             };
 
             var lblSubtitle = new Label
             {
-                Text = "Ingresa tu nombre completo y área para identificarte en la red local.",
-                ForeColor = Color.FromArgb(170, 174, 196),
-                Location = new Point(24, 52),
-                Size = new Size(400, 22)
+                Text = "Así aparecerás en la red local para tus compañeros.",
+                ForeColor = Color.FromArgb(165, 171, 198),
+                Location = new Point(24, 48),
+                Size = new Size(380, 20)
             };
 
             var lblName = new Label
             {
                 Text = "Nombre completo",
-                ForeColor = Color.FromArgb(230, 232, 242),
-                Location = new Point(24, 86),
+                ForeColor = Color.FromArgb(228, 232, 246),
+                Location = new Point(24, 80),
                 Size = new Size(380, 20)
+            };
+
+            var pnlNameBox = new RoundedPanel
+            {
+                Location = new Point(24, 102),
+                Size = new Size(376, 32),
+                CardColor = Color.FromArgb(28, 31, 48),
+                BorderColor = Color.FromArgb(52, 56, 84),
+                CornerRadius = 10,
+                Padding = new Padding(10, 6, 10, 4)
             };
 
             _txtFullName = new TextBox
             {
-                Location = new Point(24, 108),
-                Size = new Size(396, 28),
-                BackColor = Color.FromArgb(28, 30, 46),
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.FromArgb(246, 247, 252),
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderStyle = BorderStyle.None,
                 Text = existingProfile != null ? (existingProfile.FullName ?? string.Empty) : string.Empty
             };
+            pnlNameBox.Controls.Add(_txtFullName);
 
             var lblArea = new Label
             {
-                Text = "Área / Departamento / Consultorio",
-                ForeColor = Color.FromArgb(230, 232, 242),
+                Text = "Área / Departamento",
+                ForeColor = Color.FromArgb(228, 232, 246),
                 Location = new Point(24, 144),
                 Size = new Size(380, 20)
             };
 
-            _txtArea = new TextBox
+            var pnlAreaBox = new RoundedPanel
             {
                 Location = new Point(24, 166),
-                Size = new Size(396, 28),
-                BackColor = Color.FromArgb(28, 30, 46),
+                Size = new Size(376, 32),
+                CardColor = Color.FromArgb(28, 31, 48),
+                BorderColor = Color.FromArgb(52, 56, 84),
+                CornerRadius = 10,
+                Padding = new Padding(10, 6, 10, 4)
+            };
+
+            _txtArea = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.FromArgb(246, 247, 252),
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderStyle = BorderStyle.None,
                 Text = existingProfile != null ? (existingProfile.Area ?? string.Empty) : string.Empty
             };
+            pnlAreaBox.Controls.Add(_txtArea);
 
             _lblError = new Label
             {
                 Text = string.Empty,
                 ForeColor = Color.FromArgb(255, 110, 130),
-                Location = new Point(24, 198),
-                Size = new Size(396, 20)
+                Location = new Point(24, 204),
+                Size = new Size(376, 20)
             };
 
-            _btnSave = new Button
-            {
-                Text = existingProfile == null ? "Guardar y continuar" : "Guardar cambios",
-                Location = new Point(270, 226),
-                Size = new Size(150, 34),
-                BackColor = Color.FromArgb(124, 77, 224),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
-            };
-            _btnSave.FlatAppearance.BorderSize = 0;
-            _btnSave.Click += BtnSave_Click;
-
-            var btnCancel = new Button
+            var btnCancel = new RoundedButton
             {
                 Text = "Cancelar",
-                Location = new Point(165, 226),
-                Size = new Size(96, 34),
-                BackColor = Color.FromArgb(38, 41, 62),
-                ForeColor = Color.FromArgb(220, 223, 238),
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
+                Location = new Point(168, 232),
+                Size = new Size(92, 34),
+                FillColor = Color.FromArgb(38, 41, 62),
+                HoverColor = Color.FromArgb(52, 56, 82),
+                CornerRadius = 10
             };
-            btnCancel.FlatAppearance.BorderSize = 0;
             btnCancel.Click += (s, e) =>
             {
                 DialogResult = DialogResult.Cancel;
                 Close();
             };
 
-            AcceptButton = _btnSave;
-            CancelButton = btnCancel;
+            _btnSave = new RoundedButton
+            {
+                Text = existingProfile == null ? "Continuar" : "Guardar",
+                Location = new Point(268, 232),
+                Size = new Size(132, 34),
+                FillColor = Color.FromArgb(124, 77, 224),
+                HoverColor = Color.FromArgb(142, 96, 242),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                CornerRadius = 10
+            };
+            _btnSave.Click += BtnSave_Click;
 
             Controls.AddRange(new Control[]
             {
                 lblTitle, lblSubtitle,
-                lblName, _txtFullName,
-                lblArea, _txtArea,
+                lblName, pnlNameBox,
+                lblArea, pnlAreaBox,
                 _lblError, btnCancel, _btnSave
             });
         }
@@ -150,21 +163,21 @@ namespace ONKOSFileTransfer
 
             if (string.IsNullOrWhiteSpace(fullName))
             {
-                _lblError.Text = "Por favor escribe tu nombre completo.";
+                _lblError.Text = "Escribe tu nombre completo.";
                 _txtFullName.Focus();
                 return;
             }
 
             if (UserProfileStore.IsIgnoredSystemName(fullName))
             {
-                _lblError.Text = "Ese nombre está reservado para el sistema. Ingresa tu nombre real.";
+                _lblError.Text = "Ese nombre está reservado para el sistema.";
                 _txtFullName.Focus();
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(area))
             {
-                _lblError.Text = "Por favor escribe el área o departamento.";
+                _lblError.Text = "Escribe tu área o departamento.";
                 _txtArea.Focus();
                 return;
             }
@@ -185,7 +198,7 @@ namespace ONKOSFileTransfer
             }
             catch (Exception ex)
             {
-                _lblError.Text = "No se pudo guardar el perfil: " + ex.Message;
+                _lblError.Text = "Error guardando perfil: " + ex.Message;
             }
         }
     }
