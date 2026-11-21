@@ -1,9 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -16,6 +19,47 @@ namespace ONKOSFileTransfer
         public static void Inicializar()
         {
             _uiContext = SynchronizationContext.Current;
+        }
+
+        public static void MostrarLoteRecibido(object lote)
+        {
+            if (lote == null)
+            {
+                MostrarNotificacion("Archivos recibidos", "Haz clic para abrir la carpeta de recibidos.", AppSettingsStore.GetInboxFolder(), false);
+                return;
+            }
+
+            if (lote is IEnumerable enumerable && !(lote is string))
+            {
+                var paths = new List<string>();
+                foreach (var item in enumerable)
+                {
+                    if (item != null)
+                        paths.Add(item.ToString());
+                }
+                MostrarLoteRecibido(null, null, null, paths, AppSettingsStore.GetInboxFolder());
+                return;
+            }
+
+            string remitente = GetStringProp(lote, "Remitente", "SenderName", "FullName", "Nombre");
+            string area = GetStringProp(lote, "Area", "SenderArea", "Departamento");
+            string ip = GetStringProp(lote, "Ip", "IP", "IPv4", "SenderIp", "RemoteIp");
+            string carpeta = GetStringProp(lote, "Carpeta", "Folder", "DestinationFolder", "InboxFolder");
+            if (string.IsNullOrWhiteSpace(carpeta))
+                carpeta = AppSettingsStore.GetInboxFolder();
+
+            var archivos = new List<string>();
+            object rawFiles = GetObjectProp(lote, "Archivos", "Files", "Items", "ReceivedFiles");
+            if (rawFiles is IEnumerable rawEnum && !(rawFiles is string))
+            {
+                foreach (var f in rawEnum)
+                {
+                    if (f != null)
+                        archivos.Add(f.ToString());
+                }
+            }
+
+            MostrarLoteRecibido(remitente, area, ip, archivos, carpeta);
         }
 
         public static void MostrarLoteRecibido(
@@ -41,7 +85,7 @@ namespace ONKOSFileTransfer
 
             string titulo = count == 1
                 ? $"Archivo recibido de {quien}"
-                : $"{count} archivos recibidos de {quien}";
+                : (count > 1 ? $"{count} archivos recibidos de {quien}" : $"Recibido de {quien}");
 
             string detalle = count == 1 && archivosRecibidos != null && archivosRecibidos.Count > 0
                 ? Path.GetFileName(archivosRecibidos[0])
@@ -52,6 +96,28 @@ namespace ONKOSFileTransfer
                 : carpetaDestino;
 
             MostrarNotificacion(titulo, detalle, abrirRuta, false);
+        }
+
+        private static object GetObjectProp(object obj, params string[] names)
+        {
+            if (obj == null) return null;
+            Type t = obj.GetType();
+            foreach (string name in names)
+            {
+                PropertyInfo p = t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (p != null)
+                    return p.GetValue(obj, null);
+                FieldInfo f = t.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (f != null)
+                    return f.GetValue(obj);
+            }
+            return null;
+        }
+
+        private static string GetStringProp(object obj, params string[] names)
+        {
+            object val = GetObjectProp(obj, names);
+            return val != null ? val.ToString() : string.Empty;
         }
 
         public static void MostrarNotificacion(string titulo, string mensaje, string rutaAbrir = null, bool esError = false)
