@@ -159,6 +159,14 @@ namespace ONKOSFileTransfer
         private static readonly string ProfilePath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "perfil.txt");
 
+        public static bool IsIgnoredSystemName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return true;
+            string n = name.Trim().ToUpperInvariant();
+            return n == "SYSTEM" || n == "NT AUTHORITY\\SYSTEM" || n == "LOCAL SERVICE" || n == "NETWORK SERVICE";
+        }
+
         public static bool TryLoad(out PeerInfo profile)
         {
             profile = null;
@@ -171,16 +179,20 @@ namespace ONKOSFileTransfer
                 if (lines.Length < 2)
                     return false;
 
+                string name = lines[0].Trim();
+                string area = lines[1].Trim();
+                if (IsIgnoredSystemName(name) || string.IsNullOrWhiteSpace(area))
+                    return false;
+
                 profile = new PeerInfo
                 {
-                    FullName = lines[0].Trim(),
-                    Area = lines[1].Trim(),
+                    FullName = name,
+                    Area = area,
                     MachineName = Environment.MachineName,
                     IPv4 = NetworkManager.GetLocalIPv4()
                 };
 
-                return !string.IsNullOrWhiteSpace(profile.FullName) &&
-                       !string.IsNullOrWhiteSpace(profile.Area);
+                return true;
             }
             catch
             {
@@ -249,6 +261,15 @@ namespace ONKOSFileTransfer
             _ = Task.Run(() => SubnetScanLoop(_cts.Token));
         }
 
+        private static string BuildPeerKey(string name, string ip, string machine)
+        {
+            if (!string.IsNullOrWhiteSpace(ip) && ip != "127.0.0.1")
+                return "IP:" + ip.Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(machine))
+                return "PC:" + machine.Trim().ToLowerInvariant();
+            return "NAME:" + (name ?? string.Empty).Trim().ToLowerInvariant();
+        }
+
         private void LoadSavedContacts()
         {
             try
@@ -256,6 +277,7 @@ namespace ONKOSFileTransfer
                 if (!File.Exists(ContactsPath))
                     return;
 
+                bool hadInvalid = false;
                 foreach (string line in File.ReadAllLines(ContactsPath, Encoding.UTF8))
                 {
                     if (string.IsNullOrWhiteSpace(line))
@@ -270,10 +292,13 @@ namespace ONKOSFileTransfer
                     string ip = parts[2].Trim();
                     string machine = parts.Length > 3 ? parts[3].Trim() : string.Empty;
 
-                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(ip))
+                    if (UserProfileStore.IsIgnoredSystemName(name) || string.IsNullOrWhiteSpace(ip))
+                    {
+                        hadInvalid = true;
                         continue;
+                    }
 
-                    string key = name.ToLowerInvariant();
+                    string key = BuildPeerKey(name, ip, machine);
                     lock (_sync)
                     {
                         _peersByKey[key] = new PeerInfo
@@ -285,6 +310,12 @@ namespace ONKOSFileTransfer
                             LastSeenUtc = DateTime.UtcNow
                         };
                     }
+                }
+
+                if (hadInvalid)
+                {
+                    lock (_sync)
+                        SaveContactsLocked();
                 }
             }
             catch
@@ -301,6 +332,7 @@ namespace ONKOSFileTransfer
                     Directory.CreateDirectory(dir);
 
                 var lines = _peersByKey.Values
+                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName))
                     .OrderBy(p => p.FullName)
                     .Select(p => string.Join("|",
                         (p.FullName ?? string.Empty).Replace("|", "/"),
@@ -318,7 +350,7 @@ namespace ONKOSFileTransfer
 
         private bool UpsertPeer(string name, string area, string ip, string machine)
         {
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(ip))
+            if (UserProfileStore.IsIgnoredSystemName(name) || string.IsNullOrWhiteSpace(ip))
                 return false;
 
             string localIp = NetworkManager.GetLocalIPv4();
@@ -326,14 +358,14 @@ namespace ONKOSFileTransfer
                 string.Equals(machine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
             bool isSameIp = string.Equals(ip, localIp, StringComparison.OrdinalIgnoreCase);
 
-            if (isSameMachine && isSameIp)
+            if (isSameMachine || isSameIp)
                 return false;
 
             string cleanName = name.Replace("|", "/").Trim();
             string cleanArea = (area ?? string.Empty).Replace("|", "/").Trim();
             string cleanIp = ip.Trim();
             string cleanMachine = (machine ?? string.Empty).Trim();
-            string key = cleanName.ToLowerInvariant();
+            string key = BuildPeerKey(cleanName, cleanIp, cleanMachine);
 
             bool changed = false;
             lock (_sync)
@@ -342,7 +374,8 @@ namespace ONKOSFileTransfer
                 if (!existed ||
                     existing.FullName != cleanName ||
                     existing.Area != cleanArea ||
-                    existing.IPv4 != cleanIp)
+                    existing.IPv4 != cleanIp ||
+                    existing.MachineName != cleanMachine)
                 {
                     changed = true;
                 }
@@ -372,7 +405,7 @@ namespace ONKOSFileTransfer
             string cleanArea = string.IsNullOrWhiteSpace(area) ? "Manual" : area.Replace("|", "/").Trim();
             string cleanIp = (ipv4 ?? string.Empty).Trim();
 
-            if (string.IsNullOrWhiteSpace(cleanName) ||
+            if (UserProfileStore.IsIgnoredSystemName(cleanName) ||
                 !IPAddress.TryParse(cleanIp, out IPAddress parsed) ||
                 parsed.AddressFamily != AddressFamily.InterNetwork)
             {
@@ -388,9 +421,10 @@ namespace ONKOSFileTransfer
                 LastSeenUtc = DateTime.UtcNow
             };
 
+            string key = BuildPeerKey(cleanName, peer.IPv4, string.Empty);
             lock (_sync)
             {
-                _peersByKey[cleanName.ToLowerInvariant()] = peer;
+                _peersByKey[key] = peer;
                 SaveContactsLocked();
             }
 
@@ -401,6 +435,29 @@ namespace ONKOSFileTransfer
         public void UpdateLocalProfile(PeerInfo profile)
         {
             _localProfile = profile;
+            if (_localProfile != null && UserProfileStore.IsIgnoredSystemName(_localProfile.FullName))
+                _localProfile = null;
+
+            string localIp = NetworkManager.GetLocalIPv4();
+            lock (_sync)
+            {
+                var keysToRemove = _peersByKey
+                    .Where(kv =>
+                        string.Equals(kv.Value.IPv4, localIp, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrWhiteSpace(kv.Value.MachineName) &&
+                         string.Equals(kv.Value.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase)) ||
+                        UserProfileStore.IsIgnoredSystemName(kv.Value.FullName))
+                    .Select(kv => kv.Key)
+                    .ToList();
+
+                foreach (string k in keysToRemove)
+                    _peersByKey.Remove(k);
+
+                SaveContactsLocked();
+            }
+
+            PeersUpdated?.Invoke();
+
             _ = Task.Run(async () =>
             {
                 await BroadcastOnce();
@@ -414,7 +471,9 @@ namespace ONKOSFileTransfer
             List<PeerInfo> snapshot;
             lock (_sync)
             {
-                snapshot = _peersByKey.Values.ToList();
+                snapshot = _peersByKey.Values
+                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName))
+                    .ToList();
             }
 
             if (!string.IsNullOrWhiteSpace(filterText))
@@ -509,7 +568,7 @@ namespace ONKOSFileTransfer
         {
             try
             {
-                if (_localProfile == null)
+                if (_localProfile == null || UserProfileStore.IsIgnoredSystemName(_localProfile.FullName))
                     return;
 
                 string localIp = NetworkManager.GetLocalIPv4();
@@ -568,7 +627,8 @@ namespace ONKOSFileTransfer
                                 try
                                 {
                                     var id = await FileSender.QueryPeerIdentityAsync(candidateIp, TransferPort, 350);
-                                    if (!string.IsNullOrWhiteSpace(id.FullName))
+                                    if (!string.IsNullOrWhiteSpace(id.FullName) &&
+                                        !UserProfileStore.IsIgnoredSystemName(id.FullName))
                                     {
                                         UpsertPeer(id.FullName, id.Area, id.IPv4 ?? candidateIp, id.MachineName);
                                     }
@@ -705,10 +765,12 @@ namespace ONKOSFileTransfer
             string fullName = txtFullName.Text.Trim();
             string area = txtArea.Text.Trim();
 
-            if (string.IsNullOrWhiteSpace(fullName) || string.IsNullOrWhiteSpace(area))
+            if (string.IsNullOrWhiteSpace(fullName) ||
+                string.IsNullOrWhiteSpace(area) ||
+                UserProfileStore.IsIgnoredSystemName(fullName))
             {
                 MessageBox.Show(
-                    "Ingresa tu nombre completo y tu area para continuar.",
+                    "Ingresa un nombre válido y tu área para continuar.",
                     "ONKOS File Transfer 2.0",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
