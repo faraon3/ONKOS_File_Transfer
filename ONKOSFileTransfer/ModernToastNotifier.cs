@@ -20,6 +20,15 @@ namespace ONKOSFileTransfer
 
         public static void MostrarLoteRecibido(
             string remitente,
+            string ipRemitente,
+            IList<string> archivosRecibidos,
+            string carpetaDestino)
+        {
+            MostrarLoteRecibido(remitente, string.Empty, ipRemitente, archivosRecibidos, carpetaDestino);
+        }
+
+        public static void MostrarLoteRecibido(
+            string remitente,
             string area,
             string ipRemitente,
             IList<string> archivosRecibidos,
