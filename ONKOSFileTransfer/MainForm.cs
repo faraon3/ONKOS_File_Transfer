@@ -87,7 +87,6 @@ namespace ONKOSFileTransfer
             {
             }
 
-            // --- BARRA SUPERIOR COMPACTA ---
             var pnlHeader = new Panel
             {
                 Dock = DockStyle.Top,
@@ -160,7 +159,6 @@ namespace ONKOSFileTransfer
             flpTopActions.Controls.AddRange(new Control[] { btnChangeInbox, btnOpenInbox, btnEditProfile });
             pnlHeader.Controls.AddRange(new Control[] { lblBrand, _lblIdentity, flpTopActions });
 
-            // --- CONTENIDO PRINCIPAL (2 TARJETAS REDONDEADAS) ---
             var tblMain = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -173,7 +171,6 @@ namespace ONKOSFileTransfer
             tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53F));
             tblMain.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-            // TARJETA IZQUIERDA: DESTINATARIOS
             var cardPeers = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
@@ -273,7 +270,6 @@ namespace ONKOSFileTransfer
             pnlChipsContainer.Controls.AddRange(new Control[] { _flpChips, lblSelectedTitle });
             cardPeers.Controls.AddRange(new Control[] { _lstPeers, pnlChipsContainer, pnlSearchRow, lblPeersHeader });
 
-            // TARJETA DERECHA: ARCHIVOS Y DRAG & DROP
             var cardFiles = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
@@ -378,7 +374,6 @@ namespace ONKOSFileTransfer
             tblMain.Controls.Add(cardPeers, 0, 0);
             tblMain.Controls.Add(cardFiles, 1, 0);
 
-            // --- BARRA INFERIOR MINIMALISTA ---
             var pnlFooter = new Panel
             {
                 Dock = DockStyle.Bottom,
@@ -564,7 +559,6 @@ namespace ONKOSFileTransfer
                         name.EndsWith(".onkosfolder", StringComparison.OrdinalIgnoreCase))
                         return;
 
-                    // Evita notificar carpetas intermedias YYYY-MM-DD o IP_hora si contienen archivo interno
                     string parent = Path.GetDirectoryName(e.FullPath);
                     if (string.Equals(parent, folder, StringComparison.OrdinalIgnoreCase))
                         return;
@@ -1128,7 +1122,6 @@ namespace ONKOSFileTransfer
             }
         }
 
-        // --- INTEROP ICONOS REALES DE WINDOWS ---
         private const uint SHGFI_ICON = 0x000000100;
         private const uint SHGFI_SMALLICON = 0x000000001;
         private const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
