@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -15,6 +16,33 @@ namespace ONKOSFileTransfer
         public static void Inicializar()
         {
             _uiContext = SynchronizationContext.Current;
+        }
+
+        public static void MostrarLoteRecibido(
+            string remitente,
+            string area,
+            string ipRemitente,
+            IList<string> archivosRecibidos,
+            string carpetaDestino)
+        {
+            int count = archivosRecibidos != null ? archivosRecibidos.Count : 0;
+            string quien = !string.IsNullOrWhiteSpace(remitente)
+                ? (string.IsNullOrWhiteSpace(area) ? remitente : $"{remitente} ({area})")
+                : (!string.IsNullOrWhiteSpace(ipRemitente) ? $"Equipo {ipRemitente}" : "Red local");
+
+            string titulo = count == 1
+                ? $"Archivo recibido de {quien}"
+                : $"{count} archivos recibidos de {quien}";
+
+            string detalle = count == 1 && archivosRecibidos != null && archivosRecibidos.Count > 0
+                ? Path.GetFileName(archivosRecibidos[0])
+                : "Haz clic para abrir la carpeta de recibidos.";
+
+            string abrirRuta = (count == 1 && archivosRecibidos != null && archivosRecibidos.Count > 0)
+                ? archivosRecibidos[0]
+                : carpetaDestino;
+
+            MostrarNotificacion(titulo, detalle, abrirRuta, false);
         }
 
         public static void MostrarNotificacion(string titulo, string mensaje, string rutaAbrir = null, bool esError = false)
