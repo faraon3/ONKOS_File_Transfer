@@ -50,7 +50,7 @@ jobs:
           Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse -Force
           Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse -Force
           Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt -Force
-          
+
           if (Test-Path "ONKOSFileTransfer/Desinstalar_ONKOS.bat") {
             Copy-Item "ONKOSFileTransfer/Desinstalar_ONKOS.bat" package/Desinstalar_ONKOS.bat -Force
           }
