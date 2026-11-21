@@ -28,6 +28,7 @@ namespace ONKOSFileTransfer
         private PeerInfo _localProfile;
         private bool _isSending;
         private int _progressPercent;
+        private string _etaText = string.Empty;
 
         private FileSystemWatcher _inboxWatcher;
         private DateTime _lastToastUtc = DateTime.MinValue;
@@ -48,6 +49,7 @@ namespace ONKOSFileTransfer
 
         private Panel _pnlProgressTrack;
         private Panel _pnlProgressFill;
+        private Label _lblProgressMeta;
         private Label _lblStatus;
         private RoundedButton _btnSend;
 
@@ -62,15 +64,40 @@ namespace ONKOSFileTransfer
             };
 
             InitializeComponent();
+            ApplyDarkTitleBar();
             WireEvents();
             StartInboxArrivalWatcher();
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            try
+            {
+                if (!IsHandleCreated)
+                    return;
+
+                int useDark = 1;
+                if (DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_20, ref useDark, sizeof(int)) != 0)
+                {
+                    DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_19, ref useDark, sizeof(int));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDarkTitleBar();
         }
 
         private void InitializeComponent()
         {
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(780, 560);
-            MinimumSize = new Size(740, 520);
+            Size = new Size(780, 565);
+            MinimumSize = new Size(740, 525);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
@@ -87,11 +114,19 @@ namespace ONKOSFileTransfer
             {
             }
 
+            Color headerBg = Color.FromArgb(20, 22, 34);
+            Color cardBg = Color.FromArgb(22, 24, 38);
+            Color subtleBtnBg = Color.FromArgb(34, 37, 56);
+            Color subtleBtnHover = Color.FromArgb(48, 52, 76);
+            Color accentPurple = Color.FromArgb(124, 77, 224);
+            Color accentPurpleHover = Color.FromArgb(142, 96, 242);
+
+            // --- BARRA SUPERIOR ---
             var pnlHeader = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 66,
-                BackColor = Color.FromArgb(20, 22, 34),
+                BackColor = headerBg,
                 Padding = new Padding(18, 10, 18, 10)
             };
 
@@ -120,15 +155,16 @@ namespace ONKOSFileTransfer
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Padding = new Padding(0, 8, 0, 0),
-                BackColor = Color.Transparent
+                BackColor = headerBg
             };
 
             var btnChangeInbox = new RoundedButton
             {
                 Text = "Ruta destino",
                 Size = new Size(102, 30),
-                FillColor = Color.FromArgb(36, 39, 58),
-                HoverColor = Color.FromArgb(50, 54, 78),
+                ParentSurfaceColor = headerBg,
+                FillColor = subtleBtnBg,
+                HoverColor = subtleBtnHover,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 Margin = new Padding(6, 0, 0, 0)
             };
@@ -138,8 +174,9 @@ namespace ONKOSFileTransfer
             {
                 Text = "Recibidos",
                 Size = new Size(88, 30),
-                FillColor = Color.FromArgb(36, 39, 58),
-                HoverColor = Color.FromArgb(50, 54, 78),
+                ParentSurfaceColor = headerBg,
+                FillColor = subtleBtnBg,
+                HoverColor = subtleBtnHover,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 Margin = new Padding(6, 0, 0, 0)
             };
@@ -149,8 +186,9 @@ namespace ONKOSFileTransfer
             {
                 Text = "Mi Perfil",
                 Size = new Size(84, 30),
-                FillColor = Color.FromArgb(36, 39, 58),
-                HoverColor = Color.FromArgb(50, 54, 78),
+                ParentSurfaceColor = headerBg,
+                FillColor = subtleBtnBg,
+                HoverColor = subtleBtnHover,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 Margin = new Padding(6, 0, 0, 0)
             };
@@ -159,24 +197,27 @@ namespace ONKOSFileTransfer
             flpTopActions.Controls.AddRange(new Control[] { btnChangeInbox, btnOpenInbox, btnEditProfile });
             pnlHeader.Controls.AddRange(new Control[] { lblBrand, _lblIdentity, flpTopActions });
 
+            // --- CONTENIDO PRINCIPAL ---
             var tblMain = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount = 1,
                 Padding = new Padding(14, 12, 14, 10),
-                BackColor = Color.Transparent
+                BackColor = BackColor
             };
             tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47F));
             tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53F));
             tblMain.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
+            // TARJETA IZQUIERDA: DESTINATARIOS
             var cardPeers = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(4),
                 Padding = new Padding(14),
-                CardColor = Color.FromArgb(22, 24, 38),
+                ParentSurfaceColor = BackColor,
+                CardColor = cardBg,
                 BorderColor = Color.FromArgb(42, 46, 70),
                 CornerRadius = 16
             };
@@ -186,6 +227,7 @@ namespace ONKOSFileTransfer
                 Text = "Para quién",
                 Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(242, 244, 252),
+                BackColor = cardBg,
                 Dock = DockStyle.Top,
                 Height = 24
             };
@@ -193,17 +235,19 @@ namespace ONKOSFileTransfer
             var pnlSearchRow = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 36,
+                Height = 38,
+                BackColor = cardBg,
                 Padding = new Padding(0, 2, 0, 4)
             };
 
             var pnlSearchBox = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
+                ParentSurfaceColor = cardBg,
                 CardColor = Color.FromArgb(31, 34, 52),
                 BorderColor = Color.FromArgb(52, 56, 84),
                 CornerRadius = 10,
-                Padding = new Padding(10, 5, 10, 4)
+                Padding = new Padding(10, 6, 10, 4)
             };
 
             _txtSearch = new TextBox
@@ -221,14 +265,14 @@ namespace ONKOSFileTransfer
                 Text = "+",
                 Dock = DockStyle.Right,
                 Width = 36,
-                FillColor = Color.FromArgb(124, 77, 224),
-                HoverColor = Color.FromArgb(142, 96, 242),
+                ParentSurfaceColor = cardBg,
+                FillColor = accentPurple,
+                HoverColor = accentPurpleHover,
                 Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                CornerRadius = 10,
-                Margin = new Padding(6, 0, 0, 0)
+                CornerRadius = 10
             };
 
-            var spacerSearch = new Panel { Dock = DockStyle.Right, Width = 6 };
+            var spacerSearch = new Panel { Dock = DockStyle.Right, Width = 6, BackColor = cardBg };
             pnlSearchRow.Controls.AddRange(new Control[] { pnlSearchBox, spacerSearch, _btnAddRecipient });
 
             _lstPeers = new ListBox
@@ -247,6 +291,7 @@ namespace ONKOSFileTransfer
             {
                 Dock = DockStyle.Bottom,
                 Height = 112,
+                BackColor = cardBg,
                 Padding = new Padding(0, 8, 0, 0)
             };
 
@@ -255,6 +300,7 @@ namespace ONKOSFileTransfer
                 Text = "Seleccionados (clic en × para quitar):",
                 Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(165, 142, 235),
+                BackColor = cardBg,
                 Dock = DockStyle.Top,
                 Height = 18
             };
@@ -270,12 +316,14 @@ namespace ONKOSFileTransfer
             pnlChipsContainer.Controls.AddRange(new Control[] { _flpChips, lblSelectedTitle });
             cardPeers.Controls.AddRange(new Control[] { _lstPeers, pnlChipsContainer, pnlSearchRow, lblPeersHeader });
 
+            // TARJETA DERECHA: ARCHIVOS Y DRAG & DROP
             var cardFiles = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(4),
                 Padding = new Padding(14),
-                CardColor = Color.FromArgb(22, 24, 38),
+                ParentSurfaceColor = BackColor,
+                CardColor = cardBg,
                 BorderColor = Color.FromArgb(42, 46, 70),
                 CornerRadius = 16,
                 AllowDrop = true
@@ -284,7 +332,8 @@ namespace ONKOSFileTransfer
             var pnlFilesTop = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 34
+                Height = 34,
+                BackColor = cardBg
             };
 
             var lblFilesHeader = new Label
@@ -292,6 +341,7 @@ namespace ONKOSFileTransfer
                 Text = "Archivos y carpetas",
                 Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(242, 244, 252),
+                BackColor = cardBg,
                 Dock = DockStyle.Left,
                 Width = 165,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -306,8 +356,9 @@ namespace ONKOSFileTransfer
                 Text = "+ Adjuntar ▾",
                 Dock = DockStyle.Right,
                 Width = 104,
-                FillColor = Color.FromArgb(124, 77, 224),
-                HoverColor = Color.FromArgb(142, 96, 242),
+                ParentSurfaceColor = cardBg,
+                FillColor = accentPurple,
+                HoverColor = accentPurpleHover,
                 Font = new Font("Segoe UI", 8.8F, FontStyle.Bold),
                 CornerRadius = 10
             };
@@ -318,7 +369,8 @@ namespace ONKOSFileTransfer
                 Text = "Quitar",
                 Dock = DockStyle.Right,
                 Width = 68,
-                FillColor = Color.FromArgb(42, 46, 68),
+                ParentSurfaceColor = cardBg,
+                FillColor = subtleBtnBg,
                 HoverColor = Color.FromArgb(185, 58, 78),
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
                 CornerRadius = 10,
@@ -326,12 +378,13 @@ namespace ONKOSFileTransfer
             };
             _btnRemoveSelected.Click += (s, e) => RemoveSelectedFiles();
 
-            var spacerFilesBtn = new Panel { Dock = DockStyle.Right, Width = 6 };
+            var spacerFilesBtn = new Panel { Dock = DockStyle.Right, Width = 6, BackColor = cardBg };
             pnlFilesTop.Controls.AddRange(new Control[] { lblFilesHeader, _btnRemoveSelected, spacerFilesBtn, _btnAttach });
 
             var pnlFilesArea = new Panel
             {
                 Dock = DockStyle.Fill,
+                BackColor = cardBg,
                 Padding = new Padding(0, 8, 0, 0),
                 AllowDrop = true
             };
@@ -374,25 +427,26 @@ namespace ONKOSFileTransfer
             tblMain.Controls.Add(cardPeers, 0, 0);
             tblMain.Controls.Add(cardFiles, 1, 0);
 
+            // --- BARRA INFERIOR CON PROGRESO, PORCENTAJE Y TIEMPO ESTIMADO ---
             var pnlFooter = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 76,
-                BackColor = Color.FromArgb(20, 22, 34),
+                Height = 84,
+                BackColor = headerBg,
                 Padding = new Padding(18, 8, 18, 10)
             };
 
             _pnlProgressTrack = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 4,
-                BackColor = Color.FromArgb(36, 40, 60)
+                Height = 6,
+                BackColor = Color.FromArgb(34, 38, 58)
             };
 
             _pnlProgressFill = new Panel
             {
                 Location = new Point(0, 0),
-                Height = 4,
+                Height = 6,
                 Width = 0,
                 BackColor = Color.FromArgb(139, 92, 246)
             };
@@ -403,17 +457,37 @@ namespace ONKOSFileTransfer
                 Text = "Enviar (0)",
                 Dock = DockStyle.Right,
                 Width = 156,
-                FillColor = Color.FromArgb(124, 77, 224),
-                HoverColor = Color.FromArgb(142, 96, 242),
+                ParentSurfaceColor = headerBg,
+                FillColor = accentPurple,
+                HoverColor = accentPurpleHover,
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 CornerRadius = 12,
-                Margin = new Padding(10, 8, 0, 2)
+                Margin = new Padding(12, 8, 0, 2)
             };
 
             var pnlStatusInfo = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 8, 12, 0)
+                BackColor = headerBg,
+                Padding = new Padding(0, 6, 8, 0)
+            };
+
+            var pnlStatusTopLine = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 20,
+                BackColor = headerBg
+            };
+
+            _lblProgressMeta = new Label
+            {
+                Text = "0%",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(184, 148, 255),
+                BackColor = headerBg,
+                Dock = DockStyle.Right,
+                Width = 165,
+                TextAlign = ContentAlignment.MiddleRight
             };
 
             _lblStatus = new Label
@@ -421,16 +495,20 @@ namespace ONKOSFileTransfer
                 Text = "Listo para enviar. Arrastra archivos o elige destinatarios.",
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = Color.FromArgb(215, 220, 240),
-                Dock = DockStyle.Top,
-                Height = 20,
+                BackColor = headerBg,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
                 AutoEllipsis = true
             };
+            pnlStatusTopLine.Controls.Add(_lblStatus);
+            pnlStatusTopLine.Controls.Add(_lblProgressMeta);
 
             _lblInboxPath = new Label
             {
                 Text = "Destino recibidos: " + AppSettingsStore.GetInboxFolder(),
                 Font = new Font("Segoe UI", 8F),
                 ForeColor = Color.FromArgb(135, 142, 172),
+                BackColor = headerBg,
                 Dock = DockStyle.Top,
                 Height = 18,
                 AutoEllipsis = true,
@@ -438,9 +516,9 @@ namespace ONKOSFileTransfer
             };
             _lblInboxPath.Click += (s, e) => OpenInboxFolder();
 
-            pnlStatusInfo.Controls.AddRange(new Control[] { _lblInboxPath, _lblStatus });
+            pnlStatusInfo.Controls.AddRange(new Control[] { _lblInboxPath, pnlStatusTopLine });
 
-            var pnlFooterBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 6, 0, 0) };
+            var pnlFooterBody = new Panel { Dock = DockStyle.Fill, BackColor = headerBg, Padding = new Padding(0, 6, 0, 0) };
             pnlFooterBody.Controls.AddRange(new Control[] { pnlStatusInfo, _btnSend });
 
             pnlFooter.Controls.AddRange(new Control[] { pnlFooterBody, _pnlProgressTrack });
@@ -488,6 +566,7 @@ namespace ONKOSFileTransfer
         {
             Load += (s, e) =>
             {
+                ApplyDarkTitleBar();
                 _discovery.Start(_localProfile);
                 RefreshPeersList();
             };
@@ -757,6 +836,7 @@ namespace ONKOSFileTransfer
                 var chip = new RoundedPanel
                 {
                     Size = new Size(292, 26),
+                    ParentSurfaceColor = Color.FromArgb(18, 20, 32),
                     CardColor = Color.FromArgb(52, 40, 88),
                     BorderColor = Color.FromArgb(115, 82, 205),
                     CornerRadius = 12,
@@ -767,6 +847,7 @@ namespace ONKOSFileTransfer
                 {
                     Text = recipient.DisplayText,
                     ForeColor = Color.White,
+                    BackColor = Color.FromArgb(52, 40, 88),
                     Location = new Point(10, 4),
                     Size = new Size(252, 18),
                     Font = new Font("Segoe UI", 8.3F, FontStyle.Bold),
@@ -779,6 +860,7 @@ namespace ONKOSFileTransfer
                     Location = new Point(265, 3),
                     Size = new Size(20, 19),
                     ForeColor = Color.FromArgb(220, 210, 255),
+                    BackColor = Color.FromArgb(52, 40, 88),
                     Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                     TextAlign = ContentAlignment.MiddleCenter,
                     Cursor = Cursors.Hand,
@@ -910,6 +992,20 @@ namespace ONKOSFileTransfer
             return (mb / 1024.0).ToString("0.##") + " GB";
         }
 
+        private static string FormatEta(double remainingSeconds)
+        {
+            if (remainingSeconds <= 0.5)
+                return "menos de 1s";
+            if (remainingSeconds < 60)
+                return $"~{Math.Ceiling(remainingSeconds)}s restantes";
+
+            TimeSpan ts = TimeSpan.FromSeconds(Math.Ceiling(remainingSeconds));
+            if (ts.TotalHours >= 1)
+                return $"~{(int)ts.TotalHours}h {ts.Minutes}m restantes";
+
+            return $"~{ts.Minutes}m {ts.Seconds:D2}s restantes";
+        }
+
         private int GetSystemIconIndex(string path, bool isDirectory)
         {
             string key = isDirectory ? "<FOLDER>" : Path.GetExtension(path).ToLowerInvariant();
@@ -967,7 +1063,8 @@ namespace ONKOSFileTransfer
             _btnSend.Enabled = !_isSending && _selectedRecipients.Count > 0 && _queuedItems.Count > 0;
             _btnSend.FillColor = _btnSend.Enabled
                 ? Color.FromArgb(124, 77, 224)
-                : Color.FromArgb(52, 55, 78);
+                : Color.FromArgb(46, 50, 72);
+            _btnSend.Invalidate();
         }
 
         private void SetStatus(string text)
@@ -984,18 +1081,21 @@ namespace ONKOSFileTransfer
             _lblStatus.Text = text;
         }
 
-        private void SetProgress(int percentage)
+        private void SetProgress(int percentage, string eta = null)
         {
             if (IsDisposed || !IsHandleCreated)
                 return;
 
             if (InvokeRequired)
             {
-                BeginInvoke(new Action<int>(SetProgress), percentage);
+                BeginInvoke(new Action<int, string>(SetProgress), percentage, eta);
                 return;
             }
 
             _progressPercent = Math.Max(0, Math.Min(100, percentage));
+            if (eta != null)
+                _etaText = eta;
+
             UpdateProgressVisual();
         }
 
@@ -1004,6 +1104,13 @@ namespace ONKOSFileTransfer
             if (_pnlProgressTrack != null && _pnlProgressFill != null)
             {
                 _pnlProgressFill.Width = (int)Math.Round(_pnlProgressTrack.Width * (_progressPercent / 100.0));
+            }
+
+            if (_lblProgressMeta != null)
+            {
+                _lblProgressMeta.Text = string.IsNullOrWhiteSpace(_etaText)
+                    ? $"{_progressPercent}%"
+                    : $"{_progressPercent}%  •  {_etaText}";
             }
         }
 
@@ -1014,19 +1121,20 @@ namespace ONKOSFileTransfer
 
             _isSending = true;
             UpdateSendButtonText();
-            SetProgress(0);
+            SetProgress(0, string.Empty);
 
             List<PeerInfo> targets = _selectedRecipients.ToList();
             List<string> items = _queuedItems.ToList();
             List<string> tempPackages = new List<string>();
 
-            int completedOperations = 0;
             int successCount = 0;
             int failCount = 0;
 
             try
             {
                 List<string> preparedPayloads = new List<string>();
+                long singleBatchBytes = 0;
+
                 foreach (string item in items)
                 {
                     if (Directory.Exists(item))
@@ -1042,14 +1150,18 @@ namespace ONKOSFileTransfer
                         ZipFile.CreateFromDirectory(item, pkgPath, CompressionLevel.Fastest, false);
                         tempPackages.Add(pkgPath);
                         preparedPayloads.Add(pkgPath);
+                        singleBatchBytes += new FileInfo(pkgPath).Length;
                     }
                     else if (File.Exists(item))
                     {
                         preparedPayloads.Add(item);
+                        singleBatchBytes += new FileInfo(item).Length;
                     }
                 }
 
-                int totalOperations = Math.Max(1, targets.Count * preparedPayloads.Count);
+                long grandTotalBytes = Math.Max(1, singleBatchBytes * targets.Count);
+                long sentBytesSoFar = 0;
+                Stopwatch sw = Stopwatch.StartNew();
 
                 foreach (PeerInfo target in targets)
                 {
@@ -1057,6 +1169,7 @@ namespace ONKOSFileTransfer
                     {
                         string displayName = Path.GetFileName(payload);
                         SetStatus($"Enviando '{displayName}' a {target.FullName}...");
+                        long baseBytesForItem = sentBytesSoFar;
 
                         try
                         {
@@ -1066,9 +1179,19 @@ namespace ONKOSFileTransfer
                                 payload,
                                 (sent, total) =>
                                 {
-                                    double itemFraction = total > 0 ? (double)sent / total : 1.0;
-                                    double overall = ((completedOperations + itemFraction) / totalOperations) * 100.0;
-                                    SetProgress((int)Math.Round(overall));
+                                    long currentTotalSent = baseBytesForItem + sent;
+                                    int pct = (int)Math.Round((double)currentTotalSent / grandTotalBytes * 100.0);
+
+                                    string etaStr = string.Empty;
+                                    double elapsedSec = sw.Elapsed.TotalSeconds;
+                                    if (currentTotalSent > 0 && elapsedSec > 0.35)
+                                    {
+                                        double bytesPerSec = currentTotalSent / elapsedSec;
+                                        long remainingBytes = Math.Max(0, grandTotalBytes - currentTotalSent);
+                                        etaStr = FormatEta(remainingBytes / bytesPerSec);
+                                    }
+
+                                    SetProgress(pct, etaStr);
                                 });
 
                             successCount++;
@@ -1079,10 +1202,14 @@ namespace ONKOSFileTransfer
                             SetStatus($"Error enviando a {target.FullName}: {ex.Message}");
                         }
 
-                        completedOperations++;
-                        SetProgress((int)Math.Round((double)completedOperations / totalOperations * 100.0));
+                        sentBytesSoFar += new FileInfo(payload).Length;
+                        int completedPct = (int)Math.Round((double)sentBytesSoFar / grandTotalBytes * 100.0);
+                        SetProgress(completedPct, completedPct >= 100 ? "listo" : _etaText);
                     }
                 }
+
+                sw.Stop();
+                SetProgress(100, string.Empty);
 
                 if (failCount == 0)
                 {
@@ -1122,6 +1249,12 @@ namespace ONKOSFileTransfer
             }
         }
 
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_20 = 20;
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
         private const uint SHGFI_ICON = 0x000000100;
         private const uint SHGFI_SMALLICON = 0x000000001;
         private const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
@@ -1149,18 +1282,20 @@ namespace ONKOSFileTransfer
 
     internal class RoundedPanel : Panel
     {
+        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(14, 15, 24);
         public Color CardColor { get; set; } = Color.FromArgb(22, 24, 38);
         public Color BorderColor { get; set; } = Color.FromArgb(44, 48, 72);
         public int CornerRadius { get; set; } = 14;
 
         public RoundedPanel()
         {
-            DoubleBuffered = true;
-            BackColor = Color.Transparent;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            BackColor = ParentSurfaceColor;
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            e.Graphics.Clear(ParentSurfaceColor);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
             using (GraphicsPath path = CreateRoundRect(rect, CornerRadius))
@@ -1170,7 +1305,6 @@ namespace ONKOSFileTransfer
                 e.Graphics.FillPath(fill, path);
                 e.Graphics.DrawPath(pen, path);
             }
-            base.OnPaint(e);
         }
 
         internal static GraphicsPath CreateRoundRect(Rectangle r, int radius)
@@ -1190,13 +1324,14 @@ namespace ONKOSFileTransfer
     {
         private bool _hovered;
 
+        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(22, 24, 38);
         public Color FillColor { get; set; } = Color.FromArgb(124, 77, 224);
         public Color HoverColor { get; set; } = Color.FromArgb(142, 96, 242);
         public int CornerRadius { get; set; } = 10;
 
         public RoundedButton()
         {
-            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
             ForeColor = Color.White;
             Cursor = Cursors.Hand;
         }
@@ -1217,9 +1352,12 @@ namespace ONKOSFileTransfer
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            Color surface = Parent != null ? Parent.BackColor : ParentSurfaceColor;
+            e.Graphics.Clear(surface);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
             Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            Color bg = !Enabled ? Color.FromArgb(48, 51, 72) : (_hovered ? HoverColor : FillColor);
+            Color bg = !Enabled ? Color.FromArgb(46, 50, 72) : (_hovered ? HoverColor : FillColor);
 
             using (GraphicsPath path = RoundedPanel.CreateRoundRect(rect, CornerRadius))
             using (SolidBrush fill = new SolidBrush(bg))
@@ -1232,7 +1370,7 @@ namespace ONKOSFileTransfer
                 Text,
                 Font,
                 rect,
-                Enabled ? ForeColor : Color.FromArgb(140, 145, 170),
+                Enabled ? ForeColor : Color.FromArgb(150, 155, 180),
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
     }
