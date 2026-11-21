@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
 namespace ONKOSFileTransfer.Network
@@ -8,27 +7,32 @@ namespace ONKOSFileTransfer.Network
     {
         public static string GetLocalIPv4()
         {
-            foreach (NetworkInterface ni in
-                NetworkInterface.GetAllNetworkInterfaces())
+            try
             {
-                if (ni.OperationalStatus != OperationalStatus.Up)
-                    continue;
-
-                if (ni.NetworkInterfaceType ==
-                    NetworkInterfaceType.Loopback)
-                    continue;
-
-                foreach (UnicastIPAddressInformation ip in
-                    ni.GetIPProperties().UnicastAddresses)
+                string fallback = null;
+                foreach (IPAddress addr in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
                 {
-                    if (ip.Address.AddressFamily ==
-                        AddressFamily.InterNetwork &&
-                        !IPAddress.IsLoopback(ip.Address))
-                        return ip.Address.ToString();
+                    if (addr.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(addr))
+                        continue;
+
+                    string ip = addr.ToString();
+                    if (ip.StartsWith("169.254."))
+                    {
+                        fallback = fallback ?? ip;
+                        continue;
+                    }
+
+                    return ip;
                 }
+
+                if (!string.IsNullOrEmpty(fallback))
+                    return fallback;
+            }
+            catch
+            {
             }
 
-            return "IP no disponible";
+            return "127.0.0.1";
         }
     }
 }
