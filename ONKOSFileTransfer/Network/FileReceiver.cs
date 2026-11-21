@@ -53,7 +53,7 @@ namespace ONKOSFileTransfer.Network
             }
         }
 
-        private static (string FullName, string Area) ReadLocalProfileSafe()
+        private static (bool Valid, string FullName, string Area) ReadLocalProfileSafe()
         {
             try
             {
@@ -67,16 +67,24 @@ namespace ONKOSFileTransfer.Network
                     string[] lines = File.ReadAllLines(profilePath, Encoding.UTF8);
                     string name = lines.Length > 0 ? lines[0].Trim() : string.Empty;
                     string area = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+                    string upper = name.ToUpperInvariant();
 
-                    if (!string.IsNullOrWhiteSpace(name))
-                        return (name, string.IsNullOrWhiteSpace(area) ? "General" : area);
+                    if (!string.IsNullOrWhiteSpace(name) &&
+                        !string.IsNullOrWhiteSpace(area) &&
+                        upper != "SYSTEM" &&
+                        upper != "NT AUTHORITY\\SYSTEM" &&
+                        upper != "LOCAL SERVICE" &&
+                        upper != "NETWORK SERVICE")
+                    {
+                        return (true, name, area);
+                    }
                 }
             }
             catch
             {
             }
 
-            return (Environment.UserName, "General");
+            return (false, string.Empty, string.Empty);
         }
 
         private static string GetLocalIPv4Safe()
@@ -116,11 +124,18 @@ namespace ONKOSFileTransfer.Network
 
                         using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
                         {
-                            writer.Write("ONKOS_IDENTITY_V1");
-                            writer.Write(profile.FullName);
-                            writer.Write(profile.Area);
-                            writer.Write(localIp);
-                            writer.Write(machine);
+                            if (profile.Valid)
+                            {
+                                writer.Write("ONKOS_IDENTITY_V1");
+                                writer.Write(profile.FullName);
+                                writer.Write(profile.Area);
+                                writer.Write(localIp);
+                                writer.Write(machine);
+                            }
+                            else
+                            {
+                                writer.Write("ONKOS_UNREGISTERED_V1");
+                            }
                             writer.Flush();
                         }
                         return;
