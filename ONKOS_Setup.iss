@@ -21,22 +21,17 @@ ShowLanguageDialog=no
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Dirs]
-; Crea las carpetas de sistema y la carpeta de archivos recibidos en el Escritorio publico y del usuario
 Name: "{commonappdata}\ONKOS"; Permissions: users-modify
 Name: "{userdesktop}\Archivos Recibidos ONKOS"
 Name: "{commondesktop}\Archivos Recibidos ONKOS"
 
 [Files]
-; Copia toda la aplicacion principal y sus librerias
 Source: "ONKOSFileTransfer\bin\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Copia el servicio de Windows en su subcarpeta dedicada
 Source: "ONKOSTransferService\bin\Release\*"; DestDir: "{app}\Servicio"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Copia los iconos personalizados del programa y de la carpeta de recibidos
 Source: "ONKOSFileTransfer\onkos.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "ONKOSFileTransfer\recibidos.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; Accesos directos en Menu Inicio y Escritorio con el icono oficial de ONKOS
 Name: "{group}\ONKOS File Transfer 2.0"; Filename: "{app}\ONKOSFileTransfer.exe"; IconFilename: "{app}\onkos.ico"
 Name: "{group}\Carpeta Archivos Recibidos ONKOS"; Filename: "{userdesktop}\Archivos Recibidos ONKOS"; IconFilename: "{app}\recibidos.ico"
 Name: "{group}\Desinstalar ONKOS File Transfer 2.0"; Filename: "{uninstallexe}"
@@ -46,29 +41,20 @@ Name: "{autodesktop}\ONKOS File Transfer 2.0"; Filename: "{app}\ONKOSFileTransfe
 Name: "desktopicon"; Description: "Crear acceso directo en el &Escritorio"; GroupDescription: "Accesos directos adicionales:"
 
 [Registry]
-; Inicia automaticamente en la bandeja del sistema al encender el equipo
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ONKOSFileTransfer"; ValueData: """{app}\ONKOSFileTransfer.exe"" --tray"; Flags: uninsdeletevalue
 
 [Run]
-; 1. Registra e inicia el Servicio de Windows en segundo plano
 Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" start= auto DisplayName= ""ONKOS File Transfer Service"""; Flags: runhidden
 Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden
-
-; 2. Abre los puertos TCP 5050 y UDP 5051 en el Firewall de Windows
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS File Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Discovery UDP 5051"" dir=in action=allow protocol=UDP localport=5051"; Flags: runhidden
-
-; 3. Aplica el icono personalizado a la carpeta "Archivos Recibidos ONKOS"
 Filename: "attrib.exe"; Parameters: "+r ""{userdesktop}\Archivos Recibidos ONKOS"""; Flags: runhidden
 Filename: "attrib.exe"; Parameters: "+s +h ""{userdesktop}\Archivos Recibidos ONKOS\desktop.ini"""; Flags: runhidden
-
-; 4. Inicia el programa al finalizar la instalacion para el registro inicial del usuario
 Filename: "{app}\ONKOSFileTransfer.exe"; Description: "Abrir ONKOS File Transfer 2.0 para registrar mi equipo"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Cierra la interfaz, detiene y borra el servicio y limpia el Firewall al desinstalar desde Panel de Control
 Filename: "taskkill.exe"; Parameters: "/F /IM ONKOSFileTransfer.exe"; Flags: runhidden; RunOnceId: "KillOnkosUi"
 Filename: "taskkill.exe"; Parameters: "/F /IM ONKOS.TransferService.exe"; Flags: runhidden; RunOnceId: "KillOnkosSvc"
 Filename: "sc.exe"; Parameters: "stop ONKOSTransferService"; Flags: runhidden; RunOnceId: "StopOnkosSvc"
@@ -79,11 +65,10 @@ Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKO
 [Code]
 procedure InitializeWizard();
 begin
-  WizardForm.Color := $001A100F;
   WizardForm.Font.Name := 'Segoe UI';
-  WizardForm.Font.Color := $00FCF7F6;
-  WizardForm.WelcomeLabel1.Font.Color := $00FF94B8;
-  WizardForm.FinishedHeadingLabel.Font.Color := $00FF94B8;
+  WizardForm.WelcomeLabel1.Font.Color := $007C4DE0;
+  WizardForm.FinishedHeadingLabel.Font.Color := $007C4DE0;
+  WizardForm.PageNameLabel.Font.Color := $004A269C;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
