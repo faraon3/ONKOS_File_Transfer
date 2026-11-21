@@ -2,106 +2,122 @@ using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace ONKOSFileTransfer.Network
 {
+    public sealed class PeerIdentityResult
+    {
+        public string FullName { get; set; }
+        public string Area { get; set; }
+        public string IPv4 { get; set; }
+        public string MachineName { get; set; }
+    }
+
     public static class FileSender
     {
-        public static async Task<(string FullName, string Area, string IPv4, string MachineName)> QueryPeerIdentityAsync(
-            string ip, int port, int timeoutMs = 600)
+        public static async Task<PeerIdentityResult> QueryPeerIdentityAsync(string host, int port, int timeoutMs = 400)
         {
-            if (string.IsNullOrWhiteSpace(ip))
-                return (null, null, null, null);
+            var result = new PeerIdentityResult();
+            if (string.IsNullOrWhiteSpace(host))
+                return result;
 
             try
             {
-                using (TcpClient client = new TcpClient())
-                using (var cts = new CancellationTokenSource(timeoutMs))
+                using (var client = new TcpClient())
                 {
-                    var connectTask = client.ConnectAsync(ip, port);
-                    var completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs, cts.Token));
+                    Task connectTask = client.ConnectAsync(host, port);
+                    Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
                     if (completed != connectTask || !client.Connected)
-                        return (null, null, null, null);
+                        return result;
 
                     await connectTask;
+                    client.SendTimeout = timeoutMs;
+                    client.ReceiveTimeout = timeoutMs;
 
                     using (NetworkStream stream = client.GetStream())
+                    using (var writer = new BinaryWriter(stream, Encoding.UTF8, false))
+                    using (var reader = new BinaryReader(stream, Encoding.UTF8, false))
                     {
-                        stream.ReadTimeout = timeoutMs;
-                        stream.WriteTimeout = timeoutMs;
+                        writer.Write("ONKOS_WHOAMI_V1");
+                        writer.Flush();
 
-                        using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
-                        using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
-                        {
-                            writer.Write("ONKOS_WHOAMI_V1");
-                            writer.Flush();
+                        Task<string> tokenTask = Task.Run(() => reader.ReadString());
+                        Task tokenCompleted = await Task.WhenAny(tokenTask, Task.Delay(timeoutMs));
+                        if (tokenCompleted != tokenTask)
+                            return result;
 
-                            string header = reader.ReadString();
-                            if (!string.Equals(header, "ONKOS_IDENTITY_V1", StringComparison.Ordinal))
-                                return (null, null, null, null);
+                        string responseToken = await tokenTask;
+                        if (!string.Equals(responseToken, "ONKOS_IDENTITY_V1", StringComparison.Ordinal))
+                            return result;
 
-                            string fullName = reader.ReadString();
-                            string area = reader.ReadString();
-                            string reportedIp = reader.ReadString();
-                            string machine = reader.ReadString();
-
-                            return (
-                                fullName?.Trim(),
-                                area?.Trim(),
-                                string.IsNullOrWhiteSpace(reportedIp) ? ip : reportedIp.Trim(),
-                                machine?.Trim());
-                        }
+                        result.FullName = reader.ReadString();
+                        result.Area = reader.ReadString();
+                        result.IPv4 = reader.ReadString();
+                        result.MachineName = reader.ReadString();
+                        return result;
                     }
                 }
             }
             catch
             {
-                return (null, null, null, null);
+                return new PeerIdentityResult();
             }
         }
 
-        public static async Task SendFileAsync(string ip, int port, string filePath)
-        {
-            await SendFileAsync(ip, port, filePath, null);
-        }
-
         public static async Task SendFileAsync(
-            string ip, int port, string filePath, Action<long, long> progress)
+            string host,
+            int port,
+            string filePath,
+            Action<long, long> onProgress = null)
         {
+            if (string.IsNullOrWhiteSpace(host))
+                throw new ArgumentException("La dirección de destino no es válida.", nameof(host));
+
             if (!File.Exists(filePath))
-                throw new FileNotFoundException("Archivo no encontrado.", filePath);
+                throw new FileNotFoundException("No se encontró el archivo a enviar.", filePath);
+
+            FileInfo fileInfo = new FileInfo(filePath);
+            long totalBytes = fileInfo.Length;
 
             using (TcpClient client = new TcpClient())
             {
-                await client.ConnectAsync(ip, port);
+                Task connectTask = client.ConnectAsync(host, port);
+                Task completed = await Task.WhenAny(connectTask, Task.Delay(5000));
+                if (completed != connectTask || !client.Connected)
+                    throw new SocketException((int)SocketError.TimedOut);
+
+                await connectTask;
+                client.NoDelay = true;
 
                 using (NetworkStream stream = client.GetStream())
-                using (BinaryWriter writer = new BinaryWriter(
-                    stream, Encoding.UTF8, true))
-                using (FileStream file = File.OpenRead(filePath))
+                using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
+                using (FileStream input = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
                 {
-                    long length = file.Length;
-                    writer.Write(Path.GetFileName(filePath));
-                    writer.Write(length);
+                    writer.Write(fileInfo.Name);
+                    writer.Write(totalBytes);
                     writer.Flush();
 
                     byte[] buffer = new byte[81920];
-                    long sent = 0;
-                    int read;
-                    while ((read = await file.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    long sentTotal = 0;
+
+                    while (sentTotal < totalBytes)
                     {
+                        int read = await input.ReadAsync(buffer, 0, buffer.Length);
+                        if (read <= 0)
+                            break;
+
                         await stream.WriteAsync(buffer, 0, read);
-                        sent += read;
-                        if (progress != null)
-                            progress(sent, length);
+                        sentTotal += read;
+                        onProgress?.Invoke(sentTotal, totalBytes);
                     }
+
                     await stream.FlushAsync();
 
-                    int confirmation = stream.ReadByte();
-                    if (confirmation != 1)
-                        throw new IOException("El equipo destino no confirmó que el archivo se guardó.");
+                    byte[] ackBuffer = new byte[1];
+                    int ackRead = await stream.ReadAsync(ackBuffer, 0, 1);
+                    if (ackRead != 1 || ackBuffer[0] != 1)
+                        throw new IOException("El destino no confirmó la recepción completa del archivo.");
                 }
             }
         }
