@@ -44,7 +44,6 @@ namespace ONKOSFileTransfer
         private ListView _lvFiles;
         private Label _lblDropHint;
         private RoundedButton _btnAttach;
-        private ContextMenuStrip _attachMenu;
         private RoundedButton _btnRemoveSelected;
 
         private Panel _pnlProgressTrack;
@@ -121,7 +120,6 @@ namespace ONKOSFileTransfer
             Color accentPurple = Color.FromArgb(124, 77, 224);
             Color accentPurpleHover = Color.FromArgb(142, 96, 242);
 
-            // --- BARRA SUPERIOR ---
             var pnlHeader = new Panel
             {
                 Dock = DockStyle.Top,
@@ -197,7 +195,6 @@ namespace ONKOSFileTransfer
             flpTopActions.Controls.AddRange(new Control[] { btnChangeInbox, btnOpenInbox, btnEditProfile });
             pnlHeader.Controls.AddRange(new Control[] { lblBrand, _lblIdentity, flpTopActions });
 
-            // --- CONTENIDO PRINCIPAL ---
             var tblMain = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -210,7 +207,6 @@ namespace ONKOSFileTransfer
             tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53F));
             tblMain.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-            // TARJETA IZQUIERDA: DESTINATARIOS
             var cardPeers = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
@@ -316,7 +312,6 @@ namespace ONKOSFileTransfer
             pnlChipsContainer.Controls.AddRange(new Control[] { _flpChips, lblSelectedTitle });
             cardPeers.Controls.AddRange(new Control[] { _lstPeers, pnlChipsContainer, pnlSearchRow, lblPeersHeader });
 
-            // TARJETA DERECHA: ARCHIVOS Y DRAG & DROP
             var cardFiles = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
@@ -347,13 +342,9 @@ namespace ONKOSFileTransfer
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
-            _attachMenu = new ContextMenuStrip();
-            _attachMenu.Items.Add("Seleccionar archivos...", null, BtnAddFiles_Click);
-            _attachMenu.Items.Add("Seleccionar carpeta...", null, BtnAddFolder_Click);
-
             _btnAttach = new RoundedButton
             {
-                Text = "+ Adjuntar ▾",
+                Text = "+ Adjuntar",
                 Dock = DockStyle.Right,
                 Width = 104,
                 ParentSurfaceColor = cardBg,
@@ -362,7 +353,7 @@ namespace ONKOSFileTransfer
                 Font = new Font("Segoe UI", 8.8F, FontStyle.Bold),
                 CornerRadius = 10
             };
-            _btnAttach.Click += (s, e) => _attachMenu.Show(_btnAttach, new Point(0, _btnAttach.Height + 4));
+            _btnAttach.Click += BtnAddFiles_Click;
 
             _btnRemoveSelected = new RoundedButton
             {
@@ -407,7 +398,7 @@ namespace ONKOSFileTransfer
 
             _lblDropHint = new Label
             {
-                Text = "Arrastra archivos o carpetas aquí\no haz clic en «+ Adjuntar»",
+                Text = "Haz clic aquí o arrastra archivos o carpetas",
                 Font = new Font("Segoe UI", 9.5F),
                 ForeColor = Color.FromArgb(135, 142, 172),
                 BackColor = Color.FromArgb(18, 20, 32),
@@ -416,7 +407,7 @@ namespace ONKOSFileTransfer
                 AllowDrop = true,
                 Cursor = Cursors.Hand
             };
-            _lblDropHint.Click += (s, e) => _attachMenu.Show(_btnAttach, new Point(0, _btnAttach.Height + 4));
+            _lblDropHint.Click += BtnAddFiles_Click;
 
             pnlFilesArea.Controls.Add(_lvFiles);
             pnlFilesArea.Controls.Add(_lblDropHint);
@@ -427,7 +418,6 @@ namespace ONKOSFileTransfer
             tblMain.Controls.Add(cardPeers, 0, 0);
             tblMain.Controls.Add(cardFiles, 1, 0);
 
-            // --- BARRA INFERIOR CON PROGRESO, PORCENTAJE Y TIEMPO ESTIMADO ---
             var pnlFooter = new Panel
             {
                 Dock = DockStyle.Bottom,
@@ -886,19 +876,9 @@ namespace ONKOSFileTransfer
             using (var ofd = new OpenFileDialog())
             {
                 ofd.Multiselect = true;
-                ofd.Title = "Seleccionar archivos";
-                if (ofd.ShowDialog() == DialogResult.OK)
+                ofd.Title = "Seleccionar archivos para enviar";
+                if (ofd.ShowDialog(this) == DialogResult.OK)
                     AddItemsToQueue(ofd.FileNames);
-            }
-        }
-
-        private void BtnAddFolder_Click(object sender, EventArgs e)
-        {
-            using (var fbd = new FolderBrowserDialog())
-            {
-                fbd.Description = "Seleccionar carpeta";
-                if (fbd.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                    AddItemsToQueue(new[] { fbd.SelectedPath });
             }
         }
 
