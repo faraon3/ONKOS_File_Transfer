@@ -1,151 +1,224 @@
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
-using ONKOSFileTransfer.ONKOSTray;
 
 namespace ONKOSFileTransfer
 {
     public static class ModernToastNotifier
     {
-        private static readonly object _syncLock = new object();
-        private static readonly HashSet<string> _notificadosRecientes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        private static Thread _uiThread;
-        private static ToastNotificationForm _activeToast;
-        private static bool _inicializado;
+        private static SynchronizationContext _uiContext;
 
         public static void Inicializar()
         {
-            lock (_syncLock)
-            {
-                if (_inicializado) return;
-                _inicializado = true;
-            }
+            _uiContext = SynchronizationContext.Current;
         }
 
-        public static void MostrarLoteRecibido(IReadOnlyList<string> rutasArchivos)
+        public static void MostrarNotificacion(string titulo, string mensaje, string rutaAbrir = null, bool esError = false)
         {
-            if (rutasArchivos == null || rutasArchivos.Count == 0)
+            void ShowOnThread()
+            {
+                try
+                {
+                    var toast = new ModernBannerForm(titulo, mensaje, rutaAbrir, esError);
+                    toast.Show();
+                }
+                catch
+                {
+                }
+            }
+
+            if (_uiContext != null)
+            {
+                _uiContext.Post(_ => ShowOnThread(), null);
                 return;
-
-            try
-            {
-                List<string> nuevosArchivos;
-                lock (_syncLock)
-                {
-                    if (_notificadosRecientes.Count > 2000)
-                        _notificadosRecientes.Clear();
-
-                    nuevosArchivos = rutasArchivos
-                        .Where(r => !string.IsNullOrWhiteSpace(r) && File.Exists(r))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Where(r => _notificadosRecientes.Add(r))
-                        .ToList();
-                }
-
-                if (nuevosArchivos.Count == 0)
-                    return;
-
-                string ultimoArchivo = nuevosArchivos.Last();
-                string carpetaDestino = Path.GetDirectoryName(ultimoArchivo) ?? InboxMonitor.CarpetaRecibidos;
-                string nombreSubcarpeta = new DirectoryInfo(carpetaDestino).Name;
-                string origen = nombreSubcarpeta.Contains("_")
-                    ? nombreSubcarpeta.Split('_')[0]
-                    : nombreSubcarpeta;
-
-                string titulo = nuevosArchivos.Count == 1
-                    ? "1 archivo recibido"
-                    : $"{nuevosArchivos.Count} archivos recibidos";
-
-                string mensaje = nuevosArchivos.Count == 1
-                    ? $"{Path.GetFileName(ultimoArchivo)} · {origen}"
-                    : $"Último: {Path.GetFileName(ultimoArchivo)} · {origen}";
-
-                MostrarEnHiloUnico(titulo, mensaje, carpetaDestino);
             }
-            catch
+
+            var openForm = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
+            if (openForm != null && !openForm.IsDisposed && openForm.IsHandleCreated)
             {
+                openForm.BeginInvoke(new Action(ShowOnThread));
+                return;
             }
+
+            var thread = new Thread(() =>
+            {
+                Application.EnableVisualStyles();
+                var toast = new ModernBannerForm(titulo, mensaje, rutaAbrir, esError);
+                toast.FormClosed += (s, e) => Application.ExitThread();
+                toast.Show();
+                Application.Run();
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Start();
         }
 
-        private static void MostrarEnHiloUnico(string titulo, string mensaje, string carpetaDestino)
+        private sealed class ModernBannerForm : Form
         {
-            lock (_syncLock)
-            {
-                if (_uiThread == null || !_uiThread.IsAlive)
-                {
-                    _uiThread = new Thread(() =>
-                    {
-                        Application.EnableVisualStyles();
-                        Application.Run(new ApplicationContext());
-                    });
-                    _uiThread.SetApartmentState(ApartmentState.STA);
-                    _uiThread.IsBackground = true;
-                    _uiThread.Start();
+            private readonly string _rutaAbrir;
+            private readonly Color _accentColor;
+            private readonly System.Windows.Forms.Timer _lifeTimer;
+            private int _ticks;
 
-                    Thread.Sleep(150);
-                }
+            protected override bool ShowWithoutActivation => true;
+
+            public ModernBannerForm(string titulo, string mensaje, string rutaAbrir, bool esError)
+            {
+                _rutaAbrir = rutaAbrir;
+                _accentColor = esError
+                    ? Color.FromArgb(239, 83, 108)
+                    : Color.FromArgb(139, 92, 246);
+
+                FormBorderStyle = FormBorderStyle.None;
+                StartPosition = FormStartPosition.Manual;
+                ShowInTaskbar = false;
+                TopMost = true;
+                Size = new Size(370, 92);
+                BackColor = Color.FromArgb(22, 24, 38);
+                Opacity = 0.0;
+                Cursor = !string.IsNullOrWhiteSpace(rutaAbrir) ? Cursors.Hand : Cursors.Default;
+
+                Rectangle area = Screen.PrimaryScreen.WorkingArea;
+                Location = new Point(area.Right - Width - 18, area.Bottom - Height - 18);
+
+                ApplyRoundedRegion(16);
+
+                var picIcon = new PictureBox
+                {
+                    Location = new Point(18, 22),
+                    Size = new Size(42, 42),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    BackColor = Color.Transparent
+                };
 
                 try
                 {
-                    if (_activeToast != null && !_activeToast.IsDisposed)
-                    {
-                        if (_activeToast.InvokeRequired)
-                        {
-                            _activeToast.BeginInvoke(new Action(() =>
-                            {
-                                try { _activeToast.Close(); } catch { }
-                            }));
-                        }
-                        else
-                        {
-                            _activeToast.Close();
-                        }
-                    }
+                    string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
+                    if (File.Exists(icoPath))
+                        picIcon.Image = new Icon(icoPath, 48, 48).ToBitmap();
+                    else
+                        picIcon.Image = SystemIcons.Information.ToBitmap();
                 }
                 catch
                 {
+                }
+
+                var lblTitle = new Label
+                {
+                    Text = titulo,
+                    Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(246, 247, 252),
+                    Location = new Point(70, 14),
+                    Size = new Size(262, 22),
+                    AutoEllipsis = true
+                };
+
+                var lblMsg = new Label
+                {
+                    Text = mensaje,
+                    Font = new Font("Segoe UI", 8.8F),
+                    ForeColor = Color.FromArgb(182, 188, 212),
+                    Location = new Point(70, 38),
+                    Size = new Size(276, 38),
+                    AutoEllipsis = true
+                };
+
+                var lblClose = new Label
+                {
+                    Text = "×",
+                    Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(150, 155, 180),
+                    Location = new Point(340, 8),
+                    Size = new Size(20, 20),
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Cursor = Cursors.Hand
+                };
+                lblClose.Click += (s, e) => Close();
+
+                EventHandler openAction = (s, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(_rutaAbrir))
+                    {
+                        try
+                        {
+                            if (Directory.Exists(_rutaAbrir))
+                                Process.Start("explorer.exe", _rutaAbrir);
+                            else if (File.Exists(_rutaAbrir))
+                                Process.Start("explorer.exe", "/select,\"" + _rutaAbrir + "\"");
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    Close();
+                };
+
+                Click += openAction;
+                picIcon.Click += openAction;
+                lblTitle.Click += openAction;
+                lblMsg.Click += openAction;
+
+                Controls.AddRange(new Control[] { picIcon, lblTitle, lblMsg, lblClose });
+
+                _lifeTimer = new System.Windows.Forms.Timer { Interval = 30 };
+                _lifeTimer.Tick += (s, e) =>
+                {
+                    _ticks++;
+                    if (_ticks <= 10)
+                    {
+                        Opacity = Math.Min(0.97, _ticks * 0.10);
+                    }
+                    else if (_ticks > 155)
+                    {
+                        Opacity = Math.Max(0.0, Opacity - 0.08);
+                        if (Opacity <= 0.02)
+                        {
+                            _lifeTimer.Stop();
+                            Close();
+                        }
+                    }
+                };
+                _lifeTimer.Start();
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+                using (var accentBrush = new SolidBrush(_accentColor))
+                {
+                    e.Graphics.FillRectangle(accentBrush, 0, 0, 6, Height);
+                }
+
+                using (var pen = new Pen(Color.FromArgb(55, 60, 88), 1))
+                {
+                    e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
                 }
             }
 
-            var abrirToast = new Thread(() =>
+            private void ApplyRoundedRegion(int radius)
             {
-                try
-                {
-                    ToastNotificationForm toast = new ToastNotificationForm(
-                        titulo,
-                        mensaje,
-                        carpetaDestino,
-                        4500,
-                        true
-                    );
+                var path = new GraphicsPath();
+                int d = radius * 2;
+                path.AddArc(0, 0, d, d, 180, 90);
+                path.AddArc(Width - d, 0, d, d, 270, 90);
+                path.AddArc(Width - d, Height - d, d, d, 0, 90);
+                path.AddArc(0, Height - d, d, d, 90, 90);
+                path.CloseFigure();
+                Region = new Region(path);
+            }
 
-                    lock (_syncLock)
-                    {
-                        _activeToast = toast;
-                    }
-
-                    toast.FormClosed += (s, e) =>
-                    {
-                        lock (_syncLock)
-                        {
-                            if (ReferenceEquals(_activeToast, toast))
-                                _activeToast = null;
-                        }
-                    };
-
-                    Application.Run(toast);
-                }
-                catch
-                {
-                }
-            });
-
-            abrirToast.SetApartmentState(ApartmentState.STA);
-            abrirToast.IsBackground = true;
-            abrirToast.Start();
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                    _lifeTimer?.Dispose();
+                base.Dispose(disposing);
+            }
         }
     }
 }
