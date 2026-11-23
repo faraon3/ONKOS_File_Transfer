@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.IO.Pipes;
 using System.Text;
 
@@ -33,32 +32,38 @@ namespace ONKOSTransferService
         {
             try
             {
-                string safeTitle = Sanitize(title);
-                string safeMessage = Sanitize(message);
+                string safeTitle = SanitizeTitleOrLevel(title);
+                string safeMessage = SanitizeMessage(message);
                 string payload = $"{level}|{safeTitle}|{safeMessage}";
+                byte[] bytes = Encoding.UTF8.GetBytes(payload);
 
-                using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
+                using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.None))
                 {
-                    client.Connect(300);
-                    using (var writer = new StreamWriter(client, Encoding.UTF8))
-                    {
-                        writer.Write(payload);
-                        writer.Flush();
-                    }
+                    client.Connect(1200);
+                    client.Write(bytes, 0, bytes.Length);
+                    client.Flush();
+                    client.WaitForPipeDrain();
                 }
             }
             catch
             {
-                // Si no hay sesión de usuario activa o el ícono de bandeja está cerrado, el servicio continúa sin fallar
             }
         }
 
-        private static string Sanitize(string value)
+        private static string SanitizeTitleOrLevel(string value)
         {
             if (string.IsNullOrEmpty(value))
                 return string.Empty;
 
             return value.Replace("|", "/").Replace("\r", " ").Replace("\n", " ").Trim();
+        }
+
+        private static string SanitizeMessage(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            return value.Replace("\r", " ").Replace("\n", " ").Trim();
         }
     }
 }
