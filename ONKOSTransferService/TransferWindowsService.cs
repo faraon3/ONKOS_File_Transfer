@@ -2,14 +2,13 @@ using System;
 using System.IO;
 using System.ServiceProcess;
 using System.Threading;
+using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
 {
     public partial class TransferWindowsService : ServiceBase
     {
-        private static readonly string DefaultInboxFolder =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
         private const int DefaultListenPort = 5050;
 
         private FileReceiver _receiver;
@@ -23,17 +22,36 @@ namespace ONKOSTransferService
             AutoLog = true;
         }
 
+        private static string GetTargetInboxFolder()
+        {
+            try
+            {
+                string configured = AppSettingsStore.GetInboxFolder();
+                if (!string.IsNullOrWhiteSpace(configured))
+                    return configured;
+            }
+            catch
+            {
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Archivos Recibidos ONKOS");
+        }
+
         protected override void OnStart(string[] args)
         {
             try
             {
-                Directory.CreateDirectory(DefaultInboxFolder);
+                string inboxFolder = GetTargetInboxFolder();
+                AppSettingsStore.EnsureInboxFolderReady(inboxFolder);
+
                 _stopEvent = new ManualResetEventSlim(false);
 
                 _receiver = new FileReceiver();
                 _receiver.FileReceived += OnFileReceived;
                 _receiver.Error += OnReceiverError;
-                _receiver.Start(DefaultListenPort, DefaultInboxFolder);
+                _receiver.Start(DefaultListenPort, inboxFolder);
 
                 ServiceNotifier.SendInfo(
                     "Servicio iniciado",
