@@ -4,6 +4,8 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,7 +85,7 @@ namespace ONKOSFileTransfer
             menu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => AbrirVentanaPrincipal());
             menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
-                string rutaInbox = GetPublicOrConfiguredInboxFolder();
+                string rutaInbox = AppSettingsStore.GetInboxFolder();
                 AppSettingsStore.EnsureInboxFolderReady(rutaInbox);
                 System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
             });
@@ -119,19 +121,25 @@ namespace ONKOSFileTransfer
             _ = Task.Run(() => ListenServicePipeLoop(_pipeCts.Token));
         }
 
-        private static string GetPublicOrConfiguredInboxFolder()
+        private static PipeSecurity CreatePipeSecurityForService()
         {
-            string publicInbox = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
-                "Archivos Recibidos ONKOS");
-            if (Directory.Exists(publicInbox))
-                return publicInbox;
-
-            return AppSettingsStore.GetInboxFolder();
+            var ps = new PipeSecurity();
+            ps.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Allow));
+            ps.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                PipeAccessRights.FullControl,
+                AccessControlType.Allow));
+            return ps;
         }
 
         private async Task ListenServicePipeLoop(CancellationToken token)
         {
+            PipeSecurity pipeSecurity = null;
+            try { pipeSecurity = CreatePipeSecurityForService(); } catch { }
+
             while (!token.IsCancellationRequested)
             {
                 try
@@ -139,9 +147,12 @@ namespace ONKOSFileTransfer
                     using (var server = new NamedPipeServerStream(
                         PipeName,
                         PipeDirection.In,
-                        1,
+                        NamedPipeServerStream.MaxAllowedServerInstances,
                         PipeTransmissionMode.Byte,
-                        PipeOptions.Asynchronous))
+                        PipeOptions.Asynchronous,
+                        4096,
+                        4096,
+                        pipeSecurity))
                     {
                         await server.WaitForConnectionAsync(token);
                         using (var reader = new StreamReader(server, Encoding.UTF8))
@@ -158,7 +169,7 @@ namespace ONKOSFileTransfer
                 }
                 catch
                 {
-                    try { await Task.Delay(500, token); } catch { break; }
+                    try { await Task.Delay(400, token); } catch { break; }
                 }
             }
         }
@@ -178,7 +189,7 @@ namespace ONKOSFileTransfer
 
             bool isError = level == "ERROR" || level == "WARNING";
             string badge = level == "SUCCESS" ? "RECIBIDO" : (isError ? "AVISO" : "ONKOS");
-            string rutaAbrir = level == "SUCCESS" ? GetPublicOrConfiguredInboxFolder() : null;
+            string rutaAbrir = level == "SUCCESS" ? AppSettingsStore.GetInboxFolder() : null;
 
             ModernToastNotifier.MostrarNotificacion(title, message, rutaAbrir, isError, badge);
         }
