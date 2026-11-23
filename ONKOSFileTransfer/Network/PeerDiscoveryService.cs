@@ -14,10 +14,10 @@ namespace ONKOSFileTransfer.Network
     {
         private const int DiscoveryPort = 5051;
         private const int TransferPort = 5050;
-        private const int BroadcastIntervalMs = 2000;
+        private const int BroadcastIntervalMs = 2500;
         private const int SubnetScanIntervalMs = 15000;
-        private const int PresenceCheckIntervalMs = 3000;
-        private static readonly TimeSpan PeerOnlineTimeout = TimeSpan.FromSeconds(35);
+        private const int PresenceCheckIntervalMs = 4000;
+        private static readonly TimeSpan PeerOnlineTimeout = TimeSpan.FromSeconds(60);
 
         private static readonly string ContactsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "contactos.txt");
@@ -109,14 +109,17 @@ namespace ONKOSFileTransfer.Network
                     string key = BuildPeerKey(name, ip, machine);
                     lock (_sync)
                     {
-                        _peersByKey[key] = new PeerInfo
+                        if (!_peersByKey.ContainsKey(key))
                         {
-                            FullName = name,
-                            Area = area,
-                            IPv4 = ip,
-                            MachineName = machine,
-                            LastSeenUtc = DateTime.MinValue
-                        };
+                            _peersByKey[key] = new PeerInfo
+                            {
+                                FullName = name,
+                                Area = area,
+                                IPv4 = ip,
+                                MachineName = machine,
+                                LastSeenUtc = DateTime.MinValue
+                            };
+                        }
                     }
                 }
 
@@ -149,7 +152,12 @@ namespace ONKOSFileTransfer.Network
                         p.MachineName ?? string.Empty))
                     .ToArray();
 
-                File.WriteAllLines(ContactsPath, lines, Encoding.UTF8);
+                using (var fs = new FileStream(ContactsPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs, Encoding.UTF8))
+                {
+                    foreach (string line in lines)
+                        sw.WriteLine(line);
+                }
             }
             catch
             {
@@ -200,10 +208,14 @@ namespace ONKOSFileTransfer.Network
                     LastSeenUtc = DateTime.UtcNow
                 };
 
-                if (existed && (existing.FullName != cleanName || existing.Area != cleanArea || existing.IPv4 != cleanIp || existing.MachineName != cleanMachine))
+                if (!existed ||
+                    existing.FullName != cleanName ||
+                    existing.Area != cleanArea ||
+                    existing.IPv4 != cleanIp ||
+                    existing.MachineName != cleanMachine)
+                {
                     SaveContactsLocked();
-                else if (!existed)
-                    SaveContactsLocked();
+                }
             }
 
             if (changed)
@@ -231,7 +243,7 @@ namespace ONKOSFileTransfer.Network
                 Area = cleanArea,
                 IPv4 = parsed.ToString(),
                 MachineName = string.Empty,
-                LastSeenUtc = DateTime.MinValue
+                LastSeenUtc = DateTime.UtcNow
             };
 
             string key = BuildPeerKey(cleanName, peer.IPv4, string.Empty);
@@ -346,8 +358,7 @@ namespace ONKOSFileTransfer.Network
                     {
                         candidates = _peersByKey.Values
                             .Where(p => !string.IsNullOrWhiteSpace(p.IPv4) &&
-                                        !UserProfileStore.IsIgnoredSystemName(p.FullName) &&
-                                        (DateTime.UtcNow - p.LastSeenUtc).TotalSeconds >= 8)
+                                        !UserProfileStore.IsIgnoredSystemName(p.FullName))
                             .ToList();
                     }
 
@@ -356,7 +367,7 @@ namespace ONKOSFileTransfer.Network
                         if (token.IsCancellationRequested || !_running)
                             break;
 
-                        bool reachable = await FileSender.CheckPeerReachableAsync(p.IPv4, TransferPort, 700);
+                        bool reachable = await FileSender.CheckPeerReachableAsync(p.IPv4, TransferPort, 1500);
                         if (reachable)
                         {
                             lock (_sync)
@@ -508,7 +519,7 @@ namespace ONKOSFileTransfer.Network
                                 await semaphore.WaitAsync(token);
                                 try
                                 {
-                                    var id = await FileSender.QueryPeerIdentityAsync(candidateIp, TransferPort, 350);
+                                    var id = await FileSender.QueryPeerIdentityAsync(candidateIp, TransferPort, 800);
                                     if (!string.IsNullOrWhiteSpace(id.FullName) &&
                                         !UserProfileStore.IsIgnoredSystemName(id.FullName))
                                     {
