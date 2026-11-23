@@ -16,6 +16,8 @@ namespace ONKOSFileTransfer.Network
         private const int TransferPort = 5050;
         private const int BroadcastIntervalMs = 2000;
         private const int SubnetScanIntervalMs = 15000;
+        private const int PresenceCheckIntervalMs = 3000;
+        private static readonly TimeSpan PeerOnlineTimeout = TimeSpan.FromSeconds(15);
 
         private static readonly string ContactsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "contactos.txt");
@@ -30,6 +32,17 @@ namespace ONKOSFileTransfer.Network
         private bool _running;
 
         public event Action PeersUpdated;
+
+        public static bool IsPeerOnline(PeerInfo peer)
+        {
+            if (peer == null)
+                return false;
+
+            if (peer.LastSeenUtc == DateTime.MinValue)
+                return false;
+
+            return (DateTime.UtcNow - peer.LastSeenUtc) <= PeerOnlineTimeout;
+        }
 
         public void Start(PeerInfo localProfile)
         {
@@ -53,6 +66,7 @@ namespace ONKOSFileTransfer.Network
             _ = Task.Run(() => ListenLoop(_cts.Token));
             _ = Task.Run(() => AnnounceLoop(_cts.Token));
             _ = Task.Run(() => SubnetScanLoop(_cts.Token));
+            _ = Task.Run(() => PresenceMonitorLoop(_cts.Token));
         }
 
         private static string BuildPeerKey(string name, string ip, string machine)
@@ -95,13 +109,14 @@ namespace ONKOSFileTransfer.Network
                     string key = BuildPeerKey(name, ip, machine);
                     lock (_sync)
                     {
+                        // Al cargar desde disco no asumimos que el equipo esté encendido hasta verificarlo
                         _peersByKey[key] = new PeerInfo
                         {
                             FullName = name,
                             Area = area,
                             IPv4 = ip,
                             MachineName = machine,
-                            LastSeenUtc = DateTime.UtcNow
+                            LastSeenUtc = DateTime.MinValue
                         };
                     }
                 }
@@ -165,7 +180,10 @@ namespace ONKOSFileTransfer.Network
             lock (_sync)
             {
                 bool existed = _peersByKey.TryGetValue(key, out PeerInfo existing);
+                bool wasOnline = existed && IsPeerOnline(existing);
+
                 if (!existed ||
+                    !wasOnline ||
                     existing.FullName != cleanName ||
                     existing.Area != cleanArea ||
                     existing.IPv4 != cleanIp ||
@@ -183,7 +201,9 @@ namespace ONKOSFileTransfer.Network
                     LastSeenUtc = DateTime.UtcNow
                 };
 
-                if (changed)
+                if (existed && (existing.FullName != cleanName || existing.Area != cleanArea || existing.IPv4 != cleanIp || existing.MachineName != cleanMachine))
+                    SaveContactsLocked();
+                else if (!existed)
                     SaveContactsLocked();
             }
 
@@ -212,7 +232,7 @@ namespace ONKOSFileTransfer.Network
                 Area = cleanArea,
                 IPv4 = parsed.ToString(),
                 MachineName = string.Empty,
-                LastSeenUtc = DateTime.UtcNow
+                LastSeenUtc = DateTime.MinValue
             };
 
             string key = BuildPeerKey(cleanName, peer.IPv4, string.Empty);
@@ -260,13 +280,14 @@ namespace ONKOSFileTransfer.Network
             });
         }
 
-        public List<PeerInfo> GetActivePeers(string filterText = null)
+        public List<PeerInfo> GetActivePeers(string filterText = null, bool onlyOnline = false)
         {
             List<PeerInfo> snapshot;
             lock (_sync)
             {
                 snapshot = _peersByKey.Values
                     .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName))
+                    .Where(p => !onlyOnline || IsPeerOnline(p))
                     .ToList();
             }
 
@@ -283,7 +304,8 @@ namespace ONKOSFileTransfer.Network
             }
 
             return snapshot
-                .OrderBy(p => p.FullName)
+                .OrderByDescending(p => IsPeerOnline(p))
+                .ThenBy(p => p.FullName)
                 .ThenBy(p => p.Area)
                 .ToList();
         }
@@ -294,22 +316,62 @@ namespace ONKOSFileTransfer.Network
                 return null;
 
             string clean = input.Trim();
-            List<PeerInfo> active = GetActivePeers();
+            List<PeerInfo> candidates = GetActivePeers();
 
-            PeerInfo exact = active.FirstOrDefault(p =>
+            PeerInfo exact = candidates.FirstOrDefault(p =>
                 string.Equals(p.FullName, clean, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(p.DisplayText, clean, StringComparison.OrdinalIgnoreCase));
             if (exact != null)
                 return exact;
 
-            PeerInfo byIp = active.FirstOrDefault(p =>
+            PeerInfo byIp = candidates.FirstOrDefault(p =>
                 string.Equals(p.IPv4, clean, StringComparison.OrdinalIgnoreCase));
             if (byIp != null)
                 return byIp;
 
-            return active.FirstOrDefault(p =>
+            return candidates.FirstOrDefault(p =>
                 (!string.IsNullOrEmpty(p.FullName) && p.FullName.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0) ||
                 (!string.IsNullOrEmpty(p.Area) && p.Area.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        private async Task PresenceMonitorLoop(CancellationToken token)
+        {
+            Dictionary<string, bool> previousState = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            while (!token.IsCancellationRequested && _running)
+            {
+                try
+                {
+                    bool stateChanged = false;
+                    lock (_sync)
+                    {
+                        foreach (var kv in _peersByKey)
+                        {
+                            bool currentOnline = IsPeerOnline(kv.Value);
+                            if (!previousState.TryGetValue(kv.Key, out bool wasOnline) || wasOnline != currentOnline)
+                            {
+                                previousState[kv.Key] = currentOnline;
+                                stateChanged = true;
+                            }
+                        }
+                    }
+
+                    if (stateChanged)
+                        PeersUpdated?.Invoke();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    await Task.Delay(PresenceCheckIntervalMs, token);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+            }
         }
 
         private async Task ListenLoop(CancellationToken token)
