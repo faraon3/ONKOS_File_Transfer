@@ -1,10 +1,12 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using ONKOSFileTransfer.Network;
 
@@ -44,8 +46,6 @@ namespace ONKOSFileTransfer
                     }
                 }
 
-                ModernToastNotifier.Inicializar();
-
                 if (esModoBandeja)
                 {
                     PeerDiscoveryService trayDiscovery = null;
@@ -56,9 +56,9 @@ namespace ONKOSFileTransfer
                     }
 
                     using (trayDiscovery)
-                    using (var monitor = new InboxMonitor())
+                    using (var trayCtx = new TrayHostContext())
                     {
-                        Application.Run(new TrayHostContext());
+                        Application.Run(trayCtx);
                     }
                 }
                 else
@@ -71,15 +71,19 @@ namespace ONKOSFileTransfer
 
     internal sealed class TrayHostContext : ApplicationContext
     {
+        private const string PipeName = "ONKOS_Transfer_Events";
         private readonly NotifyIcon _notifyIcon;
+        private readonly CancellationTokenSource _pipeCts;
 
         public TrayHostContext()
         {
+            ModernToastNotifier.Inicializar();
+
             var menu = new ContextMenuStrip();
             menu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => AbrirVentanaPrincipal());
             menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
-                string rutaInbox = AppSettingsStore.GetInboxFolder();
+                string rutaInbox = GetPublicOrConfiguredInboxFolder();
                 AppSettingsStore.EnsureInboxFolderReady(rutaInbox);
                 System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
             });
@@ -110,6 +114,73 @@ namespace ONKOSFileTransfer
             };
 
             _notifyIcon.DoubleClick += (s, e) => AbrirVentanaPrincipal();
+
+            _pipeCts = new CancellationTokenSource();
+            _ = Task.Run(() => ListenServicePipeLoop(_pipeCts.Token));
+        }
+
+        private static string GetPublicOrConfiguredInboxFolder()
+        {
+            string publicInbox = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+                "Archivos Recibidos ONKOS");
+            if (Directory.Exists(publicInbox))
+                return publicInbox;
+
+            return AppSettingsStore.GetInboxFolder();
+        }
+
+        private async Task ListenServicePipeLoop(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    using (var server = new NamedPipeServerStream(
+                        PipeName,
+                        PipeDirection.In,
+                        1,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous))
+                    {
+                        await server.WaitForConnectionAsync(token);
+                        using (var reader = new StreamReader(server, Encoding.UTF8))
+                        {
+                            string raw = await reader.ReadToEndAsync();
+                            if (!string.IsNullOrWhiteSpace(raw))
+                                DispatchServiceMessage(raw);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    try { await Task.Delay(500, token); } catch { break; }
+                }
+            }
+        }
+
+        private void DispatchServiceMessage(string raw)
+        {
+            string[] parts = raw.Split(new[] { '|' }, 3);
+            if (parts.Length < 3)
+                return;
+
+            string level = parts[0].Trim().ToUpperInvariant();
+            string title = parts[1].Trim();
+            string message = parts[2].Trim();
+
+            if (level == "INFO" && title.IndexOf("iniciado", StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            bool isError = level == "ERROR" || level == "WARNING";
+            string badge = level == "SUCCESS" ? "RECIBIDO" : (isError ? "AVISO" : "ONKOS");
+            string rutaAbrir = level == "SUCCESS" ? GetPublicOrConfiguredInboxFolder() : null;
+
+            ModernToastNotifier.MostrarNotificacion(title, message, rutaAbrir, isError, badge);
         }
 
         private void AbrirVentanaPrincipal()
@@ -142,10 +213,15 @@ namespace ONKOSFileTransfer
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _notifyIcon != null)
+            if (disposing)
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
+                try { _pipeCts?.Cancel(); } catch { }
+                try { _pipeCts?.Dispose(); } catch { }
+                if (_notifyIcon != null)
+                {
+                    _notifyIcon.Visible = false;
+                    _notifyIcon.Dispose();
+                }
             }
             base.Dispose(disposing);
         }
