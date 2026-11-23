@@ -707,7 +707,7 @@ namespace ONKOSFileTransfer
             bool online = PeerDiscoveryService.IsPeerOnline(peer);
             if (!online)
             {
-                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1200);
+                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1800);
                 if (!reachable)
                 {
                     SetStatus($"'{peer.FullName}' está apagado, suspendido o sin conexión.");
@@ -719,15 +719,18 @@ namespace ONKOSFileTransfer
                         MessageBoxIcon.Warning);
                     return false;
                 }
+                peer.LastSeenUtc = DateTime.UtcNow;
+                RefreshPeersList();
             }
             else if (allowManualIpProbe)
             {
-                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1200);
+                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1800);
                 if (!reachable)
                 {
                     SetStatus($"'{peer.FullName}' no responde en el puerto {TransferPort}.");
                     return false;
                 }
+                peer.LastSeenUtc = DateTime.UtcNow;
             }
 
             AddRecipientToSelection(peer);
@@ -746,7 +749,7 @@ namespace ONKOSFileTransfer
 
                 if (IPAddress.TryParse(manualIp, out IPAddress parsed) && parsed.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    var identity = await FileSender.QueryPeerIdentityAsync(parsed.ToString(), TransferPort, 700);
+                    var identity = await FileSender.QueryPeerIdentityAsync(parsed.ToString(), TransferPort, 1200);
                     string finalName = !string.IsNullOrWhiteSpace(identity.FullName) && !UserProfileStore.IsIgnoredSystemName(identity.FullName)
                         ? identity.FullName
                         : manualName;
@@ -755,7 +758,7 @@ namespace ONKOSFileTransfer
                     PeerInfo registered = _discovery.RegisterManualContact(finalName, finalArea, parsed.ToString());
                     if (registered != null)
                     {
-                        registered.LastSeenUtc = !string.IsNullOrWhiteSpace(identity.FullName) ? DateTime.UtcNow : DateTime.MinValue;
+                        registered.LastSeenUtc = DateTime.UtcNow;
                         if (await TrySelectPeerWithCheckAsync(registered, true))
                         {
                             _txtSearch.Clear();
@@ -788,7 +791,7 @@ namespace ONKOSFileTransfer
 
                 if (IPAddress.TryParse(raw, out IPAddress ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    var id = await FileSender.QueryPeerIdentityAsync(ipOnly.ToString(), TransferPort, 700);
+                    var id = await FileSender.QueryPeerIdentityAsync(ipOnly.ToString(), TransferPort, 1200);
                     string pName = !string.IsNullOrWhiteSpace(id.FullName) && !UserProfileStore.IsIgnoredSystemName(id.FullName)
                         ? id.FullName
                         : "Equipo " + ipOnly;
@@ -797,7 +800,7 @@ namespace ONKOSFileTransfer
                     PeerInfo reg = _discovery.RegisterManualContact(pName, pArea, ipOnly.ToString());
                     if (reg != null)
                     {
-                        reg.LastSeenUtc = !string.IsNullOrWhiteSpace(id.FullName) ? DateTime.UtcNow : DateTime.MinValue;
+                        reg.LastSeenUtc = DateTime.UtcNow;
                         if (await TrySelectPeerWithCheckAsync(reg, true))
                             _txtSearch.Clear();
                         return;
@@ -1127,16 +1130,15 @@ namespace ONKOSFileTransfer
 
             try
             {
-                List<string> reachableTargets = new List<string>();
                 var activeTargets = new List<PeerInfo>();
 
                 foreach (PeerInfo target in targets)
                 {
-                    bool canReach = await FileSender.CheckPeerReachableAsync(target.IPv4, TransferPort, 1800);
+                    bool canReach = await FileSender.CheckPeerReachableAsync(target.IPv4, TransferPort, 2000);
                     if (canReach)
                     {
+                        target.LastSeenUtc = DateTime.UtcNow;
                         activeTargets.Add(target);
-                        reachableTargets.Add(target.FullName);
                     }
                     else
                     {
@@ -1147,6 +1149,7 @@ namespace ONKOSFileTransfer
 
                 if (activeTargets.Count == 0)
                 {
+                    RefreshPeersList();
                     SetStatus("Ningún destinatario seleccionado está disponible en este momento.");
                     ModernToastNotifier.MostrarNotificacion(
                         "Destino no disponible",
@@ -1219,6 +1222,7 @@ namespace ONKOSFileTransfer
                                     SetProgress(pct, etaStr);
                                 });
 
+                            target.LastSeenUtc = DateTime.UtcNow;
                             successCount++;
                         }
                         catch (Exception ex)
@@ -1235,12 +1239,18 @@ namespace ONKOSFileTransfer
 
                 sw.Stop();
                 SetProgress(100, string.Empty);
+                RefreshPeersList();
 
                 if (failCount == 0 && successCount > 0)
                 {
                     string summary = activeTargets.Count == 1
                         ? $"Se enviaron {items.Count} elemento(s) a {activeTargets[0].FullName}."
                         : $"Se enviaron {items.Count} elemento(s) a {activeTargets.Count} destinatarios.";
+
+                    _queuedItems.Clear();
+                    RefreshFilesListView();
+                    _selectedRecipients.Clear();
+                    RefreshRecipientChips();
 
                     SetStatus("Envío completado correctamente.");
                     ModernToastNotifier.MostrarEnvioExitoso(summary);
