@@ -11,7 +11,7 @@ namespace ONKOSFileTransfer
         private readonly FileReceiver _receiver;
         private FileSystemWatcher _serviceWatcher;
         private DateTime _lastNotifiedUtc = DateTime.MinValue;
-        private string _lastNotifiedName = string.Empty;
+        private string _lastNotifiedKey = string.Empty;
 
         public static string CarpetaRecibidos => AppSettingsStore.GetInboxFolder();
 
@@ -28,7 +28,6 @@ namespace ONKOSFileTransfer
             }
             catch
             {
-                // Si el servicio de Windows ya escucha en 5050, vigilamos la carpeta de recibidos
                 StartFolderWatcher();
             }
         }
@@ -54,11 +53,14 @@ namespace ONKOSFileTransfer
                         name.EndsWith(".onkosfolder", StringComparison.OrdinalIgnoreCase))
                         return;
 
-                    string parent = Path.GetDirectoryName(e.FullPath);
-                    if (string.Equals(parent, folder, StringComparison.OrdinalIgnoreCase))
-                        return;
+                    string relative = e.FullPath.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+                        ? e.FullPath.Substring(folder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        : name;
 
-                    OnFileReceived(e.FullPath);
+                    string topEntry = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                    string targetPath = Path.Combine(folder, topEntry);
+
+                    OnFileReceived(targetPath);
                 };
             }
             catch
@@ -70,14 +72,14 @@ namespace ONKOSFileTransfer
         {
             try
             {
-                string itemName = Path.GetFileName(receivedPath);
+                string key = (receivedPath ?? string.Empty).Trim().ToLowerInvariant();
                 DateTime now = DateTime.UtcNow;
-                if ((now - _lastNotifiedUtc).TotalSeconds < 2 &&
-                    string.Equals(_lastNotifiedName, itemName, StringComparison.OrdinalIgnoreCase))
+                if ((now - _lastNotifiedUtc).TotalSeconds < 3 &&
+                    string.Equals(_lastNotifiedKey, key, StringComparison.OrdinalIgnoreCase))
                     return;
 
                 _lastNotifiedUtc = now;
-                _lastNotifiedName = itemName;
+                _lastNotifiedKey = key;
 
                 ModernToastNotifier.MostrarLoteRecibido(
                     null,
