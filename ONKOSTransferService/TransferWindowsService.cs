@@ -1,8 +1,8 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
+using System.Text;
 using System.Threading;
-using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
@@ -26,9 +26,17 @@ namespace ONKOSTransferService
         {
             try
             {
-                string configured = AppSettingsStore.GetInboxFolder();
-                if (!string.IsNullOrWhiteSpace(configured))
-                    return configured;
+                string settingsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "ruta_recibidos.txt");
+
+                if (File.Exists(settingsPath))
+                {
+                    string saved = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(saved))
+                        return saved;
+                }
             }
             catch
             {
@@ -44,7 +52,7 @@ namespace ONKOSTransferService
             try
             {
                 string inboxFolder = GetTargetInboxFolder();
-                AppSettingsStore.EnsureInboxFolderReady(inboxFolder);
+                Directory.CreateDirectory(inboxFolder);
 
                 _stopEvent = new ManualResetEventSlim(false);
 
