@@ -183,7 +183,6 @@ namespace ONKOSTransferService
             }
             catch
             {
-                // Evita bloquear la detención del servicio de Windows
             }
             finally
             {
