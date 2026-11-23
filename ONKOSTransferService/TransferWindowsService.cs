@@ -130,9 +130,30 @@ namespace ONKOSTransferService
             if (string.IsNullOrWhiteSpace(itemName))
                 itemName = "Elemento recibido";
 
+            string folderToOpen = Directory.Exists(savedPath)
+                ? savedPath
+                : (!string.IsNullOrWhiteSpace(Path.GetDirectoryName(savedPath))
+                    ? Path.GetDirectoryName(savedPath)
+                    : GetTargetInboxFolder());
+
+            string senderHint = string.Empty;
+            try
+            {
+                string parentName = Path.GetFileName(Path.GetDirectoryName(savedPath) ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(parentName) && parentName.Contains("_"))
+                    senderHint = parentName.Split('_')[0];
+            }
+            catch
+            {
+            }
+
+            string msg = string.IsNullOrWhiteSpace(senderHint)
+                ? $"Recibiste \"{itemName}\". Clic para abrir carpeta."
+                : $"Recibiste \"{itemName}\" desde {senderHint}. Clic para abrir carpeta.";
+
             ServiceNotifier.SendSuccess(
                 "Archivo recibido",
-                $"Se guardó \"{itemName}\" en bandeja."
+                $"{msg}|{folderToOpen}"
             );
         }
 
