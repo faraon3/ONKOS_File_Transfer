@@ -30,10 +30,6 @@ namespace ONKOSFileTransfer
         private int _progressPercent;
         private string _etaText = string.Empty;
 
-        private FileSystemWatcher _inboxWatcher;
-        private DateTime _lastToastUtc = DateTime.MinValue;
-        private string _lastToastFile = string.Empty;
-
         private Label _lblIdentity;
         private Label _lblInboxPath;
         private TextBox _txtSearch;
@@ -65,7 +61,6 @@ namespace ONKOSFileTransfer
             InitializeComponent();
             ApplyDarkTitleBar();
             WireEvents();
-            StartInboxArrivalWatcher();
         }
 
         private void ApplyDarkTitleBar()
@@ -556,6 +551,7 @@ namespace ONKOSFileTransfer
         {
             Load += (s, e) =>
             {
+                ModernToastNotifier.Inicializar();
                 ApplyDarkTitleBar();
                 _discovery.Start(_localProfile);
                 RefreshPeersList();
@@ -564,7 +560,6 @@ namespace ONKOSFileTransfer
             FormClosing += (s, e) =>
             {
                 _discovery.Dispose();
-                _inboxWatcher?.Dispose();
             };
 
             Resize += (s, e) =>
@@ -604,53 +599,6 @@ namespace ONKOSFileTransfer
             _btnSend.Click += BtnSend_Click;
         }
 
-        private void StartInboxArrivalWatcher()
-        {
-            try
-            {
-                _inboxWatcher?.Dispose();
-                string folder = AppSettingsStore.GetInboxFolder();
-                AppSettingsStore.EnsureInboxFolderReady(folder);
-
-                _inboxWatcher = new FileSystemWatcher(folder)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
-                    EnableRaisingEvents = true
-                };
-
-                _inboxWatcher.Created += (s, e) =>
-                {
-                    string name = Path.GetFileName(e.FullPath);
-                    if (string.IsNullOrWhiteSpace(name) ||
-                        name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase) ||
-                        name.Equals("recibidos.ico", StringComparison.OrdinalIgnoreCase) ||
-                        name.EndsWith(".onkosfolder", StringComparison.OrdinalIgnoreCase))
-                        return;
-
-                    string parent = Path.GetDirectoryName(e.FullPath);
-                    if (string.Equals(parent, folder, StringComparison.OrdinalIgnoreCase))
-                        return;
-
-                    DateTime now = DateTime.UtcNow;
-                    if ((now - _lastToastUtc).TotalSeconds < 2 &&
-                        string.Equals(_lastToastFile, name, StringComparison.OrdinalIgnoreCase))
-                        return;
-
-                    _lastToastUtc = now;
-                    _lastToastFile = name;
-
-                    ModernToastNotifier.MostrarNotificacion(
-                        "Nuevo archivo recibido",
-                        $"Recibiste '{name}'. Haz clic para abrir.",
-                        e.FullPath);
-                };
-            }
-            catch
-            {
-            }
-        }
-
         private void OpenInboxFolder()
         {
             string folder = AppSettingsStore.GetInboxFolder();
@@ -668,7 +616,6 @@ namespace ONKOSFileTransfer
                 {
                     AppSettingsStore.SetInboxFolder(fbd.SelectedPath);
                     _lblInboxPath.Text = "Destino recibidos: " + AppSettingsStore.GetInboxFolder();
-                    StartInboxArrivalWatcher();
                     SetStatus("Carpeta de recibidos actualizada con su ícono.");
                 }
             }
@@ -687,12 +634,22 @@ namespace ONKOSFileTransfer
 
             if (_lstPeers.Items[e.Index] is PeerInfo peer)
             {
+                bool online = PeerDiscoveryService.IsPeerOnline(peer);
+                string statusDot = online ? "●  " : "○  ";
+                string text = online
+                    ? statusDot + peer.DisplayText
+                    : $"{statusDot}{peer.DisplayText} (Sin conexión / Suspendido)";
+
+                Color fg = !online
+                    ? Color.FromArgb(120, 126, 152)
+                    : (selected ? Color.White : Color.FromArgb(225, 229, 245));
+
                 TextRenderer.DrawText(
                     e.Graphics,
-                    "●  " + peer.DisplayText,
-                    new Font("Segoe UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular),
+                    text,
+                    new Font("Segoe UI", 9F, online && selected ? FontStyle.Bold : FontStyle.Regular),
                     new Rectangle(e.Bounds.X + 8, e.Bounds.Y + 4, e.Bounds.Width - 16, e.Bounds.Height - 4),
-                    selected ? Color.White : Color.FromArgb(225, 229, 245),
+                    fg,
                     TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
             }
         }
@@ -723,6 +680,41 @@ namespace ONKOSFileTransfer
             _lstPeers.EndUpdate();
         }
 
+        private async Task<bool> TrySelectPeerWithCheckAsync(PeerInfo peer, bool allowManualIpProbe = false)
+        {
+            if (peer == null || string.IsNullOrWhiteSpace(peer.IPv4))
+                return false;
+
+            bool online = PeerDiscoveryService.IsPeerOnline(peer);
+            if (!online)
+            {
+                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1200);
+                if (!reachable)
+                {
+                    SetStatus($"'{peer.FullName}' está apagado, suspendido o sin conexión.");
+                    MessageBox.Show(
+                        this,
+                        $"El equipo de '{peer.FullName}' no está disponible en la red (puede estar apagado, suspendido o sin conexión).",
+                        "Destinatario no disponible",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return false;
+                }
+            }
+            else if (allowManualIpProbe)
+            {
+                bool reachable = await FileSender.CheckPeerReachableAsync(peer.IPv4, TransferPort, 1200);
+                if (!reachable)
+                {
+                    SetStatus($"'{peer.FullName}' no responde en el puerto {TransferPort}.");
+                    return false;
+                }
+            }
+
+            AddRecipientToSelection(peer);
+            return true;
+        }
+
         private async void AddRecipientFromInputOrSelection()
         {
             string raw = (_txtSearch.Text ?? string.Empty).Trim();
@@ -735,7 +727,7 @@ namespace ONKOSFileTransfer
 
                 if (IPAddress.TryParse(manualIp, out IPAddress parsed) && parsed.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    var identity = await FileSender.QueryPeerIdentityAsync(parsed.ToString(), TransferPort, 500);
+                    var identity = await FileSender.QueryPeerIdentityAsync(parsed.ToString(), TransferPort, 700);
                     string finalName = !string.IsNullOrWhiteSpace(identity.FullName) && !UserProfileStore.IsIgnoredSystemName(identity.FullName)
                         ? identity.FullName
                         : manualName;
@@ -744,9 +736,12 @@ namespace ONKOSFileTransfer
                     PeerInfo registered = _discovery.RegisterManualContact(finalName, finalArea, parsed.ToString());
                     if (registered != null)
                     {
-                        AddRecipientToSelection(registered);
-                        _txtSearch.Clear();
-                        SetStatus($"Agregado: {registered.DisplayText}");
+                        registered.LastSeenUtc = !string.IsNullOrWhiteSpace(identity.FullName) ? DateTime.UtcNow : DateTime.MinValue;
+                        if (await TrySelectPeerWithCheckAsync(registered, true))
+                        {
+                            _txtSearch.Clear();
+                            SetStatus($"Agregado: {registered.DisplayText}");
+                        }
                         return;
                     }
                 }
@@ -757,8 +752,8 @@ namespace ONKOSFileTransfer
 
             if (_lstPeers.SelectedItem is PeerInfo selectedPeer)
             {
-                AddRecipientToSelection(selectedPeer);
-                _txtSearch.Clear();
+                if (await TrySelectPeerWithCheckAsync(selectedPeer, false))
+                    _txtSearch.Clear();
                 return;
             }
 
@@ -767,14 +762,14 @@ namespace ONKOSFileTransfer
                 PeerInfo found = _discovery.FindPeerByNameOrIp(raw);
                 if (found != null)
                 {
-                    AddRecipientToSelection(found);
-                    _txtSearch.Clear();
+                    if (await TrySelectPeerWithCheckAsync(found, false))
+                        _txtSearch.Clear();
                     return;
                 }
 
                 if (IPAddress.TryParse(raw, out IPAddress ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    var id = await FileSender.QueryPeerIdentityAsync(ipOnly.ToString(), TransferPort, 500);
+                    var id = await FileSender.QueryPeerIdentityAsync(ipOnly.ToString(), TransferPort, 700);
                     string pName = !string.IsNullOrWhiteSpace(id.FullName) && !UserProfileStore.IsIgnoredSystemName(id.FullName)
                         ? id.FullName
                         : "Equipo " + ipOnly;
@@ -783,8 +778,9 @@ namespace ONKOSFileTransfer
                     PeerInfo reg = _discovery.RegisterManualContact(pName, pArea, ipOnly.ToString());
                     if (reg != null)
                     {
-                        AddRecipientToSelection(reg);
-                        _txtSearch.Clear();
+                        reg.LastSeenUtc = !string.IsNullOrWhiteSpace(id.FullName) ? DateTime.UtcNow : DateTime.MinValue;
+                        if (await TrySelectPeerWithCheckAsync(reg, true))
+                            _txtSearch.Clear();
                         return;
                     }
                 }
@@ -809,7 +805,7 @@ namespace ONKOSFileTransfer
                     Area = peer.Area,
                     IPv4 = peer.IPv4,
                     MachineName = peer.MachineName,
-                    LastSeenUtc = DateTime.UtcNow
+                    LastSeenUtc = peer.LastSeenUtc
                 });
                 RefreshRecipientChips();
                 UpdateSendButtonText();
@@ -1112,6 +1108,36 @@ namespace ONKOSFileTransfer
 
             try
             {
+                List<string> reachableTargets = new List<string>();
+                var activeTargets = new List<PeerInfo>();
+
+                foreach (PeerInfo target in targets)
+                {
+                    bool canReach = await FileSender.CheckPeerReachableAsync(target.IPv4, TransferPort, 1800);
+                    if (canReach)
+                    {
+                        activeTargets.Add(target);
+                        reachableTargets.Add(target.FullName);
+                    }
+                    else
+                    {
+                        failCount += items.Count;
+                        SetStatus($"Destino no disponible ({target.FullName}): apagado, suspendido o sin respuesta.");
+                    }
+                }
+
+                if (activeTargets.Count == 0)
+                {
+                    SetStatus("Ningún destinatario seleccionado está disponible en este momento.");
+                    ModernToastNotifier.MostrarNotificacion(
+                        "Destino no disponible",
+                        "El equipo destino está apagado, suspendido o sin conexión.",
+                        null,
+                        true,
+                        "AVISO");
+                    return;
+                }
+
                 List<string> preparedPayloads = new List<string>();
                 long singleBatchBytes = 0;
 
@@ -1139,11 +1165,11 @@ namespace ONKOSFileTransfer
                     }
                 }
 
-                long grandTotalBytes = Math.Max(1, singleBatchBytes * targets.Count);
+                long grandTotalBytes = Math.Max(1, singleBatchBytes * activeTargets.Count);
                 long sentBytesSoFar = 0;
                 Stopwatch sw = Stopwatch.StartNew();
 
-                foreach (PeerInfo target in targets)
+                foreach (PeerInfo target in activeTargets)
                 {
                     foreach (string payload in preparedPayloads)
                     {
@@ -1191,23 +1217,34 @@ namespace ONKOSFileTransfer
                 sw.Stop();
                 SetProgress(100, string.Empty);
 
-                if (failCount == 0)
+                if (failCount == 0 && successCount > 0)
                 {
-                    string summary = targets.Count == 1
-                        ? $"Se enviaron {items.Count} elemento(s) a {targets[0].FullName}."
-                        : $"Se enviaron {items.Count} elemento(s) a {targets.Count} destinatarios.";
+                    string summary = activeTargets.Count == 1
+                        ? $"Se enviaron {items.Count} elemento(s) a {activeTargets[0].FullName}."
+                        : $"Se enviaron {items.Count} elemento(s) a {activeTargets.Count} destinatarios.";
 
                     SetStatus("Envío completado correctamente.");
-                    ModernToastNotifier.MostrarNotificacion("Envío exitoso", summary);
+                    ModernToastNotifier.MostrarEnvioExitoso(summary);
                 }
-                else
+                else if (successCount > 0)
                 {
                     SetStatus($"Completado con {failCount} error(es).");
                     ModernToastNotifier.MostrarNotificacion(
                         "Envío con novedades",
                         $"Enviados: {successCount} • Con error: {failCount}.",
                         null,
-                        true);
+                        true,
+                        "AVISO");
+                }
+                else
+                {
+                    SetStatus("No se pudo completar el envío.");
+                    ModernToastNotifier.MostrarNotificacion(
+                        "Envío no completado",
+                        "Revisa si el destinatario sigue conectado a la red.",
+                        null,
+                        true,
+                        "AVISO");
                 }
             }
             finally
