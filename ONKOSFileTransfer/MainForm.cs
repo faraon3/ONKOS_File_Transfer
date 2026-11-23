@@ -1150,6 +1150,7 @@ namespace ONKOSFileTransfer
                 if (activeTargets.Count == 0)
                 {
                     RefreshPeersList();
+                    SetProgress(0, string.Empty);
                     SetStatus("Ningún destinatario seleccionado está disponible en este momento.");
                     ModernToastNotifier.MostrarNotificacion(
                         "Destino no disponible",
@@ -1238,7 +1239,6 @@ namespace ONKOSFileTransfer
                 }
 
                 sw.Stop();
-                SetProgress(100, string.Empty);
                 RefreshPeersList();
 
                 if (failCount == 0 && successCount > 0)
@@ -1251,12 +1251,14 @@ namespace ONKOSFileTransfer
                     RefreshFilesListView();
                     _selectedRecipients.Clear();
                     RefreshRecipientChips();
+                    SetProgress(0, string.Empty);
 
                     SetStatus("Envío completado correctamente.");
                     ModernToastNotifier.MostrarEnvioExitoso(summary);
                 }
                 else if (successCount > 0)
                 {
+                    SetProgress(0, string.Empty);
                     SetStatus($"Completado con {failCount} error(es).");
                     ModernToastNotifier.MostrarNotificacion(
                         "Envío con novedades",
@@ -1267,6 +1269,7 @@ namespace ONKOSFileTransfer
                 }
                 else
                 {
+                    SetProgress(0, string.Empty);
                     SetStatus("No se pudo completar el envío.");
                     ModernToastNotifier.MostrarNotificacion(
                         "Envío no completado",
