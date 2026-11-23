@@ -16,6 +16,30 @@ namespace ONKOSFileTransfer.Network
 
     public static class FileSender
     {
+        public static async Task<bool> CheckPeerReachableAsync(string host, int port = 5050, int timeoutMs = 2000)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            try
+            {
+                using (var client = new TcpClient())
+                {
+                    Task connectTask = client.ConnectAsync(host, port);
+                    Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
+                    if (completed != connectTask || !client.Connected)
+                        return false;
+
+                    await connectTask;
+                    return client.Connected;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static async Task<PeerIdentityResult> QueryPeerIdentityAsync(string host, int port, int timeoutMs = 400)
         {
             var result = new PeerIdentityResult();
@@ -76,6 +100,10 @@ namespace ONKOSFileTransfer.Network
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("No se encontró el archivo a enviar.", filePath);
+
+            bool reachable = await CheckPeerReachableAsync(host, port, 2000);
+            if (!reachable)
+                throw new IOException("El equipo destino no responde o está apagado/suspendido.");
 
             FileInfo fileInfo = new FileInfo(filePath);
             long totalBytes = fileInfo.Length;
