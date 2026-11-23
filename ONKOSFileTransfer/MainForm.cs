@@ -1,4 +1,4 @@
-private void LstPeers_DrawItem(object sender, DrawItemEventArgs e)
+void LstPeers_DrawItem(object sender, DrawItemEventArgs e)
 {
     if (e.Index < 0 || e.Index >= _lstPeers.Items.Count)
         return;
