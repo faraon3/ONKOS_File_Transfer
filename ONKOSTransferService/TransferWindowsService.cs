@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
@@ -22,6 +23,58 @@ namespace ONKOSTransferService
             AutoLog = true;
         }
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WTSGetActiveConsoleSessionId();
+
+        [DllImport("wtsapi32.dll", SetLastError = true)]
+        private static extern bool WTSQueryUserToken(uint sessionId, out IntPtr phToken);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        private static extern bool GetUserProfileDirectory(IntPtr hToken, StringBuilder lpProfileDir, ref uint lpcchSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        private static string GetActiveUserDesktopInbox()
+        {
+            IntPtr userToken = IntPtr.Zero;
+            try
+            {
+                uint sessionId = WTSGetActiveConsoleSessionId();
+                if (sessionId != 0xFFFFFFFF && WTSQueryUserToken(sessionId, out userToken) && userToken != IntPtr.Zero)
+                {
+                    uint capacity = 260;
+                    var profileDir = new StringBuilder((int)capacity);
+                    if (!GetUserProfileDirectory(userToken, profileDir, ref capacity))
+                    {
+                        profileDir = new StringBuilder((int)capacity);
+                        if (GetUserProfileDirectory(userToken, profileDir, ref capacity))
+                        {
+                            return Path.Combine(profileDir.ToString(), "Desktop", "Archivos Recibidos ONKOS");
+                        }
+                    }
+                    else
+                    {
+                        return Path.Combine(profileDir.ToString(), "Desktop", "Archivos Recibidos ONKOS");
+                    }
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (userToken != IntPtr.Zero)
+                {
+                    try { CloseHandle(userToken); } catch { }
+                }
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Archivos Recibidos ONKOS");
+        }
+
         private static string GetTargetInboxFolder()
         {
             try
@@ -42,9 +95,7 @@ namespace ONKOSTransferService
             {
             }
 
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                "Archivos Recibidos ONKOS");
+            return GetActiveUserDesktopInbox();
         }
 
         protected override void OnStart(string[] args)
