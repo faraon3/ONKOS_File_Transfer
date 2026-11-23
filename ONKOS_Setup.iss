@@ -23,7 +23,6 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Dirs]
 Name: "{commonappdata}\ONKOS"; Permissions: users-modify
 Name: "{userdesktop}\Archivos Recibidos ONKOS"
-Name: "{commondesktop}\Archivos Recibidos ONKOS"
 
 [Files]
 Source: "ONKOSFileTransfer\bin\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -46,8 +45,8 @@ Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" start= auto DisplayName= ""ONKOS File Transfer Service"""; Flags: runhidden
 Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS File Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Discovery UDP 5051"" dir=in action=allow protocol=UDP localport=5051"; Flags: runhidden
 Filename: "attrib.exe"; Parameters: "+r ""{userdesktop}\Archivos Recibidos ONKOS"""; Flags: runhidden
