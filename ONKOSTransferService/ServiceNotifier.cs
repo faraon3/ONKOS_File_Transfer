@@ -1,69 +1,55 @@
 using System;
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
+using ONKOSFileTransfer;
 
 namespace ONKOSTransferService
 {
-    internal static class ServiceNotifier
+    public static class ServiceNotifier
     {
         private const string PipeName = "ONKOS_Transfer_Events";
 
-        public static void SendInfo(string title, string message)
-        {
-            Send("INFO", title, message);
-        }
-
-        public static void SendSuccess(string title, string message)
-        {
-            Send("SUCCESS", title, message);
-        }
-
-        public static void SendWarning(string title, string message)
-        {
-            Send("WARNING", title, message);
-        }
-
-        public static void SendError(string title, string message)
-        {
-            Send("ERROR", title, message);
-        }
-
-        private static void Send(string level, string title, string message)
+        public static void Notify(string level, string title, string message, string extraPath = "")
         {
             try
             {
-                string safeTitle = SanitizeTitleOrLevel(title);
-                string safeMessage = SanitizeMessage(message);
-                string payload = $"{level}|{safeTitle}|{safeMessage}";
-                byte[] bytes = Encoding.UTF8.GetBytes(payload);
+                string payload = string.Join("|",
+                    Sanitize(level),
+                    Sanitize(title),
+                    Sanitize(message),
+                    Sanitize(extraPath));
 
-                using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.None))
+                using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
                 {
-                    client.Connect(1200);
-                    client.Write(bytes, 0, bytes.Length);
-                    client.Flush();
-                    client.WaitForPipeDrain();
+                    client.Connect(350);
+                    using (var writer = new StreamWriter(client, Encoding.UTF8))
+                    {
+                        writer.Write(payload);
+                        writer.Flush();
+                    }
                 }
             }
-            catch
+            catch (TimeoutException)
             {
+                // No hay instancia de bandeja escuchando en este momento
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("ServiceNotifier", "No se pudo enviar evento al proceso de bandeja.", ex);
             }
         }
 
-        private static string SanitizeTitleOrLevel(string value)
+        private static string Sanitize(string text)
         {
-            if (string.IsNullOrEmpty(value))
+            if (string.IsNullOrEmpty(text))
                 return string.Empty;
 
-            return value.Replace("|", "/").Replace("\r", " ").Replace("\n", " ").Trim();
-        }
-
-        private static string SanitizeMessage(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return string.Empty;
-
-            return value.Replace("\r", " ").Replace("\n", " ").Trim();
+            return text
+                .Replace("|", "/")
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Trim();
         }
     }
 }
