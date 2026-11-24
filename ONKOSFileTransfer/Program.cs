@@ -436,9 +436,8 @@ namespace ONKOSFileTransfer
         public static string GetDefaultInboxFolder()
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "ONKOS",
-                "Recibidos");
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Archivos Recibidos ONKOS");
         }
 
         public static string GetInboxFolder()
@@ -454,10 +453,23 @@ namespace ONKOSFileTransfer
             }
             catch (Exception ex)
             {
-                OnkosLogger.Warn("AppSettingsStore", "Error leyendo ruta_recibidos.txt; usando ruta por defecto.", ex);
+                OnkosLogger.Warn("AppSettingsStore", "Error leyendo ruta_recibidos.txt; usando Escritorio por defecto.", ex);
             }
 
-            return GetDefaultInboxFolder();
+            string defaultDesktop = GetDefaultInboxFolder();
+            try
+            {
+                string dir = Path.GetDirectoryName(SettingsPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                File.WriteAllText(SettingsPath, defaultDesktop, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("AppSettingsStore", "No se pudo inicializar ruta_recibidos.txt.", ex);
+            }
+
+            return defaultDesktop;
         }
 
         public static void SetInboxFolder(string folderPath)
