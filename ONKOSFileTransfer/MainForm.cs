@@ -28,6 +28,7 @@ namespace ONKOSFileTransfer
         public string FullPath { get; set; }
         public QueueItemDeliveryState State { get; set; } = QueueItemDeliveryState.Pending;
         public string ErrorDetail { get; set; } = string.Empty;
+        public bool IsChecked { get; set; }
     }
 
     public class MainForm : Form
@@ -438,13 +439,14 @@ namespace ONKOSFileTransfer
                 ShowItemToolTips = true,
                 AllowDrop = true
             };
-            _lvFiles.Columns.Add("Archivo", 210);
+            _lvFiles.Columns.Add("Archivo", 220);
             _lvFiles.Columns.Add("Tamaño", 74, HorizontalAlignment.Right);
-            _lvFiles.Columns.Add("Estado", 98, HorizontalAlignment.Center);
+            _lvFiles.Columns.Add("Estado", 94, HorizontalAlignment.Center);
 
             _lvFiles.DrawColumnHeader += (s, e) => e.DrawDefault = true;
             _lvFiles.DrawItem += (s, e) => { };
             _lvFiles.DrawSubItem += LvFiles_DrawSubItem;
+            _lvFiles.MouseDown += LvFiles_MouseDown;
 
             _lblDropHint = new Label
             {
@@ -574,6 +576,45 @@ namespace ONKOSFileTransfer
             UpdateSendButtonText();
         }
 
+        private Rectangle GetCheckboxRectForRow(Rectangle rowBounds)
+        {
+            const int boxSize = 15;
+            int x = rowBounds.X + 8;
+            int y = rowBounds.Y + Math.Max(0, (rowBounds.Height - boxSize) / 2);
+            return new Rectangle(x, y, boxSize, boxSize);
+        }
+
+        private void LvFiles_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+                return;
+
+            ListViewHitTestInfo info = _lvFiles.HitTest(e.Location);
+            if (info.Item == null)
+                return;
+
+            Rectangle boxRect = GetCheckboxRectForRow(info.Item.Bounds);
+            Rectangle hitArea = new Rectangle(
+                boxRect.X - 3,
+                info.Item.Bounds.Y,
+                boxRect.Width + 8,
+                info.Item.Bounds.Height);
+
+            if (hitArea.Contains(e.Location) && info.Item.Tag is QueuedTransferItem qItem)
+            {
+                qItem.IsChecked = !qItem.IsChecked;
+                _lvFiles.Invalidate(info.Item.Bounds);
+                UpdateRemoveButtonVisibility();
+            }
+        }
+
+        private void UpdateRemoveButtonVisibility()
+        {
+            bool anySelected = _lvFiles.SelectedItems.Count > 0;
+            bool anyChecked = _queuedItems.Any(x => x.IsChecked);
+            _btnRemoveSelected.Visible = anySelected || anyChecked;
+        }
+
         private void LvFiles_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             bool selected = (e.ItemState & ListViewItemStates.Selected) == ListViewItemStates.Selected;
@@ -586,7 +627,37 @@ namespace ONKOSFileTransfer
 
             if (e.ColumnIndex == 0)
             {
-                int leftPad = e.Bounds.X + 8;
+                var qItem = e.Item.Tag as QueuedTransferItem;
+                bool isChecked = qItem != null && qItem.IsChecked;
+
+                Rectangle boxRect = GetCheckboxRectForRow(e.Bounds);
+                Color boxBg = isChecked ? Color.FromArgb(124, 77, 224) : Color.FromArgb(26, 29, 46);
+                Color boxBorder = isChecked ? Color.FromArgb(167, 139, 250) : Color.FromArgb(86, 92, 126);
+
+                using (GraphicsPath boxPath = RoundedPanel.CreateRoundRect(boxRect, 4))
+                using (SolidBrush boxFill = new SolidBrush(boxBg))
+                using (Pen boxPen = new Pen(boxBorder, 1.2F))
+                {
+                    e.Graphics.FillPath(boxFill, boxPath);
+                    e.Graphics.DrawPath(boxPen, boxPath);
+                }
+
+                if (isChecked)
+                {
+                    using (var checkPen = new Pen(Color.White, 1.8F))
+                    {
+                        checkPen.StartCap = LineCap.Round;
+                        checkPen.EndCap = LineCap.Round;
+                        checkPen.LineJoin = LineJoin.Round;
+
+                        Point p1 = new Point(boxRect.X + 3, boxRect.Y + 8);
+                        Point p2 = new Point(boxRect.X + 6, boxRect.Y + 11);
+                        Point p3 = new Point(boxRect.X + 12, boxRect.Y + 4);
+                        e.Graphics.DrawLines(checkPen, new[] { p1, p2, p3 });
+                    }
+                }
+
+                int leftPad = boxRect.Right + 7;
                 if (e.Item.ImageIndex >= 0 && _shellIcons != null && e.Item.ImageIndex < _shellIcons.Images.Count)
                 {
                     int iconY = e.Bounds.Y + Math.Max(0, (e.Bounds.Height - _shellIcons.ImageSize.Height) / 2);
@@ -746,14 +817,11 @@ namespace ONKOSFileTransfer
             _btnAddRecipient.Click += (s, e) => AddRecipientFromInputOrSelection();
             _lstPeers.DoubleClick += (s, e) => AddRecipientFromInputOrSelection();
 
-            _lvFiles.SelectedIndexChanged += (s, e) =>
-            {
-                _btnRemoveSelected.Visible = _lvFiles.SelectedItems.Count > 0;
-            };
+            _lvFiles.SelectedIndexChanged += (s, e) => UpdateRemoveButtonVisibility();
 
             _lvFiles.KeyDown += (s, e) =>
             {
-                if (e.KeyCode == Keys.Delete && _lvFiles.SelectedItems.Count > 0)
+                if (e.KeyCode == Keys.Delete && (_lvFiles.SelectedItems.Count > 0 || _queuedItems.Any(x => x.IsChecked)))
                 {
                     e.SuppressKeyPress = true;
                     RemoveSelectedFiles();
@@ -1093,7 +1161,8 @@ namespace ONKOSFileTransfer
                     {
                         FullPath = path,
                         State = QueueItemDeliveryState.Pending,
-                        ErrorDetail = string.Empty
+                        ErrorDetail = string.Empty,
+                        IsChecked = false
                     });
                     addedAny = true;
                 }
@@ -1114,15 +1183,25 @@ namespace ONKOSFileTransfer
 
         private void RemoveSelectedFiles()
         {
-            if (_lvFiles.SelectedItems.Count == 0)
-                return;
-
             var toRemove = new HashSet<QueuedTransferItem>();
-            foreach (ListViewItem item in _lvFiles.SelectedItems)
+
+            foreach (QueuedTransferItem qItem in _queuedItems)
             {
-                if (item.Tag is QueuedTransferItem qItem)
+                if (qItem.IsChecked)
                     toRemove.Add(qItem);
             }
+
+            if (toRemove.Count == 0 && _lvFiles.SelectedItems.Count > 0)
+            {
+                foreach (ListViewItem item in _lvFiles.SelectedItems)
+                {
+                    if (item.Tag is QueuedTransferItem qItem)
+                        toRemove.Add(qItem);
+                }
+            }
+
+            if (toRemove.Count == 0)
+                return;
 
             _queuedItems.RemoveAll(p => toRemove.Contains(p));
             RefreshFilesListView();
@@ -1224,7 +1303,7 @@ namespace ONKOSFileTransfer
 
             _lvFiles.EndUpdate();
             _lblDropHint.Visible = _queuedItems.Count == 0;
-            _btnRemoveSelected.Visible = false;
+            UpdateRemoveButtonVisibility();
             UpdateTotalWeightLabel();
             AdjustListViewColumns();
         }
