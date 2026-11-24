@@ -1524,3 +1524,251 @@ namespace ONKOSFileTransfer
 
                                     string etaStr = string.Empty;
                                     double elapsedSec = sw.Elapsed.TotalSeconds;
+                                    if (currentTotalSent > 0 && elapsedSec > 0.35)
+                                    {
+                                        double bytesPerSec = currentTotalSent / elapsedSec;
+                                        long remainingBytes = Math.Max(0, grandTotalBytes - currentTotalSent);
+                                        etaStr = FormatEta(remainingBytes / bytesPerSec);
+                                    }
+
+                                    SetProgress(pct, etaStr);
+                                });
+
+                            target.LastSeenUtc = DateTime.UtcNow;
+                            successCount++;
+
+                            TransferHistoryStore.AppendEntry(
+                                "ENVIADO",
+                                entry.DisplayName,
+                                entry.Size,
+                                target.DisplayText,
+                                "Completado",
+                                target.IPv4);
+                        }
+                        catch (Exception ex)
+                        {
+                            failCount++;
+                            itemAllSucceeded[entry.SourceItem] = false;
+                            itemLastError[entry.SourceItem] = $"{target.FullName}: {ex.Message}";
+                            SetStatus($"Error enviando a {target.FullName}: {ex.Message}");
+
+                            TransferHistoryStore.AppendEntry(
+                                "ENVIADO",
+                                entry.DisplayName,
+                                entry.Size,
+                                target.DisplayText,
+                                "Error",
+                                target.IPv4,
+                                ex.Message);
+                        }
+
+                        sentBytesSoFar += entry.Size;
+                        int completedPct = (int)Math.Round((double)sentBytesSoFar / grandTotalBytes * 100.0);
+                        SetProgress(completedPct, completedPct >= 100 ? "listo" : _etaText);
+                    }
+                }
+
+                foreach (var kv in itemAllSucceeded)
+                {
+                    if (kv.Value)
+                    {
+                        kv.Key.State = QueueItemDeliveryState.Sent;
+                        kv.Key.ErrorDetail = string.Empty;
+                    }
+                    else
+                    {
+                        kv.Key.State = QueueItemDeliveryState.Failed;
+                        kv.Key.ErrorDetail = itemLastError.TryGetValue(kv.Key, out string err)
+                            ? err
+                            : "Error durante la transferencia.";
+                    }
+                }
+
+                sw.Stop();
+                RefreshPeersList();
+
+                if (failCount == 0 && successCount > 0)
+                {
+                    string summary = activeTargets.Count == 1
+                        ? $"Se enviaron {items.Count} elemento(s) a {activeTargets[0].FullName}."
+                        : $"Se enviaron {items.Count} elemento(s) a {activeTargets.Count} destinatarios.";
+
+                    _queuedItems.Clear();
+                    RefreshFilesListView();
+                    _selectedRecipients.Clear();
+                    RefreshRecipientChips();
+                    SetProgress(0, string.Empty);
+
+                    SetStatus("Envío completado correctamente.");
+                    ModernToastNotifier.MostrarEnvioExitoso(summary);
+                }
+                else if (successCount > 0)
+                {
+                    RefreshFilesListView();
+                    SetProgress(0, string.Empty);
+                    SetStatus($"Completado con {failCount} error(es). Revisa los elementos marcados en rojo.");
+                    ModernToastNotifier.MostrarNotificacion(
+                        "Envío con novedades",
+                        $"Enviados: {successCount} • Con error: {failCount}. Revisa los estados en la lista.",
+                        null,
+                        true,
+                        "AVISO");
+                }
+                else
+                {
+                    RefreshFilesListView();
+                    SetProgress(0, string.Empty);
+                    SetStatus("No se pudo completar el envío. Revisa los elementos marcados en rojo.");
+                    ModernToastNotifier.MostrarNotificacion(
+                        "Envío no completado",
+                        "Ningún archivo pudo entregarse. Revisa el estado en rojo en la lista.",
+                        null,
+                        true,
+                        "AVISO");
+                }
+            }
+            finally
+            {
+                foreach (string temp in tempPackages)
+                {
+                    try
+                    {
+                        if (File.Exists(temp))
+                            File.Delete(temp);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                _isSending = false;
+                UpdateSendButtonText();
+            }
+        }
+
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_20 = 20;
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        private const uint SHGFI_ICON = 0x000000100;
+        private const uint SHGFI_SMALLICON = 0x000000001;
+        private const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
+        private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
+        private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct SHFILEINFO
+        {
+            public IntPtr hIcon;
+            public int iIcon;
+            public uint dwAttributes;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szDisplayName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+            public string szTypeName;
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+    }
+
+    public class RoundedPanel : Panel
+    {
+        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(14, 15, 24);
+        public Color CardColor { get; set; } = Color.FromArgb(22, 24, 38);
+        public Color BorderColor { get; set; } = Color.FromArgb(44, 48, 72);
+        public int CornerRadius { get; set; } = 14;
+
+        public RoundedPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            BackColor = ParentSurfaceColor;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(ParentSurfaceColor);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (GraphicsPath path = CreateRoundRect(rect, CornerRadius))
+            using (SolidBrush fill = new SolidBrush(CardColor))
+            using (Pen pen = new Pen(BorderColor, 1))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+        }
+
+        internal static GraphicsPath CreateRoundRect(Rectangle r, int radius)
+        {
+            int d = Math.Max(2, radius * 2);
+            var path = new GraphicsPath();
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    public class RoundedButton : Control
+    {
+        private bool _hovered;
+
+        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(22, 24, 38);
+        public Color FillColor { get; set; } = Color.FromArgb(124, 77, 224);
+        public Color HoverColor { get; set; } = Color.FromArgb(142, 96, 242);
+        public int CornerRadius { get; set; } = 10;
+
+        public RoundedButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            ForeColor = Color.White;
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            _hovered = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            _hovered = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Color surface = Parent != null ? Parent.BackColor : ParentSurfaceColor;
+            e.Graphics.Clear(surface);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            Color bg = !Enabled ? Color.FromArgb(46, 50, 72) : (_hovered ? HoverColor : FillColor);
+
+            using (GraphicsPath path = RoundedPanel.CreateRoundRect(rect, CornerRadius))
+            using (SolidBrush fill = new SolidBrush(bg))
+            {
+                e.Graphics.FillPath(fill, path);
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                rect,
+                Enabled ? ForeColor : Color.FromArgb(150, 155, 180),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+    }
+}
