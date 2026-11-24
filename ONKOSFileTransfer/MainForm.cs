@@ -49,10 +49,11 @@ namespace ONKOSFileTransfer
         private Label _lblIdentity;
         private Label _lblInboxPath;
         private TextBox _txtSearch;
+        private Label _lblSearchPlaceholder;
         private ListBox _lstPeers;
-        private RoundedButton _btnAddRecipient;
         private FlowLayoutPanel _flpChips;
 
+        private Panel _pnlFilesArea;
         private ListView _lvFiles;
         private Label _lblDropHint;
         private Label _lblTotalWeight;
@@ -255,45 +256,51 @@ namespace ONKOSFileTransfer
             var pnlSearchRow = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 38,
+                Height = 40,
                 BackColor = cardBg,
-                Padding = new Padding(0, 2, 0, 4)
+                Padding = new Padding(0, 2, 0, 6)
             };
 
+            Color searchBoxBg = Color.FromArgb(31, 34, 52);
             var pnlSearchBox = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
                 ParentSurfaceColor = cardBg,
-                CardColor = Color.FromArgb(31, 34, 52),
-                BorderColor = Color.FromArgb(52, 56, 84),
+                CardColor = searchBoxBg,
+                BorderColor = Color.FromArgb(56, 61, 92),
                 CornerRadius = 10,
-                Padding = new Padding(10, 6, 10, 4)
+                Padding = new Padding(32, 6, 10, 5),
+                Cursor = Cursors.IBeam
             };
+            pnlSearchBox.Paint += PnlSearchBox_Paint;
+            pnlSearchBox.Click += (s, e) => _txtSearch.Focus();
 
             _txtSearch = new TextBox
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(31, 34, 52),
+                BackColor = searchBoxBg,
                 ForeColor = Color.FromArgb(246, 247, 252),
                 BorderStyle = BorderStyle.None,
-                Font = new Font("Segoe UI", 9.5F)
+                Font = new Font("Segoe UI", 9.3F)
             };
-            pnlSearchBox.Controls.Add(_txtSearch);
 
-            _btnAddRecipient = new RoundedButton
+            _lblSearchPlaceholder = new Label
             {
-                Text = "+",
-                Dock = DockStyle.Right,
-                Width = 36,
-                ParentSurfaceColor = cardBg,
-                FillColor = accentPurple,
-                HoverColor = accentPurpleHover,
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                CornerRadius = 10
+                Text = "Buscar persona, área o IP...",
+                ForeColor = Color.FromArgb(128, 136, 168),
+                BackColor = searchBoxBg,
+                Font = new Font("Segoe UI", 9F),
+                Location = new Point(32, 7),
+                AutoSize = true,
+                Cursor = Cursors.IBeam
             };
+            _lblSearchPlaceholder.Click += (s, e) => _txtSearch.Focus();
 
-            var spacerSearch = new Panel { Dock = DockStyle.Right, Width = 6, BackColor = cardBg };
-            pnlSearchRow.Controls.AddRange(new Control[] { pnlSearchBox, spacerSearch, _btnAddRecipient });
+            pnlSearchBox.Controls.Add(_txtSearch);
+            pnlSearchBox.Controls.Add(_lblSearchPlaceholder);
+            _lblSearchPlaceholder.BringToFront();
+
+            pnlSearchRow.Controls.Add(pnlSearchBox);
 
             _lstPeers = new ListBox
             {
@@ -351,7 +358,7 @@ namespace ONKOSFileTransfer
             var pnlFilesTop = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 34,
+                Height = 32,
                 BackColor = cardBg
             };
 
@@ -369,7 +376,7 @@ namespace ONKOSFileTransfer
             _lblTotalWeight = new Label
             {
                 Text = "Total: 0 B",
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 8.6F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(184, 148, 255),
                 BackColor = cardBg,
                 Dock = DockStyle.Fill,
@@ -377,24 +384,11 @@ namespace ONKOSFileTransfer
                 AutoEllipsis = true
             };
 
-            _btnAttach = new RoundedButton
-            {
-                Text = "+ Adjuntar",
-                Dock = DockStyle.Right,
-                Width = 98,
-                ParentSurfaceColor = cardBg,
-                FillColor = accentPurple,
-                HoverColor = accentPurpleHover,
-                Font = new Font("Segoe UI", 8.8F, FontStyle.Bold),
-                CornerRadius = 10
-            };
-            _btnAttach.Click += BtnAddFiles_Click;
-
             _btnRemoveSelected = new RoundedButton
             {
                 Text = "Quitar",
                 Dock = DockStyle.Right,
-                Width = 64,
+                Width = 68,
                 ParentSurfaceColor = cardBg,
                 FillColor = subtleBtnBg,
                 HoverColor = Color.FromArgb(185, 58, 78),
@@ -404,19 +398,16 @@ namespace ONKOSFileTransfer
             };
             _btnRemoveSelected.Click += (s, e) => RemoveSelectedFiles();
 
-            var spacerFilesBtn = new Panel { Dock = DockStyle.Right, Width = 6, BackColor = cardBg };
             var spacerWeightBtn = new Panel { Dock = DockStyle.Right, Width = 8, BackColor = cardBg };
             pnlFilesTop.Controls.AddRange(new Control[]
             {
                 _lblTotalWeight,
                 spacerWeightBtn,
                 _btnRemoveSelected,
-                spacerFilesBtn,
-                _btnAttach,
                 lblFilesHeader
             });
 
-            var pnlFilesArea = new Panel
+            _pnlFilesArea = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = cardBg,
@@ -424,6 +415,7 @@ namespace ONKOSFileTransfer
                 AllowDrop = true
             };
 
+            Color listBg = Color.FromArgb(18, 20, 32);
             _lvFiles = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -432,7 +424,7 @@ namespace ONKOSFileTransfer
                 FullRowSelect = true,
                 MultiSelect = true,
                 BorderStyle = BorderStyle.None,
-                BackColor = Color.FromArgb(18, 20, 32),
+                BackColor = listBg,
                 ForeColor = Color.FromArgb(242, 244, 252),
                 SmallImageList = _shellIcons,
                 OwnerDraw = true,
@@ -453,7 +445,7 @@ namespace ONKOSFileTransfer
                 Text = "Haz clic aquí o arrastra archivos o carpetas",
                 Font = new Font("Segoe UI", 9.5F),
                 ForeColor = Color.FromArgb(135, 142, 172),
-                BackColor = Color.FromArgb(18, 20, 32),
+                BackColor = listBg,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Dock = DockStyle.Fill,
                 AllowDrop = true,
@@ -461,11 +453,28 @@ namespace ONKOSFileTransfer
             };
             _lblDropHint.Click += BtnAddFiles_Click;
 
-            pnlFilesArea.Controls.Add(_lvFiles);
-            pnlFilesArea.Controls.Add(_lblDropHint);
-            _lblDropHint.BringToFront();
+            _btnAttach = new RoundedButton
+            {
+                Text = "+ Adjuntar",
+                Size = new Size(106, 34),
+                ParentSurfaceColor = listBg,
+                FillColor = accentPurple,
+                HoverColor = accentPurpleHover,
+                Font = new Font("Segoe UI", 8.8F, FontStyle.Bold),
+                CornerRadius = 12,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            };
+            _btnAttach.Click += BtnAddFiles_Click;
 
-            cardFiles.Controls.AddRange(new Control[] { pnlFilesArea, pnlFilesTop });
+            _pnlFilesArea.Controls.Add(_lvFiles);
+            _pnlFilesArea.Controls.Add(_lblDropHint);
+            _pnlFilesArea.Controls.Add(_btnAttach);
+            _lblDropHint.BringToFront();
+            _btnAttach.BringToFront();
+            _pnlFilesArea.Resize += (s, e) => PositionFloatingAttachButton();
+            PositionFloatingAttachButton();
+
+            cardFiles.Controls.AddRange(new Control[] { _pnlFilesArea, pnlFilesTop });
 
             tblMain.Controls.Add(cardPeers, 0, 0);
             tblMain.Controls.Add(cardFiles, 1, 0);
@@ -569,11 +578,44 @@ namespace ONKOSFileTransfer
 
             RegisterDragDrop(this);
             RegisterDragDrop(cardFiles);
-            RegisterDragDrop(pnlFilesArea);
+            RegisterDragDrop(_pnlFilesArea);
             RegisterDragDrop(_lvFiles);
             RegisterDragDrop(_lblDropHint);
+            RegisterDragDrop(_btnAttach);
 
             UpdateSendButtonText();
+        }
+
+        private void PositionFloatingAttachButton()
+        {
+            if (_pnlFilesArea == null || _btnAttach == null)
+                return;
+
+            int marginRight = 14;
+            int marginBottom = 14;
+            int x = Math.Max(8, _pnlFilesArea.ClientSize.Width - _btnAttach.Width - marginRight);
+            int y = Math.Max(14, _pnlFilesArea.ClientSize.Height - _btnAttach.Height - marginBottom);
+            _btnAttach.Location = new Point(x, y);
+            _btnAttach.BringToFront();
+        }
+
+        private static void PnlSearchBox_Paint(object sender, PaintEventArgs e)
+        {
+            if (!(sender is Control box))
+                return;
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int cy = box.Height / 2;
+            int cx = 16;
+            int r = 5;
+
+            using (var pen = new Pen(Color.FromArgb(156, 163, 196), 1.6F))
+            {
+                pen.StartCap = LineCap.Round;
+                pen.EndCap = LineCap.Round;
+                e.Graphics.DrawEllipse(pen, cx - r, cy - r - 1, r * 2, r * 2);
+                e.Graphics.DrawLine(pen, cx + 4, cy + 3, cx + 8, cy + 7);
+            }
         }
 
         private Rectangle GetCheckboxRectForRow(Rectangle rowBounds)
@@ -788,6 +830,7 @@ namespace ONKOSFileTransfer
                 _discovery.Start(_localProfile);
                 RefreshPeersList();
                 RefreshUnseenReceivedBadge();
+                PositionFloatingAttachButton();
             };
 
             FormClosing += (s, e) =>
@@ -800,11 +843,17 @@ namespace ONKOSFileTransfer
             {
                 UpdateProgressVisual();
                 AdjustListViewColumns();
+                PositionFloatingAttachButton();
             };
 
             TransferHistoryStore.UnseenReceivedCountChanged += OnUnseenReceivedCountChangedSafe;
             _discovery.PeersUpdated += OnPeersUpdatedSafe;
-            _txtSearch.TextChanged += (s, e) => RefreshPeersList();
+            _txtSearch.TextChanged += (s, e) =>
+            {
+                if (_lblSearchPlaceholder != null)
+                    _lblSearchPlaceholder.Visible = string.IsNullOrEmpty(_txtSearch.Text);
+                RefreshPeersList();
+            };
             _txtSearch.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
@@ -814,7 +863,6 @@ namespace ONKOSFileTransfer
                 }
             };
 
-            _btnAddRecipient.Click += (s, e) => AddRecipientFromInputOrSelection();
             _lstPeers.DoubleClick += (s, e) => AddRecipientFromInputOrSelection();
 
             _lvFiles.SelectedIndexChanged += (s, e) => UpdateRemoveButtonVisibility();
@@ -1303,6 +1351,8 @@ namespace ONKOSFileTransfer
 
             _lvFiles.EndUpdate();
             _lblDropHint.Visible = _queuedItems.Count == 0;
+            if (_btnAttach != null)
+                _btnAttach.BringToFront();
             UpdateRemoveButtonVisibility();
             UpdateTotalWeightLabel();
             AdjustListViewColumns();
