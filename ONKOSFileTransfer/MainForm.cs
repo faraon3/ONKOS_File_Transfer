@@ -57,6 +57,7 @@ namespace ONKOSFileTransfer
         private Label _lblTotalWeight;
         private RoundedButton _btnAttach;
         private RoundedButton _btnRemoveSelected;
+        private ReceivedBadgeButton _btnOpenInbox;
 
         private Panel _pnlProgressTrack;
         private Panel _pnlProgressFill;
@@ -160,41 +161,30 @@ namespace ONKOSFileTransfer
             var flpTopActions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
-                Width = 405,
+                Width = 300,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
-                Padding = new Padding(0, 8, 0, 0),
+                Padding = new Padding(0, 6, 0, 0),
                 BackColor = headerBg
             };
 
-            var btnChangeInbox = new RoundedButton
-            {
-                Text = "Ruta destino",
-                Size = new Size(102, 30),
-                ParentSurfaceColor = headerBg,
-                FillColor = subtleBtnBg,
-                HoverColor = subtleBtnHover,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Margin = new Padding(6, 0, 0, 0)
-            };
-            btnChangeInbox.Click += (s, e) => ChangeInboxFolder();
-
-            var btnOpenInbox = new RoundedButton
+            _btnOpenInbox = new ReceivedBadgeButton
             {
                 Text = "Recibidos",
-                Size = new Size(88, 30),
+                Size = new Size(102, 34),
                 ParentSurfaceColor = headerBg,
                 FillColor = subtleBtnBg,
                 HoverColor = subtleBtnHover,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                Margin = new Padding(6, 0, 0, 0)
+                Margin = new Padding(6, 0, 0, 0),
+                UnseenCount = TransferHistoryStore.GetUnseenReceivedCount()
             };
-            btnOpenInbox.Click += (s, e) => OpenInboxFolder();
+            _btnOpenInbox.Click += (s, e) => OpenInboxFolder();
 
             var btnHistory = new RoundedButton
             {
                 Text = "Historial",
-                Size = new Size(84, 30),
+                Size = new Size(84, 34),
                 ParentSurfaceColor = headerBg,
                 FillColor = subtleBtnBg,
                 HoverColor = subtleBtnHover,
@@ -205,12 +195,13 @@ namespace ONKOSFileTransfer
             {
                 using (var dlg = new TransferHistoryForm())
                     dlg.ShowDialog(this);
+                RefreshUnseenReceivedBadge();
             };
 
             var btnEditProfile = new RoundedButton
             {
                 Text = "Mi Perfil",
-                Size = new Size(84, 30),
+                Size = new Size(84, 34),
                 ParentSurfaceColor = headerBg,
                 FillColor = subtleBtnBg,
                 HoverColor = subtleBtnHover,
@@ -221,8 +212,7 @@ namespace ONKOSFileTransfer
 
             flpTopActions.Controls.AddRange(new Control[]
             {
-                btnChangeInbox,
-                btnOpenInbox,
+                _btnOpenInbox,
                 btnHistory,
                 btnEditProfile
             });
@@ -726,10 +716,12 @@ namespace ONKOSFileTransfer
                 ApplyDarkTitleBar();
                 _discovery.Start(_localProfile);
                 RefreshPeersList();
+                RefreshUnseenReceivedBadge();
             };
 
             FormClosing += (s, e) =>
             {
+                TransferHistoryStore.UnseenReceivedCountChanged -= OnUnseenReceivedCountChangedSafe;
                 _discovery.Dispose();
             };
 
@@ -739,6 +731,7 @@ namespace ONKOSFileTransfer
                 AdjustListViewColumns();
             };
 
+            TransferHistoryStore.UnseenReceivedCountChanged += OnUnseenReceivedCountChangedSafe;
             _discovery.PeersUpdated += OnPeersUpdatedSafe;
             _txtSearch.TextChanged += (s, e) => RefreshPeersList();
             _txtSearch.KeyDown += (s, e) =>
@@ -770,26 +763,36 @@ namespace ONKOSFileTransfer
             _btnSend.Click += BtnSend_Click;
         }
 
+        private void OnUnseenReceivedCountChangedSafe()
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+
+            try
+            {
+                BeginInvoke(new Action(RefreshUnseenReceivedBadge));
+            }
+            catch
+            {
+            }
+        }
+
+        private void RefreshUnseenReceivedBadge()
+        {
+            if (_btnOpenInbox == null || _btnOpenInbox.IsDisposed)
+                return;
+
+            _btnOpenInbox.UnseenCount = TransferHistoryStore.GetUnseenReceivedCount();
+        }
+
         private void OpenInboxFolder()
         {
+            TransferHistoryStore.MarkReceivedAsSeen();
+            RefreshUnseenReceivedBadge();
+
             string folder = AppSettingsStore.GetInboxFolder();
             AppSettingsStore.EnsureInboxFolderReady(folder);
             Process.Start("explorer.exe", folder);
-        }
-
-        private void ChangeInboxFolder()
-        {
-            using (var fbd = new FolderBrowserDialog())
-            {
-                fbd.Description = "Selecciona la carpeta donde deseas recibir los archivos";
-                fbd.SelectedPath = AppSettingsStore.GetInboxFolder();
-                if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                {
-                    AppSettingsStore.SetInboxFolder(fbd.SelectedPath);
-                    _lblInboxPath.Text = "Destino recibidos: " + AppSettingsStore.GetInboxFolder();
-                    SetStatus("Carpeta de recibidos actualizada con su ícono.");
-                }
-            }
         }
 
         private void LstPeers_DrawItem(object sender, DrawItemEventArgs e)
@@ -1675,6 +1678,60 @@ namespace ONKOSFileTransfer
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
+    }
+
+    internal sealed class ReceivedBadgeButton : RoundedButton
+    {
+        private int _unseenCount;
+
+        public int UnseenCount
+        {
+            get => _unseenCount;
+            set
+            {
+                int safe = Math.Max(0, value);
+                if (_unseenCount != safe)
+                {
+                    _unseenCount = safe;
+                    Invalidate();
+                }
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            if (_unseenCount <= 0)
+                return;
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            string badgeText = _unseenCount > 99 ? "99+" : _unseenCount.ToString();
+            int diameter = badgeText.Length >= 3 ? 22 : 18;
+            int badgeX = Width - diameter - 2;
+            int badgeY = 1;
+
+            Rectangle badgeRect = new Rectangle(badgeX, badgeY, diameter, diameter);
+            Color badgeRed = Color.FromArgb(239, 68, 68);
+            Color badgeBorder = Parent != null ? Parent.BackColor : ParentSurfaceColor;
+
+            using (GraphicsPath path = RoundedPanel.CreateRoundRect(badgeRect, diameter / 2))
+            using (SolidBrush fill = new SolidBrush(badgeRed))
+            using (Pen border = new Pen(badgeBorder, 1.5F))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(border, path);
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                badgeText,
+                new Font("Segoe UI", 7F, FontStyle.Bold),
+                badgeRect,
+                Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
     }
 
     public class RoundedPanel : Panel
