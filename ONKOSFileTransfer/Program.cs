@@ -85,6 +85,7 @@ namespace ONKOSFileTransfer
             menu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => AbrirVentanaPrincipal());
             menu.Items.Add("Abrir carpeta de recibidos", null, (s, e) =>
             {
+                TransferHistoryStore.MarkReceivedAsSeen();
                 string rutaInbox = AppSettingsStore.GetInboxFolder();
                 AppSettingsStore.EnsureInboxFolderReady(rutaInbox);
                 System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
@@ -200,6 +201,34 @@ namespace ONKOSFileTransfer
                     rutaAbrir = Path.GetDirectoryName(extraPath);
                 else
                     rutaAbrir = AppSettingsStore.GetInboxFolder();
+
+                long sizeBytes = 0L;
+                string itemName = Path.GetFileName(extraPath);
+                if (string.IsNullOrWhiteSpace(itemName))
+                    itemName = message;
+
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(extraPath) && File.Exists(extraPath))
+                        sizeBytes = new FileInfo(extraPath).Length;
+                    else if (!string.IsNullOrWhiteSpace(extraPath) && Directory.Exists(extraPath))
+                    {
+                        foreach (string f in Directory.EnumerateFiles(extraPath, "*", SearchOption.AllDirectories))
+                        {
+                            try { sizeBytes += new FileInfo(f).Length; } catch { }
+                        }
+                    }
+                }
+                catch { }
+
+                TransferHistoryStore.AppendEntry(
+                    "RECIBIDO",
+                    itemName,
+                    sizeBytes,
+                    "Red local",
+                    "Completado",
+                    rutaAbrir,
+                    message);
             }
 
             ModernToastNotifier.MostrarNotificacion(title, message, rutaAbrir, isError, badge);
