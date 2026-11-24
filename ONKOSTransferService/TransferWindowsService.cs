@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
+using System.Text;
 using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
@@ -20,8 +21,8 @@ namespace ONKOSTransferService
         {
             try
             {
-                string inbox = AppSettingsStore.GetInboxFolder();
-                AppSettingsStore.EnsureInboxFolderReady(inbox);
+                string inbox = ResolveInboxFolder();
+                Directory.CreateDirectory(inbox);
 
                 _receiver = new FileReceiver();
                 _receiver.FileReceived += OnFileReceived;
@@ -66,13 +67,21 @@ namespace ONKOSTransferService
                 string name = Path.GetFileName(savedPath);
                 long size = 0L;
                 if (File.Exists(savedPath))
+                {
                     size = new FileInfo(savedPath).Length;
+                }
                 else if (Directory.Exists(savedPath))
                 {
                     foreach (string f in Directory.EnumerateFiles(savedPath, "*", SearchOption.AllDirectories))
                     {
-                        try { size += new FileInfo(f).Length; }
-                        catch (Exception fEx) { OnkosLogger.Warn("TransferWindowsService", $"Error leyendo '{f}'.", fEx); }
+                        try
+                        {
+                            size += new FileInfo(f).Length;
+                        }
+                        catch (Exception fEx)
+                        {
+                            OnkosLogger.Warn("TransferWindowsService", $"Error leyendo tamaño de '{f}'.", fEx);
+                        }
                     }
                 }
 
@@ -89,6 +98,30 @@ namespace ONKOSTransferService
         {
             OnkosLogger.Error("TransferWindowsService", $"Error en receptor: {errorMessage}");
             ServiceNotifier.Notify("ERROR", "Error en recepción", errorMessage);
+        }
+
+        private static string ResolveInboxFolder()
+        {
+            string baseOnkos = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ONKOS");
+            string settingsPath = Path.Combine(baseOnkos, "ruta_recibidos.txt");
+
+            try
+            {
+                if (File.Exists(settingsPath))
+                {
+                    string configured = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(configured))
+                        return configured;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("TransferWindowsService", "No se pudo leer ruta_recibidos.txt; usando ruta por defecto.", ex);
+            }
+
+            return Path.Combine(baseOnkos, "Recibidos");
         }
     }
 }
