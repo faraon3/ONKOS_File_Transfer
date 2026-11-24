@@ -17,6 +17,8 @@ namespace ONKOSFileTransfer
 {
     internal static class Program
     {
+        private static long _lastUnobservedLogTicks;
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -101,8 +103,14 @@ namespace ONKOSFileTransfer
 
             TaskScheduler.UnobservedTaskException += (sender, e) =>
             {
-                OnkosLogger.Error("TaskScheduler.Unobserved", "Excepción no observada en tarea en segundo plano", e.Exception);
                 e.SetObserved();
+                long nowTicks = DateTime.UtcNow.Ticks;
+                long lastTicks = Interlocked.Read(ref _lastUnobservedLogTicks);
+                if (nowTicks - lastTicks > TimeSpan.FromSeconds(10).Ticks)
+                {
+                    Interlocked.Exchange(ref _lastUnobservedLogTicks, nowTicks);
+                    OnkosLogger.Warn("TaskScheduler.Unobserved", "Excepción de tarea en segundo plano observada (resumen cada 10s).", e.Exception);
+                }
             };
         }
     }
