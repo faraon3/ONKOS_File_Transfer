@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Pipes;
@@ -21,10 +22,14 @@ namespace ONKOSFileTransfer
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
             bool esModoBandeja = args != null && args.Any(a =>
                 string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "/tray", StringComparison.OrdinalIgnoreCase));
+
+            RegisterGlobalExceptionHandlers(esModoBandeja);
+            OnkosLogger.Info("Program", esModoBandeja ? "Iniciando en modo bandeja (--tray)" : "Iniciando interfaz de usuario");
 
             string nombreMutex = esModoBandeja
                 ? "Global\\ONKOSFileTransfer_Tray_Mutex"
@@ -33,7 +38,10 @@ namespace ONKOSFileTransfer
             using (var mutex = new Mutex(true, nombreMutex, out bool esPrimeraInstancia))
             {
                 if (!esPrimeraInstancia)
+                {
+                    OnkosLogger.Info("Program", $"Instancia duplicada detectada ({nombreMutex}), cerrando instancia secundaria.");
                     return;
+                }
 
                 AppSettingsStore.EnsureInboxFolderReady();
 
@@ -69,6 +77,34 @@ namespace ONKOSFileTransfer
                 }
             }
         }
+
+        private static void RegisterGlobalExceptionHandlers(bool isTrayMode)
+        {
+            Application.ThreadException += (sender, e) =>
+            {
+                OnkosLogger.Error("UI.ThreadException", "Excepción no controlada en hilo de UI", e.Exception);
+                if (!isTrayMode)
+                {
+                    MessageBox.Show(
+                        "Ocurrió un inconveniente inesperado. El detalle quedó guardado en el registro de ONKOS.",
+                        "ONKOS File Transfer",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                var ex = e.ExceptionObject as Exception;
+                OnkosLogger.Error("AppDomain.UnhandledException", $"Excepción no controlada (IsTerminating={e.IsTerminating})", ex);
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                OnkosLogger.Error("TaskScheduler.Unobserved", "Excepción no observada en tarea en segundo plano", e.Exception);
+                e.SetObserved();
+            };
+        }
     }
 
     internal sealed class TrayHostContext : ApplicationContext
@@ -88,11 +124,12 @@ namespace ONKOSFileTransfer
                 TransferHistoryStore.MarkReceivedAsSeen();
                 string rutaInbox = AppSettingsStore.GetInboxFolder();
                 AppSettingsStore.EnsureInboxFolderReady(rutaInbox);
-                System.Diagnostics.Process.Start("explorer.exe", rutaInbox);
+                Process.Start("explorer.exe", rutaInbox);
             });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Salir", null, (s, e) =>
             {
+                OnkosLogger.Info("TrayHostContext", "Salida solicitada desde el menú de bandeja.");
                 _notifyIcon.Visible = false;
                 Application.ExitThread();
             });
@@ -104,8 +141,9 @@ namespace ONKOSFileTransfer
                 if (File.Exists(icoPath))
                     trayIcon = new Icon(icoPath);
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TrayHostContext", "No se pudo cargar onkos.ico, usando ícono por defecto.", ex);
             }
 
             _notifyIcon = new NotifyIcon
@@ -139,7 +177,14 @@ namespace ONKOSFileTransfer
         private async Task ListenServicePipeLoop(CancellationToken token)
         {
             PipeSecurity pipeSecurity = null;
-            try { pipeSecurity = CreatePipeSecurityForService(); } catch { }
+            try
+            {
+                pipeSecurity = CreatePipeSecurityForService();
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("TrayHostContext.Pipe", "No se pudo aplicar PipeSecurity explícita.", ex);
+            }
 
             while (!token.IsCancellationRequested)
             {
@@ -168,9 +213,10 @@ namespace ONKOSFileTransfer
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    try { await Task.Delay(400, token); } catch { break; }
+                    OnkosLogger.Warn("TrayHostContext.Pipe", "Error en escucha de NamedPipe; reintentando.", ex);
+                    try { await Task.Delay(400, token); } catch (OperationCanceledException) { break; }
                 }
             }
         }
@@ -215,11 +261,15 @@ namespace ONKOSFileTransfer
                     {
                         foreach (string f in Directory.EnumerateFiles(extraPath, "*", SearchOption.AllDirectories))
                         {
-                            try { sizeBytes += new FileInfo(f).Length; } catch { }
+                            try { sizeBytes += new FileInfo(f).Length; }
+                            catch (Exception fEx) { OnkosLogger.Warn("TrayHostContext", $"Error leyendo tamaño de '{f}'.", fEx); }
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OnkosLogger.Warn("TrayHostContext", "Error calculando tamaño de elemento recibido.", ex);
+                }
 
                 TransferHistoryStore.AppendEntry(
                     "RECIBIDO",
@@ -266,8 +316,8 @@ namespace ONKOSFileTransfer
         {
             if (disposing)
             {
-                try { _pipeCts?.Cancel(); } catch { }
-                try { _pipeCts?.Dispose(); } catch { }
+                try { _pipeCts?.Cancel(); } catch (Exception ex) { OnkosLogger.Warn("TrayHostContext", "Error cancelando CTS.", ex); }
+                try { _pipeCts?.Dispose(); } catch (Exception ex) { OnkosLogger.Warn("TrayHostContext", "Error disponiendo CTS.", ex); }
                 if (_notifyIcon != null)
                 {
                     _notifyIcon.Visible = false;
@@ -336,8 +386,9 @@ namespace ONKOSFileTransfer
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("UserProfileStore", "Error leyendo perfil de usuario.", ex);
                 return false;
             }
         }
@@ -377,8 +428,9 @@ namespace ONKOSFileTransfer
         public static string GetDefaultInboxFolder()
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                "Archivos Recibidos ONKOS");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ONKOS",
+                "Recibidos");
         }
 
         public static string GetInboxFolder()
@@ -392,8 +444,9 @@ namespace ONKOSFileTransfer
                         return saved;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("AppSettingsStore", "Error leyendo ruta_recibidos.txt; usando ruta por defecto.", ex);
             }
 
             return GetDefaultInboxFolder();
@@ -432,8 +485,9 @@ namespace ONKOSFileTransfer
                         File.Copy(iconSource, localIcon, true);
                         File.SetAttributes(localIcon, FileAttributes.Hidden | FileAttributes.System);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        OnkosLogger.Warn("AppSettingsStore", "No se pudo copiar recibidos.ico.", ex);
                     }
                 }
 
@@ -460,8 +514,9 @@ namespace ONKOSFileTransfer
                 SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, targetFolder, IntPtr.Zero);
                 SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("AppSettingsStore", "Error preparando carpeta de recibidos.", ex);
             }
         }
     }
