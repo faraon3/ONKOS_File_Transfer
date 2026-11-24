@@ -15,13 +15,28 @@ using ONKOSFileTransfer.Network;
 
 namespace ONKOSFileTransfer
 {
+    internal enum QueueItemDeliveryState
+    {
+        Pending,
+        Sending,
+        Sent,
+        Failed
+    }
+
+    internal sealed class QueuedTransferItem
+    {
+        public string FullPath { get; set; }
+        public QueueItemDeliveryState State { get; set; } = QueueItemDeliveryState.Pending;
+        public string ErrorDetail { get; set; } = string.Empty;
+    }
+
     public class MainForm : Form
     {
         private const int TransferPort = 5050;
 
         private readonly PeerDiscoveryService _discovery;
         private readonly List<PeerInfo> _selectedRecipients = new List<PeerInfo>();
-        private readonly List<string> _queuedItems = new List<string>();
+        private readonly List<QueuedTransferItem> _queuedItems = new List<QueuedTransferItem>();
         private readonly ImageList _shellIcons;
         private readonly Dictionary<string, int> _iconIndexCache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -91,8 +106,8 @@ namespace ONKOSFileTransfer
         private void InitializeComponent()
         {
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(780, 565);
-            MinimumSize = new Size(740, 525);
+            Size = new Size(800, 565);
+            MinimumSize = new Size(760, 525);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
@@ -221,8 +236,8 @@ namespace ONKOSFileTransfer
                 Padding = new Padding(14, 12, 14, 10),
                 BackColor = BackColor
             };
-            tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47F));
-            tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53F));
+            tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
+            tblMain.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
             tblMain.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
             var cardPeers = new RoundedPanel
@@ -429,10 +444,17 @@ namespace ONKOSFileTransfer
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
                 SmallImageList = _shellIcons,
+                OwnerDraw = true,
+                ShowItemToolTips = true,
                 AllowDrop = true
             };
-            _lvFiles.Columns.Add("Archivo", 250);
-            _lvFiles.Columns.Add("Tipo / Tamaño", 95, HorizontalAlignment.Right);
+            _lvFiles.Columns.Add("Archivo", 210);
+            _lvFiles.Columns.Add("Tamaño", 74, HorizontalAlignment.Right);
+            _lvFiles.Columns.Add("Estado", 98, HorizontalAlignment.Center);
+
+            _lvFiles.DrawColumnHeader += (s, e) => e.DrawDefault = true;
+            _lvFiles.DrawItem += (s, e) => { };
+            _lvFiles.DrawSubItem += LvFiles_DrawSubItem;
 
             _lblDropHint = new Label
             {
@@ -560,6 +582,112 @@ namespace ONKOSFileTransfer
             RegisterDragDrop(_lblDropHint);
 
             UpdateSendButtonText();
+        }
+
+        private void LvFiles_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            bool selected = (e.ItemState & ListViewItemStates.Selected) == ListViewItemStates.Selected;
+            Color rowBg = selected ? Color.FromArgb(42, 36, 72) : Color.FromArgb(18, 20, 32);
+
+            using (var bgBrush = new SolidBrush(rowBg))
+                e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            if (e.ColumnIndex == 0)
+            {
+                int leftPad = e.Bounds.X + 8;
+                if (e.Item.ImageIndex >= 0 && _shellIcons != null && e.Item.ImageIndex < _shellIcons.Images.Count)
+                {
+                    int iconY = e.Bounds.Y + Math.Max(0, (e.Bounds.Height - _shellIcons.ImageSize.Height) / 2);
+                    _shellIcons.Draw(e.Graphics, leftPad, iconY, e.Item.ImageIndex);
+                    leftPad += _shellIcons.ImageSize.Width + 6;
+                }
+
+                Rectangle textBounds = new Rectangle(
+                    leftPad,
+                    e.Bounds.Y,
+                    Math.Max(10, e.Bounds.Right - leftPad - 4),
+                    e.Bounds.Height);
+
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.Item.Text,
+                    _lvFiles.Font,
+                    textBounds,
+                    Color.FromArgb(242, 244, 252),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            else if (e.ColumnIndex == 1)
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    e.SubItem.Text,
+                    new Font("Segoe UI", 8.3F),
+                    e.Bounds,
+                    Color.FromArgb(155, 162, 192),
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            else if (e.ColumnIndex == 2)
+            {
+                var qItem = e.Item.Tag as QueuedTransferItem;
+                QueueItemDeliveryState state = qItem != null ? qItem.State : QueueItemDeliveryState.Pending;
+
+                string badgeText;
+                Color pillBg;
+                Color pillBorder;
+                Color pillFg;
+
+                switch (state)
+                {
+                    case QueueItemDeliveryState.Sent:
+                        badgeText = "Enviado";
+                        pillBg = Color.FromArgb(20, 62, 46);
+                        pillBorder = Color.FromArgb(34, 197, 94);
+                        pillFg = Color.FromArgb(110, 231, 183);
+                        break;
+                    case QueueItemDeliveryState.Failed:
+                        badgeText = "Error";
+                        pillBg = Color.FromArgb(68, 24, 36);
+                        pillBorder = Color.FromArgb(244, 63, 94);
+                        pillFg = Color.FromArgb(253, 164, 175);
+                        break;
+                    case QueueItemDeliveryState.Sending:
+                        badgeText = "Enviando";
+                        pillBg = Color.FromArgb(52, 38, 86);
+                        pillBorder = Color.FromArgb(139, 92, 246);
+                        pillFg = Color.FromArgb(216, 180, 254);
+                        break;
+                    default:
+                        badgeText = "En cola";
+                        pillBg = Color.FromArgb(34, 38, 56);
+                        pillBorder = Color.FromArgb(72, 78, 108);
+                        pillFg = Color.FromArgb(180, 186, 212);
+                        break;
+                }
+
+                int pillW = Math.Min(82, Math.Max(54, e.Bounds.Width - 10));
+                int pillH = Math.Min(19, Math.Max(14, e.Bounds.Height - 4));
+                int pillX = e.Bounds.X + (e.Bounds.Width - pillW) / 2;
+                int pillY = e.Bounds.Y + (e.Bounds.Height - pillH) / 2;
+
+                Rectangle pillRect = new Rectangle(pillX, pillY, pillW, pillH);
+                using (GraphicsPath path = RoundedPanel.CreateRoundRect(pillRect, pillH / 2))
+                using (SolidBrush fill = new SolidBrush(pillBg))
+                using (Pen borderPen = new Pen(pillBorder, 1F))
+                {
+                    e.Graphics.FillPath(fill, path);
+                    e.Graphics.DrawPath(borderPen, path);
+                }
+
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    badgeText,
+                    new Font("Segoe UI", 7.6F, FontStyle.Bold),
+                    pillRect,
+                    pillFg,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
         }
 
         private void RegisterDragDrop(Control ctrl)
@@ -953,9 +1081,23 @@ namespace ONKOSFileTransfer
                 if (!File.Exists(path) && !Directory.Exists(path))
                     continue;
 
-                if (!_queuedItems.Contains(path, StringComparer.OrdinalIgnoreCase))
+                QueuedTransferItem existing = _queuedItems.FirstOrDefault(x =>
+                    string.Equals(x.FullPath, path, StringComparison.OrdinalIgnoreCase));
+
+                if (existing == null)
                 {
-                    _queuedItems.Add(path);
+                    _queuedItems.Add(new QueuedTransferItem
+                    {
+                        FullPath = path,
+                        State = QueueItemDeliveryState.Pending,
+                        ErrorDetail = string.Empty
+                    });
+                    addedAny = true;
+                }
+                else if (existing.State == QueueItemDeliveryState.Failed)
+                {
+                    existing.State = QueueItemDeliveryState.Pending;
+                    existing.ErrorDetail = string.Empty;
                     addedAny = true;
                 }
             }
@@ -972,11 +1114,11 @@ namespace ONKOSFileTransfer
             if (_lvFiles.SelectedItems.Count == 0)
                 return;
 
-            var toRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var toRemove = new HashSet<QueuedTransferItem>();
             foreach (ListViewItem item in _lvFiles.SelectedItems)
             {
-                if (item.Tag is string fullPath)
-                    toRemove.Add(fullPath);
+                if (item.Tag is QueuedTransferItem qItem)
+                    toRemove.Add(qItem);
             }
 
             _queuedItems.RemoveAll(p => toRemove.Contains(p));
@@ -988,8 +1130,9 @@ namespace ONKOSFileTransfer
         {
             long totalBytes = 0;
 
-            foreach (string path in _queuedItems)
+            foreach (QueuedTransferItem item in _queuedItems)
             {
+                string path = item.FullPath;
                 if (string.IsNullOrWhiteSpace(path))
                     continue;
 
@@ -1032,25 +1175,47 @@ namespace ONKOSFileTransfer
 
         private void RefreshFilesListView()
         {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(RefreshFilesListView));
+                return;
+            }
+
             _lvFiles.BeginUpdate();
             _lvFiles.Items.Clear();
 
-            foreach (string path in _queuedItems)
+            foreach (QueuedTransferItem item in _queuedItems)
             {
+                string path = item.FullPath;
                 bool isDir = Directory.Exists(path);
                 string name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                 if (string.IsNullOrWhiteSpace(name))
                     name = path;
 
-                string meta = isDir ? "Carpeta" : FormatFileSize(new FileInfo(path).Length);
+                string meta = isDir
+                    ? "Carpeta"
+                    : (File.Exists(path) ? FormatFileSize(new FileInfo(path).Length) : "0 B");
+
                 int iconIndex = GetSystemIconIndex(path, isDir);
+
+                string badgeText = item.State == QueueItemDeliveryState.Sent
+                    ? "Enviado"
+                    : (item.State == QueueItemDeliveryState.Failed
+                        ? "Error"
+                        : (item.State == QueueItemDeliveryState.Sending ? "Enviando" : "En cola"));
 
                 var lvi = new ListViewItem(name, iconIndex)
                 {
-                    Tag = path,
-                    ToolTipText = path
+                    Tag = item,
+                    ToolTipText = string.IsNullOrWhiteSpace(item.ErrorDetail)
+                        ? path
+                        : $"{path} — {item.ErrorDetail}"
                 };
                 lvi.SubItems.Add(meta);
+                lvi.SubItems.Add(badgeText);
                 _lvFiles.Items.Add(lvi);
             }
 
@@ -1063,10 +1228,13 @@ namespace ONKOSFileTransfer
 
         private void AdjustListViewColumns()
         {
-            if (_lvFiles.Columns.Count == 2 && _lvFiles.ClientSize.Width > 120)
+            if (_lvFiles.Columns.Count == 3 && _lvFiles.ClientSize.Width > 200)
             {
-                _lvFiles.Columns[1].Width = 90;
-                _lvFiles.Columns[0].Width = _lvFiles.ClientSize.Width - 96;
+                int statusW = 94;
+                int sizeW = 72;
+                _lvFiles.Columns[2].Width = statusW;
+                _lvFiles.Columns[1].Width = sizeW;
+                _lvFiles.Columns[0].Width = Math.Max(80, _lvFiles.ClientSize.Width - statusW - sizeW - 6);
             }
         }
 
@@ -1212,8 +1380,15 @@ namespace ONKOSFileTransfer
             SetProgress(0, string.Empty);
 
             List<PeerInfo> targets = _selectedRecipients.ToList();
-            List<string> items = _queuedItems.ToList();
+            List<QueuedTransferItem> items = _queuedItems.ToList();
             List<string> tempPackages = new List<string>();
+
+            foreach (QueuedTransferItem qItem in items)
+            {
+                qItem.State = QueueItemDeliveryState.Pending;
+                qItem.ErrorDetail = string.Empty;
+            }
+            RefreshFilesListView();
 
             int successCount = 0;
             int failCount = 0;
@@ -1221,6 +1396,7 @@ namespace ONKOSFileTransfer
             try
             {
                 var activeTargets = new List<PeerInfo>();
+                var offlineTargets = new List<PeerInfo>();
 
                 foreach (PeerInfo target in targets)
                 {
@@ -1232,6 +1408,7 @@ namespace ONKOSFileTransfer
                     }
                     else
                     {
+                        offlineTargets.Add(target);
                         failCount += items.Count;
                         SetStatus($"Destino no disponible ({target.FullName}): apagado, suspendido o sin respuesta.");
                     }
@@ -1239,6 +1416,12 @@ namespace ONKOSFileTransfer
 
                 if (activeTargets.Count == 0)
                 {
+                    foreach (QueuedTransferItem qItem in items)
+                    {
+                        qItem.State = QueueItemDeliveryState.Failed;
+                        qItem.ErrorDetail = "Destino apagado, suspendido o sin respuesta.";
+                    }
+                    RefreshFilesListView();
                     RefreshPeersList();
                     SetProgress(0, string.Empty);
                     SetStatus("Ningún destinatario seleccionado está disponible en este momento.");
@@ -1251,31 +1434,67 @@ namespace ONKOSFileTransfer
                     return;
                 }
 
-                List<string> preparedPayloads = new List<string>();
+                var preparedPayloads = new List<(QueuedTransferItem SourceItem, string PayloadPath, string DisplayName, long Size)>();
                 long singleBatchBytes = 0;
 
-                foreach (string item in items)
+                foreach (QueuedTransferItem item in items)
                 {
-                    if (Directory.Exists(item))
+                    string path = item.FullPath;
+                    try
                     {
-                        string folderName = Path.GetFileName(item.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                        if (string.IsNullOrWhiteSpace(folderName))
-                            folderName = "Carpeta";
+                        if (Directory.Exists(path))
+                        {
+                            string folderName = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                            if (string.IsNullOrWhiteSpace(folderName))
+                                folderName = "Carpeta";
 
-                        string pkgPath = Path.Combine(Path.GetTempPath(), $"{folderName}_{Guid.NewGuid():N}.onkosfolder");
-                        if (File.Exists(pkgPath))
-                            File.Delete(pkgPath);
+                            string pkgPath = Path.Combine(Path.GetTempPath(), $"{folderName}_{Guid.NewGuid():N}.onkosfolder");
+                            if (File.Exists(pkgPath))
+                                File.Delete(pkgPath);
 
-                        ZipFile.CreateFromDirectory(item, pkgPath, CompressionLevel.Fastest, false);
-                        tempPackages.Add(pkgPath);
-                        preparedPayloads.Add(pkgPath);
-                        singleBatchBytes += new FileInfo(pkgPath).Length;
+                            ZipFile.CreateFromDirectory(path, pkgPath, CompressionLevel.Fastest, false);
+                            long pkgSize = new FileInfo(pkgPath).Length;
+                            tempPackages.Add(pkgPath);
+                            preparedPayloads.Add((item, pkgPath, folderName, pkgSize));
+                            singleBatchBytes += pkgSize;
+                        }
+                        else if (File.Exists(path))
+                        {
+                            long fileSize = new FileInfo(path).Length;
+                            preparedPayloads.Add((item, path, Path.GetFileName(path), fileSize));
+                            singleBatchBytes += fileSize;
+                        }
+                        else
+                        {
+                            item.State = QueueItemDeliveryState.Failed;
+                            item.ErrorDetail = "El archivo o carpeta ya no existe en la ruta original.";
+                            failCount += targets.Count;
+                        }
                     }
-                    else if (File.Exists(item))
+                    catch (Exception prepEx)
                     {
-                        preparedPayloads.Add(item);
-                        singleBatchBytes += new FileInfo(item).Length;
+                        item.State = QueueItemDeliveryState.Failed;
+                        item.ErrorDetail = "No se pudo preparar: " + prepEx.Message;
+                        failCount += targets.Count;
                     }
+                }
+
+                RefreshFilesListView();
+
+                if (preparedPayloads.Count == 0)
+                {
+                    SetProgress(0, string.Empty);
+                    SetStatus("No se pudo preparar ningún archivo para envío.");
+                    return;
+                }
+
+                var itemAllSucceeded = preparedPayloads.ToDictionary(p => p.SourceItem, _ => offlineTargets.Count == 0);
+                var itemLastError = new Dictionary<QueuedTransferItem, string>();
+                if (offlineTargets.Count > 0)
+                {
+                    string offlineNames = string.Join(", ", offlineTargets.Select(t => t.FullName));
+                    foreach (var p in preparedPayloads)
+                        itemLastError[p.SourceItem] = $"Sin conexión con: {offlineNames}";
                 }
 
                 long grandTotalBytes = Math.Max(1, singleBatchBytes * activeTargets.Count);
@@ -1284,19 +1503,20 @@ namespace ONKOSFileTransfer
 
                 foreach (PeerInfo target in activeTargets)
                 {
-                    foreach (string payload in preparedPayloads)
+                    foreach (var entry in preparedPayloads)
                     {
-                        string displayName = Path.GetFileName(payload);
-                        SetStatus($"Enviando '{displayName}' a {target.FullName}...");
+                        entry.SourceItem.State = QueueItemDeliveryState.Sending;
+                        RefreshFilesListView();
+
+                        SetStatus($"Enviando '{entry.DisplayName}' a {target.FullName}...");
                         long baseBytesForItem = sentBytesSoFar;
-                        long itemSize = File.Exists(payload) ? new FileInfo(payload).Length : 0L;
 
                         try
                         {
                             await FileSender.SendFileAsync(
                                 target.IPv4,
                                 TransferPort,
-                                payload,
+                                entry.PayloadPath,
                                 (sent, total) =>
                                 {
                                     long currentTotalSent = baseBytesForItem + sent;
@@ -1304,231 +1524,3 @@ namespace ONKOSFileTransfer
 
                                     string etaStr = string.Empty;
                                     double elapsedSec = sw.Elapsed.TotalSeconds;
-                                    if (currentTotalSent > 0 && elapsedSec > 0.35)
-                                    {
-                                        double bytesPerSec = currentTotalSent / elapsedSec;
-                                        long remainingBytes = Math.Max(0, grandTotalBytes - currentTotalSent);
-                                        etaStr = FormatEta(remainingBytes / bytesPerSec);
-                                    }
-
-                                    SetProgress(pct, etaStr);
-                                });
-
-                            target.LastSeenUtc = DateTime.UtcNow;
-                            successCount++;
-
-                            TransferHistoryStore.AppendEntry(
-                                "ENVIADO",
-                                displayName,
-                                itemSize,
-                                target.DisplayText,
-                                "Completado",
-                                target.IPv4);
-                        }
-                        catch (Exception ex)
-                        {
-                            failCount++;
-                            SetStatus($"Error enviando a {target.FullName}: {ex.Message}");
-
-                            TransferHistoryStore.AppendEntry(
-                                "ENVIADO",
-                                displayName,
-                                itemSize,
-                                target.DisplayText,
-                                "Error",
-                                target.IPv4,
-                                ex.Message);
-                        }
-
-                        sentBytesSoFar += itemSize;
-                        int completedPct = (int)Math.Round((double)sentBytesSoFar / grandTotalBytes * 100.0);
-                        SetProgress(completedPct, completedPct >= 100 ? "listo" : _etaText);
-                    }
-                }
-
-                sw.Stop();
-                RefreshPeersList();
-
-                if (failCount == 0 && successCount > 0)
-                {
-                    string summary = activeTargets.Count == 1
-                        ? $"Se enviaron {items.Count} elemento(s) a {activeTargets[0].FullName}."
-                        : $"Se enviaron {items.Count} elemento(s) a {activeTargets.Count} destinatarios.";
-
-                    _queuedItems.Clear();
-                    RefreshFilesListView();
-                    _selectedRecipients.Clear();
-                    RefreshRecipientChips();
-                    SetProgress(0, string.Empty);
-
-                    SetStatus("Envío completado correctamente.");
-                    ModernToastNotifier.MostrarEnvioExitoso(summary);
-                }
-                else if (successCount > 0)
-                {
-                    SetProgress(0, string.Empty);
-                    SetStatus($"Completado con {failCount} error(es).");
-                    ModernToastNotifier.MostrarNotificacion(
-                        "Envío con novedades",
-                        $"Enviados: {successCount} • Con error: {failCount}.",
-                        null,
-                        true,
-                        "AVISO");
-                }
-                else
-                {
-                    SetProgress(0, string.Empty);
-                    SetStatus("No se pudo completar el envío.");
-                    ModernToastNotifier.MostrarNotificacion(
-                        "Envío no completado",
-                        "Revisa si el destinatario sigue conectado a la red.",
-                        null,
-                        true,
-                        "AVISO");
-                }
-            }
-            finally
-            {
-                foreach (string temp in tempPackages)
-                {
-                    try
-                    {
-                        if (File.Exists(temp))
-                            File.Delete(temp);
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                _isSending = false;
-                UpdateSendButtonText();
-            }
-        }
-
-        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_19 = 19;
-        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_20 = 20;
-
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-        private const uint SHGFI_ICON = 0x000000100;
-        private const uint SHGFI_SMALLICON = 0x000000001;
-        private const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
-        private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
-        private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-        private struct SHFILEINFO
-        {
-            public IntPtr hIcon;
-            public int iIcon;
-            public uint dwAttributes;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-            public string szDisplayName;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
-            public string szTypeName;
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Auto)]
-        private static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool DestroyIcon(IntPtr hIcon);
-    }
-
-    public class RoundedPanel : Panel
-    {
-        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(14, 15, 24);
-        public Color CardColor { get; set; } = Color.FromArgb(22, 24, 38);
-        public Color BorderColor { get; set; } = Color.FromArgb(44, 48, 72);
-        public int CornerRadius { get; set; } = 14;
-
-        public RoundedPanel()
-        {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-            BackColor = ParentSurfaceColor;
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            e.Graphics.Clear(ParentSurfaceColor);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath path = CreateRoundRect(rect, CornerRadius))
-            using (SolidBrush fill = new SolidBrush(CardColor))
-            using (Pen pen = new Pen(BorderColor, 1))
-            {
-                e.Graphics.FillPath(fill, path);
-                e.Graphics.DrawPath(pen, path);
-            }
-        }
-
-        internal static GraphicsPath CreateRoundRect(Rectangle r, int radius)
-        {
-            int d = Math.Max(2, radius * 2);
-            var path = new GraphicsPath();
-            path.AddArc(r.X, r.Y, d, d, 180, 90);
-            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-            path.CloseFigure();
-            return path;
-        }
-    }
-
-    public class RoundedButton : Control
-    {
-        private bool _hovered;
-
-        public Color ParentSurfaceColor { get; set; } = Color.FromArgb(22, 24, 38);
-        public Color FillColor { get; set; } = Color.FromArgb(124, 77, 224);
-        public Color HoverColor { get; set; } = Color.FromArgb(142, 96, 242);
-        public int CornerRadius { get; set; } = 10;
-
-        public RoundedButton()
-        {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-            ForeColor = Color.White;
-            Cursor = Cursors.Hand;
-        }
-
-        protected override void OnMouseEnter(EventArgs e)
-        {
-            _hovered = true;
-            Invalidate();
-            base.OnMouseEnter(e);
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            _hovered = false;
-            Invalidate();
-            base.OnMouseLeave(e);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            Color surface = Parent != null ? Parent.BackColor : ParentSurfaceColor;
-            e.Graphics.Clear(surface);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-
-            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            Color bg = !Enabled ? Color.FromArgb(46, 50, 72) : (_hovered ? HoverColor : FillColor);
-
-            using (GraphicsPath path = RoundedPanel.CreateRoundRect(rect, CornerRadius))
-            using (SolidBrush fill = new SolidBrush(bg))
-            {
-                e.Graphics.FillPath(fill, path);
-            }
-
-            TextRenderer.DrawText(
-                e.Graphics,
-                Text,
-                Font,
-                rect,
-                Enabled ? ForeColor : Color.FromArgb(150, 155, 180),
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        }
-    }
-}
