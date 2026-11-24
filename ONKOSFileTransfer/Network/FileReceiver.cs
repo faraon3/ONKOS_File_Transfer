@@ -111,13 +111,31 @@ namespace ONKOSFileTransfer.Network
         private async Task ReceiveFile(TcpClient client, string folder)
         {
             string destination = null;
+            bool transferStarted = false;
+
             try
             {
                 using (client)
                 using (NetworkStream stream = client.GetStream())
                 using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
                 {
-                    string firstToken = reader.ReadString();
+                    string firstToken;
+                    try
+                    {
+                        firstToken = reader.ReadString();
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        // Conexión de sondeo / comprobación de puerto sin datos: ignorar en silencio
+                        return;
+                    }
+                    catch (IOException)
+                    {
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(firstToken))
+                        return;
 
                     if (string.Equals(firstToken, "ONKOS_WHOAMI_V1", StringComparison.Ordinal))
                     {
@@ -150,6 +168,8 @@ namespace ONKOSFileTransfer.Network
                     if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
                         size < 0 || size > 20L * 1024 * 1024 * 1024)
                         throw new InvalidDataException("Archivo no válido o tamaño fuera del límite.");
+
+                    transferStarted = true;
 
                     string senderFolder = GetSenderFolder(client, folder);
                     destination = Path.Combine(senderFolder, name);
@@ -230,7 +250,9 @@ namespace ONKOSFileTransfer.Network
                     try { File.Delete(destination); }
                     catch { }
                 }
-                Error?.Invoke(ex.Message);
+
+                if (transferStarted && IsRunning)
+                    Error?.Invoke(ex.Message);
             }
         }
 
