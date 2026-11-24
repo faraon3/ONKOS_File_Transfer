@@ -58,7 +58,6 @@
     <Compile Include="Network\NetworkManager.cs" />
     <Compile Include="Network\PeerDiscoveryService.cs" />
     <Compile Include="Program.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TransferHistoryForm.cs" />
     <Compile Include="TransferHistoryStore.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
