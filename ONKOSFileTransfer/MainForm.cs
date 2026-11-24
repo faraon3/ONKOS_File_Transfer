@@ -39,6 +39,7 @@ namespace ONKOSFileTransfer
 
         private ListView _lvFiles;
         private Label _lblDropHint;
+        private Label _lblTotalWeight;
         private RoundedButton _btnAttach;
         private RoundedButton _btnRemoveSelected;
 
@@ -333,15 +334,26 @@ namespace ONKOSFileTransfer
                 ForeColor = Color.FromArgb(242, 244, 252),
                 BackColor = cardBg,
                 Dock = DockStyle.Left,
-                Width = 165,
+                Width = 152,
                 TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            _lblTotalWeight = new Label
+            {
+                Text = "Total: 0 B",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(184, 148, 255),
+                BackColor = cardBg,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleRight,
+                AutoEllipsis = true
             };
 
             _btnAttach = new RoundedButton
             {
                 Text = "+ Adjuntar",
                 Dock = DockStyle.Right,
-                Width = 104,
+                Width = 98,
                 ParentSurfaceColor = cardBg,
                 FillColor = accentPurple,
                 HoverColor = accentPurpleHover,
@@ -354,7 +366,7 @@ namespace ONKOSFileTransfer
             {
                 Text = "Quitar",
                 Dock = DockStyle.Right,
-                Width = 68,
+                Width = 64,
                 ParentSurfaceColor = cardBg,
                 FillColor = subtleBtnBg,
                 HoverColor = Color.FromArgb(185, 58, 78),
@@ -365,7 +377,16 @@ namespace ONKOSFileTransfer
             _btnRemoveSelected.Click += (s, e) => RemoveSelectedFiles();
 
             var spacerFilesBtn = new Panel { Dock = DockStyle.Right, Width = 6, BackColor = cardBg };
-            pnlFilesTop.Controls.AddRange(new Control[] { lblFilesHeader, _btnRemoveSelected, spacerFilesBtn, _btnAttach });
+            var spacerWeightBtn = new Panel { Dock = DockStyle.Right, Width = 8, BackColor = cardBg };
+            pnlFilesTop.Controls.AddRange(new Control[]
+            {
+                _lblTotalWeight,
+                spacerWeightBtn,
+                _btnRemoveSelected,
+                spacerFilesBtn,
+                _btnAttach,
+                lblFilesHeader
+            });
 
             var pnlFilesArea = new Panel
             {
@@ -941,6 +962,52 @@ namespace ONKOSFileTransfer
             UpdateSendButtonText();
         }
 
+        private long CalculateQueuedTotalBytes()
+        {
+            long totalBytes = 0;
+
+            foreach (string path in _queuedItems)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    continue;
+
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        totalBytes += new FileInfo(path).Length;
+                    }
+                    else if (Directory.Exists(path))
+                    {
+                        foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                        {
+                            try
+                            {
+                                totalBytes += new FileInfo(file).Length;
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return totalBytes;
+        }
+
+        private void UpdateTotalWeightLabel()
+        {
+            if (_lblTotalWeight == null)
+                return;
+
+            long total = CalculateQueuedTotalBytes();
+            _lblTotalWeight.Text = "Total: " + FormatFileSize(total);
+        }
+
         private void RefreshFilesListView()
         {
             _lvFiles.BeginUpdate();
@@ -968,6 +1035,7 @@ namespace ONKOSFileTransfer
             _lvFiles.EndUpdate();
             _lblDropHint.Visible = _queuedItems.Count == 0;
             _btnRemoveSelected.Visible = false;
+            UpdateTotalWeightLabel();
             AdjustListViewColumns();
         }
 
