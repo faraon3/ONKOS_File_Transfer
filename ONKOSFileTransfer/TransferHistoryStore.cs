@@ -21,13 +21,22 @@ namespace ONKOSFileTransfer
 
     public static class TransferHistoryStore
     {
-        private static readonly string HistoryFilePath = Path.Combine(
+        private static readonly string BaseFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "ONKOS",
+            "ONKOS");
+
+        private static readonly string HistoryFilePath = Path.Combine(
+            BaseFolder,
             "historial_transferencias.tsv");
+
+        private static readonly string UnseenReceivedFilePath = Path.Combine(
+            BaseFolder,
+            "recibidos_no_vistos.txt");
 
         private static readonly object FileLock = new object();
         private const int MaxEntries = 1000;
+
+        public static event Action UnseenReceivedCountChanged;
 
         public static void AppendEntry(
             string direction,
@@ -38,20 +47,23 @@ namespace ONKOSFileTransfer
             string targetPath = "",
             string notes = "")
         {
+            bool incrementedUnseen = false;
+
             try
             {
-                string dir = Path.GetDirectoryName(HistoryFilePath);
-                if (!string.IsNullOrEmpty(dir))
-                    Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(BaseFolder);
 
                 DateTime now = DateTime.Now;
+                string cleanDirection = Sanitize(direction);
+                string cleanStatus = Sanitize(status);
+
                 string line = string.Join("\t",
                     now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                    Sanitize(direction),
+                    cleanDirection,
                     Sanitize(itemName),
                     Math.Max(0L, sizeBytes).ToString(CultureInfo.InvariantCulture),
                     Sanitize(counterparty),
-                    Sanitize(status),
+                    cleanStatus,
                     Sanitize(targetPath),
                     Sanitize(notes));
 
@@ -64,10 +76,85 @@ namespace ONKOSFileTransfer
                     }
 
                     TrimIfNeededLocked();
+
+                    if (string.Equals(cleanDirection, "RECIBIDO", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(cleanStatus, "Completado", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int current = ReadUnseenCountLocked();
+                        WriteUnseenCountLocked(current + 1);
+                        incrementedUnseen = true;
+                    }
                 }
             }
             catch
             {
+            }
+
+            if (incrementedUnseen)
+                UnseenReceivedCountChanged?.Invoke();
+        }
+
+        public static int GetUnseenReceivedCount()
+        {
+            try
+            {
+                lock (FileLock)
+                {
+                    return ReadUnseenCountLocked();
+                }
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public static void MarkReceivedAsSeen()
+        {
+            bool changed = false;
+            try
+            {
+                lock (FileLock)
+                {
+                    if (ReadUnseenCountLocked() > 0)
+                    {
+                        Directory.CreateDirectory(BaseFolder);
+                        WriteUnseenCountLocked(0);
+                        changed = true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            if (changed)
+                UnseenReceivedCountChanged?.Invoke();
+        }
+
+        private static int ReadUnseenCountLocked()
+        {
+            if (!File.Exists(UnseenReceivedFilePath))
+                return 0;
+
+            using (var fs = new FileStream(UnseenReceivedFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var sr = new StreamReader(fs, Encoding.UTF8))
+            {
+                string raw = sr.ReadToEnd().Trim();
+                if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int val) && val > 0)
+                    return val;
+            }
+
+            return 0;
+        }
+
+        private static void WriteUnseenCountLocked(int count)
+        {
+            int safe = Math.Max(0, count);
+            using (var fs = new FileStream(UnseenReceivedFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            using (var sw = new StreamWriter(fs, Encoding.UTF8))
+            {
+                sw.Write(safe.ToString(CultureInfo.InvariantCulture));
             }
         }
 
@@ -157,17 +244,21 @@ namespace ONKOSFileTransfer
                 {
                     if (File.Exists(HistoryFilePath))
                         File.Delete(HistoryFilePath);
+                    if (File.Exists(UnseenReceivedFilePath))
+                        File.Delete(UnseenReceivedFilePath);
                 }
             }
             catch
             {
             }
+
+            UnseenReceivedCountChanged?.Invoke();
         }
 
         private static void TrimIfNeededLocked()
         {
             try
-            {
+                {
                 string[] allLines = File.ReadAllLines(HistoryFilePath, Encoding.UTF8);
                 if (allLines.Length > MaxEntries)
                 {
