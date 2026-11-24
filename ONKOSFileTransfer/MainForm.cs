@@ -145,7 +145,7 @@ namespace ONKOSFileTransfer
             var flpTopActions = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
-                Width = 315,
+                Width = 405,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Padding = new Padding(0, 8, 0, 0),
@@ -176,6 +176,22 @@ namespace ONKOSFileTransfer
             };
             btnOpenInbox.Click += (s, e) => OpenInboxFolder();
 
+            var btnHistory = new RoundedButton
+            {
+                Text = "Historial",
+                Size = new Size(84, 30),
+                ParentSurfaceColor = headerBg,
+                FillColor = subtleBtnBg,
+                HoverColor = subtleBtnHover,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                Margin = new Padding(6, 0, 0, 0)
+            };
+            btnHistory.Click += (s, e) =>
+            {
+                using (var dlg = new TransferHistoryForm())
+                    dlg.ShowDialog(this);
+            };
+
             var btnEditProfile = new RoundedButton
             {
                 Text = "Mi Perfil",
@@ -188,7 +204,13 @@ namespace ONKOSFileTransfer
             };
             btnEditProfile.Click += BtnEditProfile_Click;
 
-            flpTopActions.Controls.AddRange(new Control[] { btnChangeInbox, btnOpenInbox, btnEditProfile });
+            flpTopActions.Controls.AddRange(new Control[]
+            {
+                btnChangeInbox,
+                btnOpenInbox,
+                btnHistory,
+                btnEditProfile
+            });
             pnlHeader.Controls.AddRange(new Control[] { lblBrand, _lblIdentity, flpTopActions });
 
             var tblMain = new TableLayoutPanel
@@ -1267,6 +1289,7 @@ namespace ONKOSFileTransfer
                         string displayName = Path.GetFileName(payload);
                         SetStatus($"Enviando '{displayName}' a {target.FullName}...");
                         long baseBytesForItem = sentBytesSoFar;
+                        long itemSize = File.Exists(payload) ? new FileInfo(payload).Length : 0L;
 
                         try
                         {
@@ -1293,14 +1316,31 @@ namespace ONKOSFileTransfer
 
                             target.LastSeenUtc = DateTime.UtcNow;
                             successCount++;
+
+                            TransferHistoryStore.AppendEntry(
+                                "ENVIADO",
+                                displayName,
+                                itemSize,
+                                target.DisplayText,
+                                "Completado",
+                                target.IPv4);
                         }
                         catch (Exception ex)
                         {
                             failCount++;
                             SetStatus($"Error enviando a {target.FullName}: {ex.Message}");
+
+                            TransferHistoryStore.AppendEntry(
+                                "ENVIADO",
+                                displayName,
+                                itemSize,
+                                target.DisplayText,
+                                "Error",
+                                target.IPv4,
+                                ex.Message);
                         }
 
-                        sentBytesSoFar += new FileInfo(payload).Length;
+                        sentBytesSoFar += itemSize;
                         int completedPct = (int)Math.Round((double)sentBytesSoFar / grandTotalBytes * 100.0);
                         SetProgress(completedPct, completedPct >= 100 ? "listo" : _etaText);
                     }
