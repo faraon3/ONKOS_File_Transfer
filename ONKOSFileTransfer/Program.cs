@@ -255,38 +255,6 @@ namespace ONKOSFileTransfer
                     rutaAbrir = Path.GetDirectoryName(extraPath);
                 else
                     rutaAbrir = AppSettingsStore.GetInboxFolder();
-
-                long sizeBytes = 0L;
-                string itemName = Path.GetFileName(extraPath);
-                if (string.IsNullOrWhiteSpace(itemName))
-                    itemName = message;
-
-                try
-                {
-                    if (!string.IsNullOrWhiteSpace(extraPath) && File.Exists(extraPath))
-                        sizeBytes = new FileInfo(extraPath).Length;
-                    else if (!string.IsNullOrWhiteSpace(extraPath) && Directory.Exists(extraPath))
-                    {
-                        foreach (string f in Directory.EnumerateFiles(extraPath, "*", SearchOption.AllDirectories))
-                        {
-                            try { sizeBytes += new FileInfo(f).Length; }
-                            catch (Exception fEx) { OnkosLogger.Warn("TrayHostContext", $"Error leyendo tamaño de '{f}'.", fEx); }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OnkosLogger.Warn("TrayHostContext", "Error calculando tamaño de elemento recibido.", ex);
-                }
-
-                TransferHistoryStore.AppendEntry(
-                    "RECIBIDO",
-                    itemName,
-                    sizeBytes,
-                    "Red local",
-                    "Completado",
-                    rutaAbrir,
-                    message);
             }
 
             ModernToastNotifier.MostrarNotificacion(title, message, rutaAbrir, isError, badge);
@@ -413,7 +381,7 @@ namespace ONKOSFileTransfer
             File.WriteAllLines(
                 ProfilePath,
                 new[] { cleanName, cleanArea },
-                Encoding.UTF8);
+                new UTF8Encoding(false));
         }
     }
 
@@ -421,6 +389,8 @@ namespace ONKOSFileTransfer
     {
         private static readonly string SettingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ONKOS", "ruta_recibidos.txt");
+
+        private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
         private const int SHCNE_ASSOCCHANGED = 0x08000000;
         private const int SHCNE_UPDATEDIR = 0x00001000;
@@ -462,7 +432,7 @@ namespace ONKOSFileTransfer
                 string dir = Path.GetDirectoryName(SettingsPath);
                 if (!string.IsNullOrEmpty(dir))
                     Directory.CreateDirectory(dir);
-                File.WriteAllText(SettingsPath, defaultDesktop, Encoding.UTF8);
+                File.WriteAllText(SettingsPath, defaultDesktop, Utf8NoBom);
             }
             catch (Exception ex)
             {
@@ -482,7 +452,7 @@ namespace ONKOSFileTransfer
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            File.WriteAllText(SettingsPath, cleanPath, Encoding.UTF8);
+            File.WriteAllText(SettingsPath, cleanPath, Utf8NoBom);
             EnsureInboxFolderReady(cleanPath);
         }
 
