@@ -16,6 +16,16 @@ namespace ONKOSFileTransfer.Network
 
     public static class FileSender
     {
+        private static void ObserveFaulted(Task task)
+        {
+            if (task == null)
+                return;
+
+            task.ContinueWith(
+                t => { var _ = t.Exception; },
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+        }
+
         public static async Task<bool> CheckPeerReachableAsync(string host, int port = 5050, int timeoutMs = 2000)
         {
             if (string.IsNullOrWhiteSpace(host))
@@ -26,6 +36,8 @@ namespace ONKOSFileTransfer.Network
                 using (var client = new TcpClient())
                 {
                     Task connectTask = client.ConnectAsync(host, port);
+                    ObserveFaulted(connectTask);
+
                     Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
                     if (completed != connectTask || !client.Connected)
                         return false;
@@ -51,6 +63,8 @@ namespace ONKOSFileTransfer.Network
                 using (var client = new TcpClient())
                 {
                     Task connectTask = client.ConnectAsync(host, port);
+                    ObserveFaulted(connectTask);
+
                     Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
                     if (completed != connectTask || !client.Connected)
                         return result;
@@ -67,6 +81,8 @@ namespace ONKOSFileTransfer.Network
                         writer.Flush();
 
                         Task<string> tokenTask = Task.Run(() => reader.ReadString());
+                        ObserveFaulted(tokenTask);
+
                         Task tokenCompleted = await Task.WhenAny(tokenTask, Task.Delay(timeoutMs));
                         if (tokenCompleted != tokenTask)
                             return result;
@@ -111,6 +127,8 @@ namespace ONKOSFileTransfer.Network
             using (TcpClient client = new TcpClient())
             {
                 Task connectTask = client.ConnectAsync(host, port);
+                ObserveFaulted(connectTask);
+
                 Task completed = await Task.WhenAny(connectTask, Task.Delay(5000));
                 if (completed != connectTask || !client.Connected)
                     throw new SocketException((int)SocketError.TimedOut);
