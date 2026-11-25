@@ -4,23 +4,26 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace ONKOSFileTransfer
 {
     public sealed class TransferHistoryEntry
     {
         public DateTime TimestampLocal { get; set; }
-        public string Direction { get; set; } // "ENVIADO" o "RECIBIDO"
+        public string Direction { get; set; }
         public string ItemName { get; set; }
         public long SizeBytes { get; set; }
         public string Counterparty { get; set; }
-        public string Status { get; set; } // "Completado" o "Error"
+        public string Status { get; set; }
         public string TargetPath { get; set; }
         public string Notes { get; set; }
     }
 
     public static class TransferHistoryStore
     {
+        private const string CrossProcessMutexName = "Global\\ONKOS_HistoryStore_Mutex";
+
         private static readonly string BaseFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "ONKOS");
@@ -37,6 +40,38 @@ namespace ONKOSFileTransfer
         private const int MaxEntries = 1000;
 
         public static event Action UnseenReceivedCountChanged;
+
+        private static void WithCrossProcessLock(Action action)
+        {
+            lock (FileLock)
+            {
+                using (var mutex = new Mutex(false, CrossProcessMutexName))
+                {
+                    bool acquired = false;
+                    try
+                    {
+                        try
+                        {
+                            acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+                        }
+                        catch (AbandonedMutexException)
+                        {
+                            acquired = true;
+                        }
+
+                        action();
+                    }
+                    finally
+                    {
+                        if (acquired)
+                        {
+                            try { mutex.ReleaseMutex(); }
+                            catch (Exception ex) { OnkosLogger.Warn("TransferHistoryStore", "Error liberando Mutex.", ex); }
+                        }
+                    }
+                }
+            }
+        }
 
         public static void AppendEntry(
             string direction,
@@ -67,7 +102,7 @@ namespace ONKOSFileTransfer
                     Sanitize(targetPath),
                     Sanitize(notes));
 
-                lock (FileLock)
+                WithCrossProcessLock(() =>
                 {
                     using (var fs = new FileStream(HistoryFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
                     using (var sw = new StreamWriter(fs, Encoding.UTF8))
@@ -84,10 +119,11 @@ namespace ONKOSFileTransfer
                         WriteUnseenCountLocked(current + 1);
                         incrementedUnseen = true;
                     }
-                }
+                });
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TransferHistoryStore", "Error agregando entrada al historial.", ex);
             }
 
             if (incrementedUnseen)
@@ -96,17 +132,16 @@ namespace ONKOSFileTransfer
 
         public static int GetUnseenReceivedCount()
         {
+            int count = 0;
             try
             {
-                lock (FileLock)
-                {
-                    return ReadUnseenCountLocked();
-                }
+                WithCrossProcessLock(() => { count = ReadUnseenCountLocked(); });
             }
-            catch
+            catch (Exception ex)
             {
-                return 0;
+                OnkosLogger.Warn("TransferHistoryStore", "Error leyendo contador de no vistos.", ex);
             }
+            return count;
         }
 
         public static void MarkReceivedAsSeen()
@@ -114,7 +149,7 @@ namespace ONKOSFileTransfer
             bool changed = false;
             try
             {
-                lock (FileLock)
+                WithCrossProcessLock(() =>
                 {
                     if (ReadUnseenCountLocked() > 0)
                     {
@@ -122,10 +157,11 @@ namespace ONKOSFileTransfer
                         WriteUnseenCountLocked(0);
                         changed = true;
                     }
-                }
+                });
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TransferHistoryStore", "Error marcando recibidos como vistos.", ex);
             }
 
             if (changed)
@@ -151,11 +187,13 @@ namespace ONKOSFileTransfer
         private static void WriteUnseenCountLocked(int count)
         {
             int safe = Math.Max(0, count);
-            using (var fs = new FileStream(UnseenReceivedFilePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
-            using (var sw = new StreamWriter(fs, Encoding.UTF8))
-            {
-                sw.Write(safe.ToString(CultureInfo.InvariantCulture));
-            }
+            string tempFile = UnseenReceivedFilePath + ".tmp";
+            File.WriteAllText(tempFile, safe.ToString(CultureInfo.InvariantCulture), Encoding.UTF8);
+
+            if (File.Exists(UnseenReceivedFilePath))
+                File.Replace(tempFile, UnseenReceivedFilePath, null);
+            else
+                File.Move(tempFile, UnseenReceivedFilePath);
         }
 
         public static List<TransferHistoryEntry> LoadEntries(string directionFilter = null, string searchText = null)
@@ -167,16 +205,19 @@ namespace ONKOSFileTransfer
                 if (!File.Exists(HistoryFilePath))
                     return list;
 
-                string[] lines;
-                lock (FileLock)
+                string[] lines = Array.Empty<string>();
+                WithCrossProcessLock(() =>
                 {
+                    if (!File.Exists(HistoryFilePath))
+                        return;
+
                     using (var fs = new FileStream(HistoryFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     using (var sr = new StreamReader(fs, Encoding.UTF8))
                     {
                         string content = sr.ReadToEnd();
                         lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                     }
-                }
+                });
 
                 foreach (string line in lines)
                 {
@@ -211,8 +252,9 @@ namespace ONKOSFileTransfer
                     list.Add(entry);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TransferHistoryStore", "Error cargando historial.", ex);
             }
 
             IEnumerable<TransferHistoryEntry> query = list.AsEnumerable().Reverse();
@@ -240,16 +282,17 @@ namespace ONKOSFileTransfer
         {
             try
             {
-                lock (FileLock)
+                WithCrossProcessLock(() =>
                 {
                     if (File.Exists(HistoryFilePath))
                         File.Delete(HistoryFilePath);
                     if (File.Exists(UnseenReceivedFilePath))
                         File.Delete(UnseenReceivedFilePath);
-                }
+                });
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TransferHistoryStore", "Error limpiando historial.", ex);
             }
 
             UnseenReceivedCountChanged?.Invoke();
@@ -258,16 +301,23 @@ namespace ONKOSFileTransfer
         private static void TrimIfNeededLocked()
         {
             try
-                {
+            {
                 string[] allLines = File.ReadAllLines(HistoryFilePath, Encoding.UTF8);
                 if (allLines.Length > MaxEntries)
                 {
                     string[] kept = allLines.Skip(allLines.Length - MaxEntries).ToArray();
-                    File.WriteAllLines(HistoryFilePath, kept, Encoding.UTF8);
+                    string tempFile = HistoryFilePath + ".tmp";
+                    File.WriteAllLines(tempFile, kept, Encoding.UTF8);
+
+                    if (File.Exists(HistoryFilePath))
+                        File.Replace(tempFile, HistoryFilePath, null);
+                    else
+                        File.Move(tempFile, HistoryFilePath);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("TransferHistoryStore", "Error recortando historial.", ex);
             }
         }
 
