@@ -54,6 +54,9 @@
     <Compile Include="..\ONKOSFileTransfer\OnkosLogger.cs">
       <Link>OnkosLogger.cs</Link>
     </Compile>
+    <Compile Include="..\ONKOSFileTransfer\TransferHistoryStore.cs">
+      <Link>TransferHistoryStore.cs</Link>
+    </Compile>
     <Compile Include="..\ONKOSFileTransfer\Network\FileReceiver.cs">
       <Link>Network\FileReceiver.cs</Link>
     </Compile>
