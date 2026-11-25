@@ -85,6 +85,19 @@ namespace ONKOSTransferService
                     }
                 }
 
+                string openPath = Directory.Exists(savedPath)
+                    ? savedPath
+                    : (Path.GetDirectoryName(savedPath) ?? ResolveInboxFolder());
+
+                TransferHistoryStore.AppendEntry(
+                    "RECIBIDO",
+                    name,
+                    size,
+                    "Red local",
+                    "Completado",
+                    openPath,
+                    $"Recibido en {savedPath}");
+
                 OnkosLogger.Info("TransferWindowsService", $"Archivo/carpeta recibido: '{name}' ({size} bytes) en '{savedPath}'");
                 ServiceNotifier.Notify("SUCCESS", "Archivo recibido", $"Se recibió '{name}'. Haz clic para abrir.", savedPath);
             }
