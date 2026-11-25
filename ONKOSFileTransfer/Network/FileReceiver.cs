@@ -23,21 +23,46 @@ namespace ONKOSFileTransfer.Network
             if (IsRunning)
                 return;
 
-            Directory.CreateDirectory(folder);
+            string initialFolder = ResolveActiveInboxFolder(folder);
+            Directory.CreateDirectory(initialFolder);
             listener = new TcpListener(IPAddress.Any, port);
             listener.Start();
             IsRunning = true;
             _ = AcceptLoop(folder);
         }
 
-        private async Task AcceptLoop(string folder)
+        private static string ResolveActiveInboxFolder(string fallbackFolder)
+        {
+            try
+            {
+                string settingsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "ruta_recibidos.txt");
+
+                if (File.Exists(settingsPath))
+                {
+                    string configured = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(configured))
+                        return configured;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("FileReceiver", "No se pudo leer ruta_recibidos.txt; usando ruta de respaldo.", ex);
+            }
+
+            return fallbackFolder;
+        }
+
+        private async Task AcceptLoop(string fallbackFolder)
         {
             try
             {
                 while (IsRunning)
                 {
                     TcpClient client = await listener.AcceptTcpClientAsync();
-                    _ = Task.Run(() => ReceiveFile(client, folder));
+                    _ = Task.Run(() => ReceiveFile(client, fallbackFolder));
                 }
             }
             catch (ObjectDisposedException)
@@ -48,6 +73,7 @@ namespace ONKOSFileTransfer.Network
             }
             catch (Exception ex)
             {
+                OnkosLogger.Error("FileReceiver", "Error en AcceptLoop.", ex);
                 if (IsRunning)
                     Error?.Invoke(ex.Message);
             }
@@ -84,8 +110,9 @@ namespace ONKOSFileTransfer.Network
                         return (true, name, area);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("FileReceiver", "Error leyendo perfil local.", ex);
             }
 
             return (false, string.Empty, string.Empty);
@@ -101,14 +128,15 @@ namespace ONKOSFileTransfer.Network
                         return addr.ToString();
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("FileReceiver", "Error obteniendo IPv4 local.", ex);
             }
 
             return "127.0.0.1";
         }
 
-        private async Task ReceiveFile(TcpClient client, string folder)
+        private async Task ReceiveFile(TcpClient client, string fallbackFolder)
         {
             string destination = null;
             bool transferStarted = false;
@@ -126,7 +154,6 @@ namespace ONKOSFileTransfer.Network
                     }
                     catch (EndOfStreamException)
                     {
-                        // Conexión de sondeo / comprobación de puerto sin datos: ignorar en silencio
                         return;
                     }
                     catch (IOException)
@@ -171,7 +198,8 @@ namespace ONKOSFileTransfer.Network
 
                     transferStarted = true;
 
-                    string senderFolder = GetSenderFolder(client, folder);
+                    string activeRootFolder = ResolveActiveInboxFolder(fallbackFolder);
+                    string senderFolder = GetSenderFolder(client, activeRootFolder);
                     destination = Path.Combine(senderFolder, name);
                     if (File.Exists(destination))
                     {
@@ -245,10 +273,11 @@ namespace ONKOSFileTransfer.Network
             }
             catch (Exception ex)
             {
+                OnkosLogger.Error("FileReceiver", "Error recibiendo archivo.", ex);
                 if (destination != null && File.Exists(destination))
                 {
                     try { File.Delete(destination); }
-                    catch { }
+                    catch (Exception delEx) { OnkosLogger.Warn("FileReceiver", "No se pudo borrar parcial.", delEx); }
                 }
 
                 if (transferStarted && IsRunning)
@@ -265,8 +294,9 @@ namespace ONKOSFileTransfer.Network
                 if (remote != null && remote.Address != null)
                     senderIp = remote.Address.ToString().Replace(':', '_');
             }
-            catch
+            catch (Exception ex)
             {
+                OnkosLogger.Warn("FileReceiver", "No se pudo resolver IP remota.", ex);
             }
 
             string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
@@ -285,8 +315,9 @@ namespace ONKOSFileTransfer.Network
                             existing = candidate;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    OnkosLogger.Warn("FileReceiver", "Error listando carpetas de remitente.", ex);
                 }
 
                 if (!string.IsNullOrEmpty(existing))
