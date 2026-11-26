@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,6 +17,26 @@ namespace ONKOSFileTransfer.Network
 
     public static class FileSender
     {
+        public static bool TryParseStrictIPv4(string host, out IPAddress ipv4)
+        {
+            ipv4 = null;
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            string clean = host.Trim();
+            if (!IPAddress.TryParse(clean, out IPAddress parsed))
+                return false;
+
+            if (parsed.AddressFamily != AddressFamily.InterNetwork)
+                return false;
+
+            if (IPAddress.IsLoopback(parsed) || parsed.Equals(IPAddress.Any) || parsed.Equals(IPAddress.Broadcast))
+                return false;
+
+            ipv4 = parsed;
+            return true;
+        }
+
         private static void ObserveFaulted(Task task)
         {
             if (task == null)
@@ -28,14 +49,14 @@ namespace ONKOSFileTransfer.Network
 
         public static async Task<bool> CheckPeerReachableAsync(string host, int port = 5050, int timeoutMs = 2000)
         {
-            if (string.IsNullOrWhiteSpace(host))
+            if (!TryParseStrictIPv4(host, out IPAddress targetIp))
                 return false;
 
             try
             {
-                using (var client = new TcpClient())
+                using (var client = new TcpClient(AddressFamily.InterNetwork))
                 {
-                    Task connectTask = client.ConnectAsync(host, port);
+                    Task connectTask = client.ConnectAsync(targetIp, port);
                     ObserveFaulted(connectTask);
 
                     Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
@@ -55,14 +76,14 @@ namespace ONKOSFileTransfer.Network
         public static async Task<PeerIdentityResult> QueryPeerIdentityAsync(string host, int port, int timeoutMs = 400)
         {
             var result = new PeerIdentityResult();
-            if (string.IsNullOrWhiteSpace(host))
+            if (!TryParseStrictIPv4(host, out IPAddress targetIp))
                 return result;
 
             try
             {
-                using (var client = new TcpClient())
+                using (var client = new TcpClient(AddressFamily.InterNetwork))
                 {
-                    Task connectTask = client.ConnectAsync(host, port);
+                    Task connectTask = client.ConnectAsync(targetIp, port);
                     ObserveFaulted(connectTask);
 
                     Task completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
@@ -111,22 +132,22 @@ namespace ONKOSFileTransfer.Network
             string filePath,
             Action<long, long> onProgress = null)
         {
-            if (string.IsNullOrWhiteSpace(host))
-                throw new ArgumentException("La dirección de destino no es válida.", nameof(host));
+            if (!TryParseStrictIPv4(host, out IPAddress targetIp))
+                throw new ArgumentException("Solo se permiten direcciones IPv4 válidas para enviar archivos.", nameof(host));
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("No se encontró el archivo a enviar.", filePath);
 
-            bool reachable = await CheckPeerReachableAsync(host, port, 2000);
+            bool reachable = await CheckPeerReachableAsync(targetIp.ToString(), port, 2000);
             if (!reachable)
                 throw new IOException("El equipo destino no responde o está apagado/suspendido.");
 
             FileInfo fileInfo = new FileInfo(filePath);
             long totalBytes = fileInfo.Length;
 
-            using (TcpClient client = new TcpClient())
+            using (TcpClient client = new TcpClient(AddressFamily.InterNetwork))
             {
-                Task connectTask = client.ConnectAsync(host, port);
+                Task connectTask = client.ConnectAsync(targetIp, port);
                 ObserveFaulted(connectTask);
 
                 Task completed = await Task.WhenAny(connectTask, Task.Delay(5000));
