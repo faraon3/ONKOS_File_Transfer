@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSFileTransfer
@@ -46,6 +47,7 @@ namespace ONKOSFileTransfer
                 }
 
                 AppSettingsStore.EnsureInboxFolderReady();
+                EnsureTrayAutoStart();
 
                 PeerInfo profile = null;
                 if (!esModoBandeja && !UserProfileStore.TryLoad(out profile))
@@ -77,6 +79,34 @@ namespace ONKOSFileTransfer
                 {
                     Application.Run(new MainForm(profile));
                 }
+            }
+        }
+
+        private static void EnsureTrayAutoStart()
+        {
+            try
+            {
+                const string runKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+                const string valueName = "ONKOSFileTransferTray";
+                string exePath = Application.ExecutablePath;
+                if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                    return;
+
+                string expectedCommand = $"\"{exePath}\" --tray";
+
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(runKeyPath, true))
+                {
+                    if (key == null)
+                        return;
+
+                    string current = key.GetValue(valueName) as string;
+                    if (!string.Equals(current, expectedCommand, StringComparison.OrdinalIgnoreCase))
+                        key.SetValue(valueName, expectedCommand, RegistryValueKind.String);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("Program", "No se pudo registrar el inicio automático de la bandeja (--tray).", ex);
             }
         }
 
