@@ -44,6 +44,29 @@ namespace ONKOSFileTransfer.Network
             return DefaultClinicToken;
         }
 
+        private static string GetLocalSenderName()
+        {
+            try
+            {
+                string profilePath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "perfil.txt");
+
+                if (File.Exists(profilePath))
+                {
+                    string[] lines = File.ReadAllLines(profilePath, Encoding.UTF8);
+                    if (lines.Length > 0 && !string.IsNullOrWhiteSpace(lines[0]))
+                        return lines[0].Trim();
+                }
+            }
+            catch
+            {
+            }
+
+            return Environment.MachineName;
+        }
+
         private static string ComputeSha256Hex(string filePath)
         {
             using (var sha = SHA256.Create())
@@ -167,7 +190,9 @@ namespace ONKOSFileTransfer.Network
             string host,
             int port,
             string filePath,
-            Action<long, long> onProgress = null)
+            Action<long, long> onProgress = null,
+            string batchId = null,
+            string senderName = null)
         {
             if (!TryParseStrictIPv4(host, out IPAddress targetIp))
                 throw new ArgumentException("Solo se permiten direcciones IPv4 válidas para enviar archivos.", nameof(host));
@@ -183,6 +208,8 @@ namespace ONKOSFileTransfer.Network
             long totalBytes = fileInfo.Length;
             string sha256Hex = await Task.Run(() => ComputeSha256Hex(filePath));
             string authToken = GetNetworkAuthToken();
+            string resolvedBatchId = string.IsNullOrWhiteSpace(batchId) ? Guid.NewGuid().ToString("N") : batchId.Trim();
+            string resolvedSender = string.IsNullOrWhiteSpace(senderName) ? GetLocalSenderName() : senderName.Trim();
 
             using (TcpClient client = new TcpClient(AddressFamily.InterNetwork))
             {
@@ -205,6 +232,8 @@ namespace ONKOSFileTransfer.Network
                     writer.Write(fileInfo.Name);
                     writer.Write(totalBytes);
                     writer.Write(sha256Hex);
+                    writer.Write(resolvedSender);
+                    writer.Write(resolvedBatchId);
                     writer.Flush();
 
                     byte[] buffer = new byte[81920];
