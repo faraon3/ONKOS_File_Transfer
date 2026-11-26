@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -10,6 +11,8 @@ namespace ONKOSFileTransfer.Network
 {
     public class FileReceiver
     {
+        private const string DefaultClinicToken = "ONKOS_CLINICA_2026_KEY_9F4A";
+
         private TcpListener listener;
         private static readonly object SenderFolderLock = new object();
 
@@ -17,6 +20,30 @@ namespace ONKOSFileTransfer.Network
         public event Action<string> FileReceived;
         public event Action<string> Error;
         public event Action<string, long, long> TransferProgress;
+
+        private static string GetNetworkAuthToken()
+        {
+            try
+            {
+                string keyPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "clave_red.txt");
+
+                if (File.Exists(keyPath))
+                {
+                    string custom = File.ReadAllText(keyPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(custom))
+                        return custom;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("FileReceiver", "No se pudo leer clave_red.txt; usando clave predeterminada.", ex);
+            }
+
+            return DefaultClinicToken;
+        }
 
         public void Start(int port, string folder)
         {
@@ -189,12 +216,34 @@ namespace ONKOSFileTransfer.Network
                         return;
                     }
 
-                    string name = Path.GetFileName(firstToken);
+                    if (!string.Equals(firstToken, "ONKOS_FILE_V2", StringComparison.Ordinal))
+                    {
+                        OnkosLogger.Warn("FileReceiver", $"Conexión rechazada: protocolo no autorizado ('{firstToken}').");
+                        stream.WriteByte(2);
+                        await stream.FlushAsync();
+                        return;
+                    }
+
+                    string clientToken = reader.ReadString();
+                    string expectedToken = GetNetworkAuthToken();
+                    if (!string.Equals(clientToken, expectedToken, StringComparison.Ordinal))
+                    {
+                        OnkosLogger.Warn("FileReceiver", "Transferencia rechazada: clave de red clínica inválida.");
+                        stream.WriteByte(2);
+                        await stream.FlushAsync();
+                        return;
+                    }
+
+                    string name = Path.GetFileName(reader.ReadString());
                     long size = reader.ReadInt64();
+                    string expectedSha256 = (reader.ReadString() ?? string.Empty).Trim().ToLowerInvariant();
 
                     if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
-                        size < 0 || size > 20L * 1024 * 1024 * 1024)
-                        throw new InvalidDataException("Archivo no válido o tamaño fuera del límite.");
+                        size < 0 || size > 20L * 1024 * 1024 * 1024 ||
+                        expectedSha256.Length != 64)
+                    {
+                        throw new InvalidDataException("Encabezado de archivo no válido o tamaño fuera del límite.");
+                    }
 
                     transferStarted = true;
 
@@ -209,6 +258,8 @@ namespace ONKOSFileTransfer.Network
                             Path.GetExtension(name));
                     }
 
+                    string actualSha256;
+                    using (var sha = SHA256.Create())
                     using (FileStream output = File.Create(destination))
                     {
                         byte[] buffer = new byte[81920];
@@ -220,10 +271,25 @@ namespace ONKOSFileTransfer.Network
                             if (received == 0)
                                 throw new EndOfStreamException("La conexión se interrumpió antes de completar el archivo.");
 
+                            sha.TransformBlock(buffer, 0, received, null, 0);
                             await output.WriteAsync(buffer, 0, received);
                             receivedTotal += received;
                             TransferProgress?.Invoke(name, receivedTotal, size);
                         }
+
+                        sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                        actualSha256 = BitConverter.ToString(sha.Hash).Replace("-", string.Empty).ToLowerInvariant();
+                    }
+
+                    if (!string.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        OnkosLogger.Error("FileReceiver", $"Integridad SHA-256 fallida para '{name}'. Esperado={expectedSha256}, Recibido={actualSha256}");
+                        try { if (File.Exists(destination)) File.Delete(destination); } catch { }
+                        destination = null;
+                        stream.WriteByte(3);
+                        await stream.FlushAsync();
+                        Error?.Invoke($"El archivo '{name}' llegó corrupto (error SHA-256) y fue descartado.");
+                        return;
                     }
 
                     if (string.Equals(Path.GetExtension(destination), ".onkosfolder", StringComparison.OrdinalIgnoreCase))
