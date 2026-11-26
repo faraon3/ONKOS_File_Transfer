@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -17,6 +18,42 @@ namespace ONKOSFileTransfer.Network
 
     public static class FileSender
     {
+        private const string DefaultClinicToken = "ONKOS_CLINICA_2026_KEY_9F4A";
+
+        private static string GetNetworkAuthToken()
+        {
+            try
+            {
+                string keyPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "clave_red.txt");
+
+                if (File.Exists(keyPath))
+                {
+                    string custom = File.ReadAllText(keyPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(custom))
+                        return custom;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("FileSender", "No se pudo leer clave_red.txt; usando clave predeterminada.", ex);
+            }
+
+            return DefaultClinicToken;
+        }
+
+        private static string ComputeSha256Hex(string filePath)
+        {
+            using (var sha = SHA256.Create())
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920))
+            {
+                byte[] hash = sha.ComputeHash(fs);
+                return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+            }
+        }
+
         public static bool TryParseStrictIPv4(string host, out IPAddress ipv4)
         {
             ipv4 = null;
@@ -144,6 +181,8 @@ namespace ONKOSFileTransfer.Network
 
             FileInfo fileInfo = new FileInfo(filePath);
             long totalBytes = fileInfo.Length;
+            string sha256Hex = await Task.Run(() => ComputeSha256Hex(filePath));
+            string authToken = GetNetworkAuthToken();
 
             using (TcpClient client = new TcpClient(AddressFamily.InterNetwork))
             {
@@ -161,8 +200,11 @@ namespace ONKOSFileTransfer.Network
                 using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
                 using (FileStream input = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
                 {
+                    writer.Write("ONKOS_FILE_V2");
+                    writer.Write(authToken);
                     writer.Write(fileInfo.Name);
                     writer.Write(totalBytes);
+                    writer.Write(sha256Hex);
                     writer.Flush();
 
                     byte[] buffer = new byte[81920];
@@ -183,8 +225,17 @@ namespace ONKOSFileTransfer.Network
 
                     byte[] ackBuffer = new byte[1];
                     int ackRead = await stream.ReadAsync(ackBuffer, 0, 1);
-                    if (ackRead != 1 || ackBuffer[0] != 1)
+                    if (ackRead != 1)
                         throw new IOException("El destino no confirmó la recepción completa del archivo.");
+
+                    if (ackBuffer[0] == 2)
+                        throw new UnauthorizedAccessException("El equipo destino rechazó la clave de red clínica.");
+
+                    if (ackBuffer[0] == 3)
+                        throw new IOException("Error de integridad (SHA-256 no coincide). Intenta reenviar el archivo.");
+
+                    if (ackBuffer[0] != 1)
+                        throw new IOException("El destino devolvió una confirmación desconocida.");
                 }
             }
         }
