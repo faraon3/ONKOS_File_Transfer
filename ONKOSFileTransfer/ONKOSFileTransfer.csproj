@@ -61,6 +61,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="TransferHistoryForm.cs" />
     <Compile Include="TransferHistoryStore.cs" />
+    <Compile Include="UiControls.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
   </ItemGroup>
   <ItemGroup>
