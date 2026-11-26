@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using ONKOSFileTransfer.Network;
@@ -40,6 +41,7 @@ namespace ONKOSFileTransfer
         private readonly List<QueuedTransferItem> _queuedItems = new List<QueuedTransferItem>();
         private readonly ImageList _shellIcons;
         private readonly Dictionary<string, int> _iconIndexCache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly System.Windows.Forms.Timer _badgeRefreshTimer;
 
         private PeerInfo _localProfile;
         private bool _isSending;
@@ -76,6 +78,11 @@ namespace ONKOSFileTransfer
                 ImageSize = new Size(20, 20),
                 ColorDepth = ColorDepth.Depth32Bit
             };
+            _badgeRefreshTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 2000
+            };
+            _badgeRefreshTimer.Tick += (s, e) => RefreshUnseenReceivedBadge();
 
             InitializeComponent();
             ApplyDarkTitleBar();
@@ -104,6 +111,33 @@ namespace ONKOSFileTransfer
         {
             base.OnHandleCreated(e);
             ApplyDarkTitleBar();
+        }
+
+        private static void EnsureTrayHostRunning()
+        {
+            try
+            {
+                if (Mutex.TryOpenExisting("Global\\ONKOSFileTransfer_Tray_Mutex", out Mutex existing))
+                {
+                    existing.Dispose();
+                    return;
+                }
+
+                string exePath = Application.ExecutablePath;
+                if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                    return;
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = "--tray",
+                    UseShellExecute = false
+                });
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("MainForm", "No se pudo iniciar automáticamente el proceso de bandeja (--tray).", ex);
+            }
         }
 
         private void InitializeComponent()
@@ -826,15 +860,19 @@ namespace ONKOSFileTransfer
             Load += (s, e) =>
             {
                 ModernToastNotifier.Inicializar();
+                EnsureTrayHostRunning();
                 ApplyDarkTitleBar();
                 _discovery.Start(_localProfile);
                 RefreshPeersList();
                 RefreshUnseenReceivedBadge();
+                _badgeRefreshTimer.Start();
                 PositionFloatingAttachButton();
             };
 
             FormClosing += (s, e) =>
             {
+                _badgeRefreshTimer.Stop();
+                _badgeRefreshTimer.Dispose();
                 TransferHistoryStore.UnseenReceivedCountChanged -= OnUnseenReceivedCountChangedSafe;
                 _discovery.Dispose();
             };
