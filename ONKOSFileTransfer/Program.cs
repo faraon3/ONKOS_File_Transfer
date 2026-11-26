@@ -20,6 +20,20 @@ namespace ONKOSFileTransfer
     {
         private static long _lastUnobservedLogTicks;
 
+        private const int SW_RESTORE = 9;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -42,6 +56,9 @@ namespace ONKOSFileTransfer
             {
                 if (!esPrimeraInstancia)
                 {
+                    if (!esModoBandeja)
+                        BringExistingWindowToFront();
+
                     OnkosLogger.Info("Program", $"Instancia duplicada detectada ({nombreMutex}), cerrando instancia secundaria.");
                     return;
                 }
@@ -79,6 +96,27 @@ namespace ONKOSFileTransfer
                 {
                     Application.Run(new MainForm(profile));
                 }
+            }
+        }
+
+        private static void BringExistingWindowToFront()
+        {
+            try
+            {
+                IntPtr hWnd = FindWindow(null, "ONKOS File Transfer 2.0");
+                if (hWnd == IntPtr.Zero)
+                    return;
+
+                if (IsIconic(hWnd))
+                    ShowWindow(hWnd, SW_RESTORE);
+                else
+                    ShowWindow(hWnd, 5); // SW_SHOW
+
+                SetForegroundWindow(hWnd);
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("Program", "No se pudo traer la ventana existente al frente.", ex);
             }
         }
 
