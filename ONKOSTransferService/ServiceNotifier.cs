@@ -22,7 +22,7 @@ namespace ONKOSTransferService
 
                 using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
                 {
-                    client.Connect(350);
+                    client.Connect(1500);
                     using (var writer = new StreamWriter(client, Encoding.UTF8))
                     {
                         writer.Write(payload);
@@ -32,7 +32,7 @@ namespace ONKOSTransferService
             }
             catch (TimeoutException)
             {
-                // No hay instancia de bandeja escuchando en este momento
+                OnkosLogger.Warn("ServiceNotifier", $"Tiempo agotado conectando al pipe '{PipeName}' (bandeja no disponible).");
             }
             catch (Exception ex)
             {
