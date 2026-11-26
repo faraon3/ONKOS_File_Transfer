@@ -2,7 +2,7 @@
 AppId={{8B5E9A2C-4D1F-4C3A-9E7B-2F6A1D8C5E40}
 AppName=ONKOS File Transfer 2.0
 AppVersion=2.0
-AppPublisher=ONKOS
+AppPublisher=Clínica ONKOS
 DefaultDirName={autopf}\ONKOS\FileTransfer
 DefaultGroupName=ONKOS File Transfer 2.0
 OutputDir=Output
@@ -16,6 +16,7 @@ UninstallDisplayIcon={app}\ONKOSFileTransfer.exe
 WizardStyle=modern
 PrivilegesRequired=admin
 ShowLanguageDialog=no
+CloseApplications=yes
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -43,22 +44,26 @@ Name: "desktopicon"; Description: "Crear acceso directo en el &Escritorio"; Grou
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ONKOSFileTransfer"; ValueData: """{app}\ONKOSFileTransfer.exe"" --tray"; Flags: uninsdeletevalue
 
 [Run]
-Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" start= auto DisplayName= ""ONKOS File Transfer Service"""; Flags: runhidden
-Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden
+Filename: "taskkill.exe"; Parameters: "/F /IM ONKOSFileTransfer.exe"; Flags: runhidden; StatusMsg: "Deteniendo instancias previas..."
+Filename: "sc.exe"; Parameters: "stop ONKOSTransferService"; Flags: runhidden; StatusMsg: "Deteniendo servicio previo..."
+Filename: "sc.exe"; Parameters: "delete ONKOSTransferService"; Flags: runhidden
+Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""\""{app}\Servicio\ONKOS.TransferService.exe\"""" start= auto DisplayName= ""ONKOS File Transfer Service"""; Flags: runhidden; StatusMsg: "Instalando servicio ONKOS..."
+Filename: "sc.exe"; Parameters: "failure ONKOSTransferService reset= 86400 actions= restart/5000/restart/15000/restart/30000"; Flags: runhidden
+Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden; StatusMsg: "Iniciando servicio ONKOS..."
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden; StatusMsg: "Configurando Firewall..."
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Discovery UDP 5051"" dir=in action=allow protocol=UDP localport=5051"; Flags: runhidden
 Filename: "attrib.exe"; Parameters: "+r ""{userdesktop}\Archivos Recibidos ONKOS"""; Flags: runhidden
 Filename: "attrib.exe"; Parameters: "+s +h ""{userdesktop}\Archivos Recibidos ONKOS\desktop.ini"""; Flags: runhidden
-Filename: "{app}\ONKOSFileTransfer.exe"; Description: "Abrir ONKOS File Transfer 2.0 para registrar mi equipo"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ONKOSFileTransfer.exe"; Parameters: "--tray"; Flags: nowait postinstall skipifsilent; Description: "Iniciar ONKOS en segundo plano (bandeja del sistema)"
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/F /IM ONKOSFileTransfer.exe"; Flags: runhidden; RunOnceId: "KillOnkosUi"
 Filename: "taskkill.exe"; Parameters: "/F /IM ONKOS.TransferService.exe"; Flags: runhidden; RunOnceId: "KillOnkosSvc"
 Filename: "sc.exe"; Parameters: "stop ONKOSTransferService"; Flags: runhidden; RunOnceId: "StopOnkosSvc"
 Filename: "sc.exe"; Parameters: "delete ONKOSTransferService"; Flags: runhidden; RunOnceId: "DeleteOnkosSvc"
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden; RunOnceId: "DelFwTcp"
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden; RunOnceId: "DelFwTcp"
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden; RunOnceId: "DelFwUdp"
 
 [Code]
