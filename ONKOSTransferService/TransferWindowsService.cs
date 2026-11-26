@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
+using System.Text;
 using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
@@ -21,12 +22,38 @@ namespace ONKOSTransferService
             AutoLog = true;
         }
 
+        private static string GetInboxFolderSafe()
+        {
+            try
+            {
+                string settingsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "ruta_recibidos.txt");
+
+                if (File.Exists(settingsPath))
+                {
+                    string saved = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(saved))
+                        return saved;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("TransferWindowsService", "No se pudo leer ruta_recibidos.txt; usando ruta de respaldo.", ex);
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ONKOS",
+                "Recibidos");
+        }
+
         protected override void OnStart(string[] args)
         {
             try
             {
-                AppSettingsStore.EnsureInboxFolderReady();
-                _activeInboxFolder = AppSettingsStore.GetInboxFolder();
+                _activeInboxFolder = GetInboxFolderSafe();
                 Directory.CreateDirectory(_activeInboxFolder);
 
                 _receiver = new FileReceiver();
@@ -138,7 +165,7 @@ namespace ONKOSTransferService
                     ? batch.FilePaths[0]
                     : (!string.IsNullOrWhiteSpace(batch.DestinationFolder)
                         ? batch.DestinationFolder
-                        : AppSettingsStore.GetInboxFolder());
+                        : GetInboxFolderSafe());
 
                 ServiceNotifier.Notify("SUCCESS", titulo, mensaje, rutaAbrir);
             }
