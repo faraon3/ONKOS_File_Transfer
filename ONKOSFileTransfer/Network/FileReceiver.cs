@@ -1,23 +1,46 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ONKOSFileTransfer.Network
 {
+    public sealed class ReceivedBatchSummary
+    {
+        public string SenderName { get; set; }
+        public string SenderIp { get; set; }
+        public string DestinationFolder { get; set; }
+        public List<string> FilePaths { get; } = new List<string>();
+    }
+
     public class FileReceiver
     {
         private const string DefaultClinicToken = "ONKOS_CLINICA_2026_KEY_9F4A";
 
+        private sealed class PendingBatchNotification
+        {
+            public string SenderName;
+            public string SenderIp;
+            public string DestinationFolder;
+            public readonly List<string> FilePaths = new List<string>();
+            public CancellationTokenSource FlushCts;
+        }
+
         private TcpListener listener;
         private static readonly object SenderFolderLock = new object();
+        private readonly object _batchLock = new object();
+        private readonly Dictionary<string, PendingBatchNotification> _pendingBatches =
+            new Dictionary<string, PendingBatchNotification>(StringComparer.OrdinalIgnoreCase);
 
         public bool IsRunning { get; private set; }
         public event Action<string> FileReceived;
+        public event Action<ReceivedBatchSummary> BatchReceived;
         public event Action<string> Error;
         public event Action<string, long, long> TransferProgress;
 
@@ -163,6 +186,104 @@ namespace ONKOSFileTransfer.Network
             return "127.0.0.1";
         }
 
+        private static string ResolveSenderDisplayName(string headerSenderName, string senderIp)
+        {
+            if (!string.IsNullOrWhiteSpace(headerSenderName) && !IsSystemAccount(headerSenderName))
+                return headerSenderName.Trim();
+
+            try
+            {
+                string contactsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "contactos.txt");
+
+                if (File.Exists(contactsPath))
+                {
+                    foreach (string line in File.ReadAllLines(contactsPath, Encoding.UTF8))
+                    {
+                        string[] parts = line.Split('|');
+                        if (parts.Length >= 3 &&
+                            string.Equals(parts[2].Trim(), senderIp, StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(parts[0]))
+                        {
+                            return parts[0].Trim();
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return senderIp;
+        }
+
+        private void QueueBatchNotification(string batchKey, string senderName, string senderIp, string destinationPath)
+        {
+            PendingBatchNotification entry;
+            CancellationToken token;
+
+            lock (_batchLock)
+            {
+                if (!_pendingBatches.TryGetValue(batchKey, out entry))
+                {
+                    entry = new PendingBatchNotification
+                    {
+                        SenderName = senderName,
+                        SenderIp = senderIp,
+                        DestinationFolder = Path.GetDirectoryName(destinationPath)
+                    };
+                    _pendingBatches[batchKey] = entry;
+                }
+
+                if (!string.IsNullOrWhiteSpace(senderName))
+                    entry.SenderName = senderName;
+
+                entry.FilePaths.Add(destinationPath);
+
+                try { entry.FlushCts?.Cancel(); } catch { }
+                try { entry.FlushCts?.Dispose(); } catch { }
+                entry.FlushCts = new CancellationTokenSource();
+                token = entry.FlushCts.Token;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(1200, token);
+                }
+                catch (TaskCanceledException)
+                {
+                    return;
+                }
+
+                ReceivedBatchSummary summary = null;
+                lock (_batchLock)
+                {
+                    if (_pendingBatches.TryGetValue(batchKey, out PendingBatchNotification ready) &&
+                        ready.FlushCts != null &&
+                        ready.FlushCts.Token == token)
+                    {
+                        _pendingBatches.Remove(batchKey);
+                        try { ready.FlushCts.Dispose(); } catch { }
+
+                        summary = new ReceivedBatchSummary
+                        {
+                            SenderName = ready.SenderName,
+                            SenderIp = ready.SenderIp,
+                            DestinationFolder = ready.DestinationFolder
+                        };
+                        summary.FilePaths.AddRange(ready.FilePaths);
+                    }
+                }
+
+                if (summary != null && summary.FilePaths.Count > 0)
+                    BatchReceived?.Invoke(summary);
+            });
+        }
+
         private async Task ReceiveFile(TcpClient client, string fallbackFolder)
         {
             string destination = null;
@@ -237,6 +358,8 @@ namespace ONKOSFileTransfer.Network
                     string name = Path.GetFileName(reader.ReadString());
                     long size = reader.ReadInt64();
                     string expectedSha256 = (reader.ReadString() ?? string.Empty).Trim().ToLowerInvariant();
+                    string headerSenderName = reader.ReadString();
+                    string headerBatchId = reader.ReadString();
 
                     if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
                         size < 0 || size > 20L * 1024 * 1024 * 1024 ||
@@ -247,8 +370,23 @@ namespace ONKOSFileTransfer.Network
 
                     transferStarted = true;
 
+                    string senderIp = "IP_desconocida";
+                    try
+                    {
+                        if (client.Client.RemoteEndPoint is IPEndPoint remote && remote.Address != null)
+                            senderIp = remote.Address.ToString().Replace(':', '_');
+                    }
+                    catch
+                    {
+                    }
+
+                    string resolvedSenderName = ResolveSenderDisplayName(headerSenderName, senderIp);
+                    string batchKey = !string.IsNullOrWhiteSpace(headerBatchId)
+                        ? $"{senderIp}_{headerBatchId.Trim()}"
+                        : $"{senderIp}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+
                     string activeRootFolder = ResolveActiveInboxFolder(fallbackFolder);
-                    string senderFolder = GetSenderFolder(client, activeRootFolder);
+                    string senderFolder = GetSenderFolder(senderIp, activeRootFolder);
                     destination = Path.Combine(senderFolder, name);
                     if (File.Exists(destination))
                     {
@@ -334,7 +472,9 @@ namespace ONKOSFileTransfer.Network
 
                     stream.WriteByte(1);
                     await stream.FlushAsync();
+
                     FileReceived?.Invoke(destination);
+                    QueueBatchNotification(batchKey, resolvedSenderName, senderIp, destination);
                 }
             }
             catch (Exception ex)
@@ -351,20 +491,8 @@ namespace ONKOSFileTransfer.Network
             }
         }
 
-        private static string GetSenderFolder(TcpClient client, string rootFolder)
+        private static string GetSenderFolder(string senderIp, string rootFolder)
         {
-            string senderIp = "IP_desconocida";
-            try
-            {
-                IPEndPoint remote = client.Client.RemoteEndPoint as IPEndPoint;
-                if (remote != null && remote.Address != null)
-                    senderIp = remote.Address.ToString().Replace(':', '_');
-            }
-            catch (Exception ex)
-            {
-                OnkosLogger.Warn("FileReceiver", "No se pudo resolver IP remota.", ex);
-            }
-
             string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
             lock (SenderFolderLock)
             {
