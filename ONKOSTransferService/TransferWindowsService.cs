@@ -109,9 +109,7 @@ namespace ONKOSTransferService
                     sizeBytes,
                     senderIp,
                     "Completado",
-                    senderIp);
-
-                TransferHistoryStore.IncrementUnseenReceived();
+                    filePath);
             }
             catch (Exception ex)
             {
