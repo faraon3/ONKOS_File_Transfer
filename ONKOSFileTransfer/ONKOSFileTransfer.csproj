@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{7A4C8E21-9F3B-4A6D-8C2E-1B5F7D9E3A12}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net48</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>ONKOSFileTransfer</RootNamespace>
     <AssemblyName>ONKOSFileTransfer</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
@@ -37,16 +34,7 @@
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>onkos.ico</ApplicationIcon>
-    <LangVersion>7.3</LangVersion>
-    <Deterministic>true</Deterministic>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-  </ItemGroup>
-
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -62,19 +50,25 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
   </ItemGroup>
-
   <ItemGroup>
     <Compile Include="MainForm.cs" />
     <Compile Include="ModernToastNotifier.cs" />
-@@ -64,6 +36,7 @@
+    <Compile Include="Network\FileReceiver.cs" />
+    <Compile Include="Network\FileSender.cs" />
+    <Compile Include="Network\NetworkManager.cs" />
+    <Compile Include="Network\PeerDiscoveryService.cs" />
+    <Compile Include="OnkosLogger.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="TransferHistoryForm.cs" />
+    <Compile Include="TransferHistoryStore.cs" />
     <Compile Include="UiControls.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
   </ItemGroup>
-
   <ItemGroup>
     <Content Include="onkos.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-@@ -72,5 +45,4 @@
+    </Content>
+    <Content Include="recibidos.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
