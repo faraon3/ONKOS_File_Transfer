@@ -1,18 +1,19 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text;
-using ONKOSFileTransfer;
+using System.Threading;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
 {
-    public class TransferWindowsService : ServiceBase
+    public partial class TransferWindowsService : ServiceBase
     {
-        private const int TransferPort = 5050;
+        private const int DefaultListenPort = 5050;
 
         private FileReceiver _receiver;
-        private string _activeInboxFolder;
+        private ManualResetEventSlim _stopEvent;
 
         public TransferWindowsService()
         {
@@ -22,7 +23,59 @@ namespace ONKOSTransferService
             AutoLog = true;
         }
 
-        private static string GetInboxFolderSafe()
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WTSGetActiveConsoleSessionId();
+
+        [DllImport("wtsapi32.dll", SetLastError = true)]
+        private static extern bool WTSQueryUserToken(uint sessionId, out IntPtr phToken);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        private static extern bool GetUserProfileDirectory(IntPtr hToken, StringBuilder lpProfileDir, ref uint lpcchSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        private static string GetActiveUserDesktopInbox()
+        {
+            IntPtr userToken = IntPtr.Zero;
+            try
+            {
+                uint sessionId = WTSGetActiveConsoleSessionId();
+                if (sessionId != 0xFFFFFFFF && WTSQueryUserToken(sessionId, out userToken) && userToken != IntPtr.Zero)
+                {
+                    uint capacity = 260;
+                    var profileDir = new StringBuilder((int)capacity);
+                    if (!GetUserProfileDirectory(userToken, profileDir, ref capacity))
+                    {
+                        profileDir = new StringBuilder((int)capacity);
+                        if (GetUserProfileDirectory(userToken, profileDir, ref capacity))
+                        {
+                            return Path.Combine(profileDir.ToString(), "Desktop", "Archivos Recibidos ONKOS");
+                        }
+                    }
+                    else
+                    {
+                        return Path.Combine(profileDir.ToString(), "Desktop", "Archivos Recibidos ONKOS");
+                    }
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (userToken != IntPtr.Zero)
+                {
+                    try { CloseHandle(userToken); } catch { }
+                }
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Archivos Recibidos ONKOS");
+        }
+
+        private static string GetTargetInboxFolder()
         {
             try
             {
@@ -38,156 +91,104 @@ namespace ONKOSTransferService
                         return saved;
                 }
             }
-            catch (Exception ex)
-            {
-                OnkosLogger.Warn("TransferWindowsService", "No se pudo leer ruta_recibidos.txt; usando ruta de respaldo.", ex);
-            }
-
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "ONKOS",
-                "Recibidos");
-        }
-
-        private static long ComputePathSizeSafe(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return 0L;
-
-            try
-            {
-                if (File.Exists(path))
-                    return new FileInfo(path).Length;
-
-                if (Directory.Exists(path))
-                {
-                    long total = 0L;
-                    foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
-                    {
-                        try { total += new FileInfo(file).Length; } catch { }
-                    }
-                    return total;
-                }
-            }
             catch
             {
             }
 
-            return 0L;
+            return GetActiveUserDesktopInbox();
         }
 
         protected override void OnStart(string[] args)
         {
             try
             {
-                _activeInboxFolder = GetInboxFolderSafe();
-                Directory.CreateDirectory(_activeInboxFolder);
+                string inboxFolder = GetTargetInboxFolder();
+                Directory.CreateDirectory(inboxFolder);
+
+                _stopEvent = new ManualResetEventSlim(false);
 
                 _receiver = new FileReceiver();
                 _receiver.FileReceived += OnFileReceived;
-                _receiver.BatchReceived += OnBatchReceived;
                 _receiver.Error += OnReceiverError;
-                _receiver.Start(TransferPort, _activeInboxFolder);
+                _receiver.Start(DefaultListenPort, inboxFolder);
 
-                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente en puerto {TransferPort}. Carpeta de recibidos: {_activeInboxFolder}");
+                ServiceNotifier.SendInfo(
+                    "Servicio iniciado",
+                    $"Escuchando en el puerto {DefaultListenPort}."
+                );
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error crítico al iniciar el servicio de recepción.", ex);
+                ServiceNotifier.SendError("Error al iniciar servicio", ex.Message);
                 throw;
             }
+        }
+
+        private void OnFileReceived(string savedPath)
+        {
+            string itemName = Path.GetFileName(savedPath);
+            if (string.IsNullOrWhiteSpace(itemName))
+                itemName = "Elemento recibido";
+
+            string folderToOpen = Directory.Exists(savedPath)
+                ? savedPath
+                : (!string.IsNullOrWhiteSpace(Path.GetDirectoryName(savedPath))
+                    ? Path.GetDirectoryName(savedPath)
+                    : GetTargetInboxFolder());
+
+            string senderHint = string.Empty;
+            try
+            {
+                string parentName = Path.GetFileName(Path.GetDirectoryName(savedPath) ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(parentName) && parentName.Contains("_"))
+                    senderHint = parentName.Split('_')[0];
+            }
+            catch
+            {
+            }
+
+            string msg = string.IsNullOrWhiteSpace(senderHint)
+                ? $"Recibiste \"{itemName}\". Clic para abrir carpeta."
+                : $"Recibiste \"{itemName}\" desde {senderHint}. Clic para abrir carpeta.";
+
+            ServiceNotifier.SendSuccess(
+                "Archivo recibido",
+                $"{msg}|{folderToOpen}"
+            );
+        }
+
+        private void OnReceiverError(string errorMessage)
+        {
+            ServiceNotifier.SendError("Error en recepción", errorMessage);
         }
 
         protected override void OnStop()
         {
             try
             {
+                _stopEvent?.Set();
+
                 if (_receiver != null)
                 {
                     _receiver.FileReceived -= OnFileReceived;
-                    _receiver.BatchReceived -= OnBatchReceived;
                     _receiver.Error -= OnReceiverError;
                     _receiver.Stop();
                     _receiver = null;
                 }
 
-                OnkosLogger.Info("TransferWindowsService", "Servicio detenido correctamente.");
+                ServiceNotifier.SendWarning(
+                    "Servicio detenido",
+                    "ONKOSTransferService se ha detenido."
+                );
             }
-            catch (Exception ex)
+            catch
             {
-                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio de recepción.", ex);
             }
-        }
-
-        private void OnFileReceived(string destinationPath)
-        {
-            try
+            finally
             {
-                if (string.IsNullOrWhiteSpace(destinationPath))
-                    return;
-
-                string itemName = Path.GetFileName(destinationPath);
-                if (string.IsNullOrWhiteSpace(itemName))
-                    itemName = destinationPath;
-
-                long sizeBytes = ComputePathSizeSafe(destinationPath);
-                string counterparty = "Equipo en red";
-                try
-                {
-                    string parentFolder = Path.GetFileName(Path.GetDirectoryName(destinationPath) ?? string.Empty);
-                    if (!string.IsNullOrWhiteSpace(parentFolder))
-                        counterparty = parentFolder;
-                }
-                catch
-                {
-                }
-
-                TransferHistoryStore.AppendEntry(
-                    "RECIBIDO",
-                    itemName,
-                    sizeBytes,
-                    counterparty,
-                    "Completado",
-                    destinationPath);
+                _stopEvent?.Dispose();
+                _stopEvent = null;
             }
-            catch (Exception ex)
-            {
-                OnkosLogger.Warn("TransferWindowsService", "No se pudo registrar recepción en historial.", ex);
-            }
-        }
-
-        private void OnBatchReceived(ReceivedBatchSummary batch)
-        {
-            try
-            {
-                if (batch == null)
-                    return;
-
-                int cantidad = batch.FilePaths != null ? batch.FilePaths.Count : 0;
-                string remitente = !string.IsNullOrWhiteSpace(batch.SenderName) ? batch.SenderName : "Equipo en red";
-                string titulo = cantidad == 1
-                    ? "Archivo recibido"
-                    : $"{cantidad} archivos recibidos";
-                string mensaje = $"De: {remitente}";
-
-                string rutaAbrir = (cantidad == 1 && batch.FilePaths != null && batch.FilePaths.Count > 0)
-                    ? batch.FilePaths[0]
-                    : (!string.IsNullOrWhiteSpace(batch.DestinationFolder)
-                        ? batch.DestinationFolder
-                        : GetInboxFolderSafe());
-
-                ServiceNotifier.Notify("SUCCESS", titulo, mensaje, rutaAbrir);
-            }
-            catch (Exception ex)
-            {
-                OnkosLogger.Error("TransferWindowsService", "Error enviando notificación consolidada del lote.", ex);
-            }
-        }
-
-        private void OnReceiverError(string errorMessage)
-        {
-            OnkosLogger.Warn("TransferWindowsService", $"Error en receptor TCP: {errorMessage}");
-            ServiceNotifier.Notify("ERROR", "Error en recepción", errorMessage);
         }
     }
 }
