@@ -39,25 +39,37 @@ jobs:
           }
           Get-Command iscc.exe -ErrorAction Stop | Select-Object -ExpandProperty Source
 
-      - name: Compilar interfaz gráfica
+      - name: Compilar ONKOS.Core
         run: >
-          msbuild ONKOSFileTransfer/ONKOSFileTransfer.csproj
+          msbuild ONKOS.Core/ONKOS.Core.csproj
           /p:Configuration=Release
           /p:Platform=AnyCPU
           /m
 
-      - name: Compilar servicio de Windows
+      - name: Compilar ONKOS.Service
         run: >
-          msbuild ONKOSTransferService/ONKOSTransferService.csproj
+          msbuild ONKOS.Service/ONKOS.Service.csproj
           /p:Configuration=Release
           /p:Platform=AnyCPU
           /m
+
+      - name: Compilar ONKOS.UI
+        run: >
+          msbuild ONKOS.UI/ONKOS.UI.csproj
+          /p:Configuration=Release
+          /p:Platform=AnyCPU
+          /m
+
+      - name: Compilar y ejecutar ONKOS.Tests
+        run: |
+          msbuild ONKOS.Tests/ONKOS.Tests.csproj /p:Configuration=Release /p:Platform=AnyCPU /m
+          ONKOS.Tests\bin\Release\ONKOS.Tests.exe
 
       - name: Verificar compilaciones
         shell: pwsh
         run: |
-          $gui = "ONKOSFileTransfer/bin/Release/ONKOSFileTransfer.exe"
-          $service = "ONKOSTransferService/bin/Release/ONKOS.TransferService.exe"
+          $gui = "ONKOS.UI/bin/Release/ONKOSFileTransfer.exe"
+          $service = "ONKOS.Service/bin/Release/ONKOS.TransferService.exe"
           if (!(Test-Path $gui)) { throw "No se encontró la interfaz: $gui" }
           if (!(Test-Path $service)) { throw "No se encontró el servicio: $service" }
           Get-Item $gui, $service | Select-Object FullName, Length
@@ -69,41 +81,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
-          Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse -Force
-          Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse -Force
-
-          if (Test-Path "ONKOSTransferService/README.md") {
-            Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt -Force
-          }
-          if (Test-Path "Desinstalar_ONKOS.bat") {
-            Copy-Item "Desinstalar_ONKOS.bat" package/Desinstalar_ONKOS.bat -Force
-          } elseif (Test-Path "ONKOSFileTransfer/Desinstalar_ONKOS.bat") {
-            Copy-Item "ONKOSFileTransfer/Desinstalar_ONKOS.bat" package/Desinstalar_ONKOS.bat -Force
-          }
-          if (Test-Path "Instalar_ONKOS.bat") {
-            Copy-Item "Instalar_ONKOS.bat" package/Instalar_ONKOS.bat -Force
-          } elseif (Test-Path "ONKOSFileTransfer/Instalar_ONKOS.bat") {
-            Copy-Item "ONKOSFileTransfer/Instalar_ONKOS.bat" package/Instalar_ONKOS.bat -Force
-          }
-          if (Test-Path "ONKOSFileTransfer/recibidos.ico") {
-            Copy-Item "ONKOSFileTransfer/recibidos.ico" package/recibidos.ico -Force
-          }
-          if (Test-Path "ONKOSFileTransfer/onkos.ico") {
-            Copy-Item "ONKOSFileTransfer/onkos.ico" package/Interfaz/onkos.ico -Force
-          }
-
+          Copy-Item "ONKOS.UI/bin/Release/*" package/Interfaz/ -Recurse -Force
+          Copy-Item "ONKOS.Service/bin/Release/*" package/Servicio/ -Recurse -Force
+          Copy-Item "ONKOSFileTransfer/recibidos.ico" package/recibidos.ico -Force
+          Copy-Item "ONKOSFileTransfer/onkos.ico" package/Interfaz/onkos.ico -Force
           Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
-
-      - name: Publicar artefacto de compilación (opcional)
-        if: ${{ github.event_name == 'workflow_dispatch' && vars.ENABLE_ACTIONS_ARTIFACT_UPLOAD == 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: Instalador-ONKOS-File-Transfer
-          path: |
-            Output/Instalador_ONKOS_File_Transfer_2.0.exe
-            ONKOS-File-Transfer-V2.zip
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Publicar versión preliminar V2
         if: ${{ github.ref == 'refs/heads/v2-architecture' }}
@@ -112,24 +94,9 @@ jobs:
           tag_name: v2-preview-${{ github.run_number }}
           name: ONKOS File Transfer 2.0 - Prueba ${{ github.run_number }}
           body: |
-            Versión preliminar de ONKOS File Transfer 2.0 compilada desde la rama v2-architecture.
-            Descarga e instala directamente usando Instalador_ONKOS_File_Transfer_2.0.exe.
+            Versión preliminar de ONKOS File Transfer 2.0 (Fase 1) compilada desde la rama v2-architecture.
           files: |
             Output/Instalador_ONKOS_File_Transfer_2.0.exe
             ONKOS-File-Transfer-V2.zip
           prerelease: true
           make_latest: false
-
-      - name: Publicar GitHub Release estable (main)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: ONKOS File Transfer - Build ${{ github.run_number }}
-          body: |
-            Compilación automática de ONKOS File Transfer.
-            Descarga e instala directamente usando Instalador_ONKOS_File_Transfer_2.0.exe.
-          files: |
-            Output/Instalador_ONKOS_File_Transfer_2.0.exe
-            ONKOS-File-Transfer-V2.zip
-          make_latest: true
