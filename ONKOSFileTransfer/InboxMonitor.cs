@@ -1,140 +1,102 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Threading;
+using ONKOSFileTransfer.Network;
 
 namespace ONKOSFileTransfer
 {
-    public static class InboxMonitor
+    public class InboxMonitor : IDisposable
     {
-        public static readonly string CarpetaRecibidos =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Archivos Recibidos ONKOS");
+        private const int TransferPort = 5050;
+        private readonly FileReceiver _receiver;
+        private FileSystemWatcher _serviceWatcher;
+        private DateTime _lastNotifiedUtc = DateTime.MinValue;
+        private string _lastNotifiedKey = string.Empty;
 
-        private static readonly object _lock = new object();
-        private static readonly List<string> _pendientes = new List<string>();
-        private static FileSystemWatcher _watcher;
-        private static Timer _debounceTimer;
-        private static bool _iniciado;
+        public static string CarpetaRecibidos => AppSettingsStore.GetInboxFolder();
 
-        public static void Iniciar()
+        public InboxMonitor()
         {
-            lock (_lock)
+            AppSettingsStore.EnsureInboxFolderReady();
+
+            _receiver = new FileReceiver();
+            _receiver.FileReceived += OnFileReceived;
+
+            try
             {
-                if (_iniciado) return;
+                _receiver.Start(TransferPort, CarpetaRecibidos);
+            }
+            catch
+            {
+                StartFolderWatcher();
+            }
+        }
 
-                Directory.CreateDirectory(CarpetaRecibidos);
-
-                _debounceTimer = new Timer(ProcesarLote, null, Timeout.Infinite, Timeout.Infinite);
-
-                _watcher = new FileSystemWatcher(CarpetaRecibidos)
+        private void StartFolderWatcher()
+        {
+            try
+            {
+                string folder = CarpetaRecibidos;
+                Directory.CreateDirectory(folder);
+                _serviceWatcher = new FileSystemWatcher(folder)
                 {
                     IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
                     EnableRaisingEvents = true
                 };
-
-                _watcher.Created += OnArchivoDetectado;
-                _watcher.Changed += OnArchivoDetectado;
-
-                _iniciado = true;
-            }
-        }
-
-        private static void OnArchivoDetectado(object sender, FileSystemEventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(e.FullPath))
-                return;
-
-            string nombre = Path.GetFileName(e.FullPath);
-            if (string.Equals(nombre, "desktop.ini", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (Directory.Exists(e.FullPath))
-                return;
-
-            lock (_lock)
-            {
-                if (!_pendientes.Contains(e.FullPath, StringComparer.OrdinalIgnoreCase))
+                _serviceWatcher.Created += (s, e) =>
                 {
-                    _pendientes.Add(e.FullPath);
-                }
+                    string name = Path.GetFileName(e.FullPath);
+                    if (string.IsNullOrWhiteSpace(name) ||
+                        name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("recibidos.ico", StringComparison.OrdinalIgnoreCase) ||
+                        name.EndsWith(".onkosfolder", StringComparison.OrdinalIgnoreCase))
+                        return;
 
-                _debounceTimer.Change(600, Timeout.Infinite);
+                    string relative = e.FullPath.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+                        ? e.FullPath.Substring(folder.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        : name;
+
+                    string topEntry = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                    string targetPath = Path.Combine(folder, topEntry);
+
+                    OnFileReceived(targetPath);
+                };
+            }
+            catch
+            {
             }
         }
 
-        private static void ProcesarLote(object state)
+        private void OnFileReceived(string receivedPath)
         {
-            List<string> lote;
-            lock (_lock)
+            try
             {
-                if (_pendientes.Count == 0)
+                string key = (receivedPath ?? string.Empty).Trim().ToLowerInvariant();
+                DateTime now = DateTime.UtcNow;
+                if ((now - _lastNotifiedUtc).TotalSeconds < 3 &&
+                    string.Equals(_lastNotifiedKey, key, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                lote = _pendientes.ToList();
-                _pendientes.Clear();
-            }
+                _lastNotifiedUtc = now;
+                _lastNotifiedKey = key;
 
-            List<string> listos = new List<string>();
-            foreach (string ruta in lote)
-            {
-                if (EsperarArchivoLibre(ruta))
-                {
-                    listos.Add(ruta);
-                }
+                ModernToastNotifier.MostrarLoteRecibido(
+                    null,
+                    null,
+                    null,
+                    new List<string> { receivedPath },
+                    CarpetaRecibidos);
             }
-
-            if (listos.Count > 0)
+            catch
             {
-                ModernToastNotifier.MostrarLoteRecibido(listos);
             }
         }
 
-        private static bool EsperarArchivoLibre(string ruta)
+        public void Dispose()
         {
-            for (int i = 0; i < 15; i++)
-            {
-                try
-                {
-                    if (!File.Exists(ruta))
-                        return false;
-
-                    using (FileStream fs = new FileStream(ruta, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    {
-                        return true;
-                    }
-                }
-                catch (IOException)
-                {
-                    Thread.Sleep(200);
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-
-            return File.Exists(ruta);
-        }
-
-        public static void Detener()
-        {
-            lock (_lock)
-            {
-                _iniciado = false;
-                if (_watcher != null)
-                {
-                    _watcher.EnableRaisingEvents = false;
-                    _watcher.Dispose();
-                    _watcher = null;
-                }
-                if (_debounceTimer != null)
-                {
-                    _debounceTimer.Dispose();
-                    _debounceTimer = null;
-                }
-            }
+            try { _receiver?.Stop(); } catch { }
+            try { _serviceWatcher?.Dispose(); } catch { }
         }
     }
 }
