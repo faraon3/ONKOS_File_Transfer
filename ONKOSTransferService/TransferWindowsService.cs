@@ -1,71 +1,39 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
-using System.Text;
 using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
 {
-    public class TransferWindowsService : ServiceBase
+    public partial class TransferWindowsService : ServiceBase
     {
-        private const int TransferPort = 5000;
-
+        private const int DefaultTransferPort = 5050;
         private FileReceiver _receiver;
-        private string _activeInboxFolder;
 
         public TransferWindowsService()
         {
             ServiceName = "ONKOSTransferService";
-            CanStop = true;
-            CanPauseAndContinue = false;
-            AutoLog = true;
-        }
-
-        private static string GetInboxFolderSafe()
-        {
-            try
-            {
-                string settingsPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                    "ONKOS",
-                    "ruta_recibidos.txt");
-
-                if (File.Exists(settingsPath))
-                {
-                    string saved = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
-                    if (!string.IsNullOrWhiteSpace(saved))
-                        return saved;
-                }
-            }
-            catch (Exception ex)
-            {
-                OnkosLogger.Warn("TransferWindowsService", "No se pudo leer ruta_recibidos.txt; usando ruta de respaldo.", ex);
-            }
-
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "ONKOS",
-                "Recibidos");
         }
 
         protected override void OnStart(string[] args)
         {
             try
             {
-                _activeInboxFolder = GetInboxFolderSafe();
-                Directory.CreateDirectory(_activeInboxFolder);
+                string inbox = AppSettingsStore.GetInboxFolder();
+                AppSettingsStore.EnsureInboxFolderReady(inbox);
 
                 _receiver = new FileReceiver();
-                _receiver.BatchReceived += OnBatchReceived;
+                _receiver.FileReceived += OnFileReceived;
                 _receiver.Error += OnReceiverError;
-                _receiver.Start(TransferPort, _activeInboxFolder);
+                _receiver.Start(DefaultTransferPort, inbox);
 
-                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente en puerto {TransferPort}. Carpeta de recibidos: {_activeInboxFolder}");
+                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado en puerto {DefaultTransferPort}, carpeta: {inbox}");
+                ServiceNotifier.Notify("INFO", "ONKOS File Transfer", $"Servicio de recepción activo en puerto {DefaultTransferPort}.");
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error crítico al iniciar el servicio de recepción.", ex);
+                OnkosLogger.Error("TransferWindowsService", "Error al iniciar el servicio.", ex);
                 throw;
             }
         }
@@ -76,51 +44,50 @@ namespace ONKOSTransferService
             {
                 if (_receiver != null)
                 {
-                    _receiver.BatchReceived -= OnBatchReceived;
+                    _receiver.FileReceived -= OnFileReceived;
                     _receiver.Error -= OnReceiverError;
                     _receiver.Stop();
                     _receiver = null;
                 }
 
-                OnkosLogger.Info("TransferWindowsService", "Servicio detenido correctamente.");
+                OnkosLogger.Info("TransferWindowsService", "Servicio detenido limpiamente.");
+                ServiceNotifier.Notify("INFO", "ONKOS File Transfer", "Servicio de recepción detenido.");
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio de recepción.", ex);
+                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio.", ex);
             }
         }
 
-        private void OnBatchReceived(ReceivedBatchSummary batch)
+        private void OnFileReceived(string savedPath)
         {
             try
             {
-                if (batch == null)
-                    return;
+                string name = Path.GetFileName(savedPath);
+                long size = 0L;
+                if (File.Exists(savedPath))
+                    size = new FileInfo(savedPath).Length;
+                else if (Directory.Exists(savedPath))
+                {
+                    foreach (string f in Directory.EnumerateFiles(savedPath, "*", SearchOption.AllDirectories))
+                    {
+                        try { size += new FileInfo(f).Length; }
+                        catch (Exception fEx) { OnkosLogger.Warn("TransferWindowsService", $"Error leyendo '{f}'.", fEx); }
+                    }
+                }
 
-                int cantidad = batch.FilePaths != null ? batch.FilePaths.Count : 0;
-                string remitente = !string.IsNullOrWhiteSpace(batch.SenderName) ? batch.SenderName : "Equipo en red";
-                string titulo = cantidad == 1
-                    ? "Archivo recibido"
-                    : $"{cantidad} archivos recibidos";
-                string mensaje = $"De: {remitente}";
-
-                string rutaAbrir = (cantidad == 1 && batch.FilePaths != null && batch.FilePaths.Count > 0)
-                    ? batch.FilePaths[0]
-                    : (!string.IsNullOrWhiteSpace(batch.DestinationFolder)
-                        ? batch.DestinationFolder
-                        : GetInboxFolderSafe());
-
-                ServiceNotifier.Notify("SUCCESS", titulo, mensaje, rutaAbrir);
+                OnkosLogger.Info("TransferWindowsService", $"Archivo/carpeta recibido: '{name}' ({size} bytes) en '{savedPath}'");
+                ServiceNotifier.Notify("SUCCESS", "Archivo recibido", $"Se recibió '{name}'. Haz clic para abrir.", savedPath);
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error enviando notificación consolidada del lote.", ex);
+                OnkosLogger.Error("TransferWindowsService", $"Error procesando recepción de '{savedPath}'.", ex);
             }
         }
 
         private void OnReceiverError(string errorMessage)
         {
-            OnkosLogger.Warn("TransferWindowsService", $"Error en receptor TCP: {errorMessage}");
+            OnkosLogger.Error("TransferWindowsService", $"Error en receptor: {errorMessage}");
             ServiceNotifier.Notify("ERROR", "Error en recepción", errorMessage);
         }
     }
