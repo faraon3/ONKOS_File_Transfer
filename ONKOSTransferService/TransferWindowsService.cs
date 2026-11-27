@@ -5,7 +5,18 @@ using System.Text;
 using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
-@@ -21,12 +22,38 @@
+namespace ONKOSTransferService
+{
+    public class TransferWindowsService : ServiceBase
+    {
+        private FileReceiver _receiver;
+        private string _activeInboxFolder;
+
+        public TransferWindowsService()
+        {
+            ServiceName = "ONKOSTransferService";
+            CanStop = true;
+            CanPauseAndContinue = false;
             AutoLog = true;
         }
 
@@ -40,17 +51,61 @@ using ONKOSFileTransfer.Network;
         {
             try
             {
-                AppSettingsStore.EnsureInboxFolderReady();
-                _activeInboxFolder = AppSettingsStore.GetInboxFolder();
                 _activeInboxFolder = GetInboxFolderSafe();
                 Directory.CreateDirectory(_activeInboxFolder);
 
                 _receiver = new FileReceiver();
-@@ -138,20 +165,20 @@
+                _receiver.BatchReceived += OnBatchReceived;
+                _receiver.ErrorOccurred += OnReceiverError;
+                _receiver.Start(_activeInboxFolder);
+
+                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente. Carpeta de recibidos: {_activeInboxFolder}");
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Error("TransferWindowsService", "Error crítico al iniciar el servicio de recepción.", ex);
+                throw;
+            }
+        }
+
+        protected override void OnStop()
+        {
+            try
+            {
+                if (_receiver != null)
+                {
+                    _receiver.BatchReceived -= OnBatchReceived;
+                    _receiver.ErrorOccurred -= OnReceiverError;
+                    _receiver.Stop();
+                    _receiver = null;
+                }
+
+                OnkosLogger.Info("TransferWindowsService", "Servicio detenido correctamente.");
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio de recepción.", ex);
+            }
+        }
+
+        private void OnBatchReceived(ReceivedBatchInfo batch)
+        {
+            try
+            {
+                if (batch == null)
+                    return;
+
+                int cantidad = batch.FilePaths != null ? batch.FilePaths.Count : 0;
+                string remitente = !string.IsNullOrWhiteSpace(batch.SenderName) ? batch.SenderName : "Equipo en red";
+                string titulo = cantidad == 1
+                    ? "Archivo recibido"
+                    : $"{cantidad} archivos recibidos";
+                string mensaje = $"De: {remitente}";
+
+                string rutaAbrir = (cantidad == 1 && batch.FilePaths != null && batch.FilePaths.Count > 0)
                     ? batch.FilePaths[0]
                     : (!string.IsNullOrWhiteSpace(batch.DestinationFolder)
                         ? batch.DestinationFolder
-                        : AppSettingsStore.GetInboxFolder());
                         : GetInboxFolderSafe());
 
                 ServiceNotifier.Notify("SUCCESS", titulo, mensaje, rutaAbrir);
