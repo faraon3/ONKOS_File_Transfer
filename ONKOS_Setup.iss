@@ -58,7 +58,7 @@ Filename: "taskkill.exe"; Parameters: "/F /IM ONKOSFileTransfer.exe"; Flags: run
 Filename: "taskkill.exe"; Parameters: "/F /IM ONKOS.TransferService.exe"; Flags: runhidden; RunOnceId: "KillOnkosSvc"
 Filename: "sc.exe"; Parameters: "stop ONKOSTransferService"; Flags: runhidden; RunOnceId: "StopOnkosSvc"
 Filename: "sc.exe"; Parameters: "delete ONKOSTransferService"; Flags: runhidden; RunOnceId: "DeleteOnkosSvc"
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden; RunOnceId: "DelFwTcp"
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden; RunOnceId: "DelFwTcp"
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden; RunOnceId: "DelFwUdp"
 
 [Code]
