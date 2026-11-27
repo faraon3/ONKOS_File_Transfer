@@ -49,7 +49,9 @@ namespace ONKOS.Core.Storage
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("AppSettingsStore", "No se pudo leer ruta_recibidos.txt; usando ruta por defecto.", ex);
+                FileLogger.Instance.Warn(
+                    "AppSettingsStore",
+                    $"No se pudo leer ruta_recibidos.txt; usando ruta por defecto ({ex.GetType().Name}: {ex.Message}).");
                 return PathAndAclHelper.DefaultInboxFolder;
             }
         }
