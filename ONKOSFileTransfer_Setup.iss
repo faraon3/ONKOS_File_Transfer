@@ -1,71 +1,111 @@
-#define MyAppName "ONKOS File Transfer"
-#define MyAppVersion "2.0.0"
-#define MyAppPublisher "Clínica ONKOS"
-#define MyAppExeName "ONKOSFileTransfer.exe"
-#define MyServiceExeName "ONKOS.TransferService.exe"
-#define MyServiceName "ONKOSTransferService"
-
 [Setup]
-AppId={{7B6D9A12-3C8F-4E5B-9A21-6D1F8E4C2B90}
-AppName={#MyAppName}
-AppVersion={#MyAppVersion}
-AppPublisher={#MyAppPublisher}
+AppId={{8B5E9A2C-4D1F-4C3A-9E7B-2F6A1D8C5E40}
+AppName=ONKOS File Transfer 2.0
+AppVersion=2.0
+AppPublisher=ONKOS
 DefaultDirName={autopf}\ONKOS\FileTransfer
-DefaultGroupName={#MyAppName}
-DisableProgramGroupPage=yes
-PrivilegesRequired=admin
-OutputDir=InstallerOutput
-OutputBaseFilename=ONKOSFileTransfer_Setup_{#MyAppVersion}
+DefaultGroupName=ONKOS File Transfer 2.0
+OutputDir=Output
+OutputBaseFilename=Instalador_ONKOS_File_Transfer_2.0
+SetupIconFile=ONKOSFileTransfer\onkos.ico
 Compression=lzma2
 SolidCompression=yes
+ArchitecturesInstallIn64BitMode=x64compatible
+UninstallDisplayName=ONKOS File Transfer 2.0
+UninstallDisplayIcon={app}\ONKOSFileTransfer.exe
 WizardStyle=modern
-CloseApplications=yes
+PrivilegesRequired=admin
+ShowLanguageDialog=no
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "Crear acceso directo en el Escritorio"; GroupDescription: "Accesos directos:"
+[Dirs]
+Name: "{commonappdata}\ONKOS"; Permissions: users-modify
+Name: "{userdesktop}\Archivos Recibidos ONKOS"
 
 [Files]
-Source: "ONKOSFileTransfer\bin\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ONKOSFileTransfer\bin\Release\*.config"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "ONKOSFileTransfer\bin\Release\onkos.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "ONKOSFileTransfer\bin\Release\recibidos.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "ONKOSTransferService\bin\Release\{#MyServiceExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ONKOSTransferService\bin\Release\*.config"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "ONKOSFileTransfer\bin\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "ONKOSTransferService\bin\Release\*"; DestDir: "{app}\Servicio"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "ONKOSFileTransfer\onkos.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "ONKOSFileTransfer\recibidos.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\onkos.ico"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\onkos.ico"; Tasks: desktopicon
+Name: "{group}\ONKOS File Transfer 2.0"; Filename: "{app}\ONKOSFileTransfer.exe"; IconFilename: "{app}\onkos.ico"
+Name: "{group}\Carpeta Archivos Recibidos ONKOS"; Filename: "{userdesktop}\Archivos Recibidos ONKOS"; IconFilename: "{app}\recibidos.ico"
+Name: "{group}\Desinstalar ONKOS File Transfer 2.0"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\ONKOS File Transfer 2.0"; Filename: "{app}\ONKOSFileTransfer.exe"; IconFilename: "{app}\onkos.ico"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Crear acceso directo en el &Escritorio"; GroupDescription: "Accesos directos adicionales:"
 
 [Registry]
-; Inicia la bandeja (--tray) automáticamente para TODOS los usuarios al iniciar sesión
-Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ONKOSFileTransferTray"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ONKOSFileTransfer"; ValueData: """{app}\ONKOSFileTransfer.exe"" --tray"; Flags: uninsdeletevalue
 
 [Run]
-; Detener procesos previos si existen
-Filename: "taskkill.exe"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden; StatusMsg: "Deteniendo instancias previas..."
-Filename: "sc.exe"; Parameters: "stop {#MyServiceName}"; Flags: runhidden; StatusMsg: "Deteniendo servicio previo..."
-Filename: "sc.exe"; Parameters: "delete {#MyServiceName}"; Flags: runhidden
-
-; Registrar e iniciar el servicio de Windows con reinicio automático ante fallos
-Filename: "sc.exe"; Parameters: "create {#MyServiceName} binPath= ""\""{app}\{#MyServiceExeName}\"""" start= auto DisplayName= ""ONKOS Transfer Service"""; Flags: runhidden; StatusMsg: "Instalando servicio ONKOS..."
-Filename: "sc.exe"; Parameters: "failure {#MyServiceName} reset= 86400 actions= restart/5000/restart/15000/restart/30000"; Flags: runhidden
-Filename: "sc.exe"; Parameters: "start {#MyServiceName}"; Flags: runhidden; StatusMsg: "Iniciando servicio ONKOS..."
-
-; Reglas de Firewall (TCP 5050 transferencias y UDP 5051 descubrimiento)
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS File Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden; StatusMsg: "Configurando Firewall..."
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer UDP 5051"""; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS File Transfer UDP 5051"" dir=in action=allow protocol=UDP localport=5051"; Flags: runhidden
-
-; Iniciar la bandeja en segundo plano al terminar la instalación
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--tray"; Flags: nowait postinstall skipifsilent; Description: "Iniciar ONKOS en segundo plano (bandeja del sistema)"
+Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" start= auto DisplayName= ""ONKOS File Transfer Service"""; Flags: runhidden
+Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Discovery UDP 5051"" dir=in action=allow protocol=UDP localport=5051"; Flags: runhidden
+Filename: "attrib.exe"; Parameters: "+r ""{userdesktop}\Archivos Recibidos ONKOS"""; Flags: runhidden
+Filename: "attrib.exe"; Parameters: "+s +h ""{userdesktop}\Archivos Recibidos ONKOS\desktop.ini"""; Flags: runhidden
+Filename: "{app}\ONKOSFileTransfer.exe"; Description: "Abrir ONKOS File Transfer 2.0 para registrar mi equipo"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "taskkill.exe"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
-Filename: "sc.exe"; Parameters: "stop {#MyServiceName}"; Flags: runhidden; RunOnceId: "StopSvc"
-Filename: "sc.exe"; Parameters: "delete {#MyServiceName}"; Flags: runhidden; RunOnceId: "DelSvc"
+Filename: "taskkill.exe"; Parameters: "/F /IM ONKOSFileTransfer.exe"; Flags: runhidden; RunOnceId: "KillOnkosUi"
+Filename: "taskkill.exe"; Parameters: "/F /IM ONKOS.TransferService.exe"; Flags: runhidden; RunOnceId: "KillOnkosSvc"
+Filename: "sc.exe"; Parameters: "stop ONKOSTransferService"; Flags: runhidden; RunOnceId: "StopOnkosSvc"
+Filename: "sc.exe"; Parameters: "delete ONKOSTransferService"; Flags: runhidden; RunOnceId: "DeleteOnkosSvc"
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer TCP 5050"""; Flags: runhidden; RunOnceId: "DelFwTcp"
-Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS File Transfer UDP 5051"""; Flags: runhidden; RunOnceId: "DelFwUdp"
+Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Discovery UDP 5051"""; Flags: runhidden; RunOnceId: "DelFwUdp"
+
+[Code]
+procedure InitializeWizard();
+begin
+  WizardForm.Font.Name := 'Segoe UI';
+  WizardForm.WelcomeLabel1.Font.Color := $007C4DE0;
+  WizardForm.FinishedHeadingLabel.Font.Color := $007C4DE0;
+  WizardForm.PageNameLabel.Font.Color := $004A269C;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  DesktopIniPath: string;
+  IconPath: string;
+  IniLines: TArrayOfString;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    IconPath := ExpandConstant('{app}\recibidos.ico');
+    DesktopIniPath := ExpandConstant('{userdesktop}\Archivos Recibidos ONKOS\desktop.ini');
+    SetArrayLength(IniLines, 3);
+    IniLines[0] := '[.ShellClassInfo]';
+    IniLines[1] := 'IconResource=' + IconPath + ',0';
+    IniLines[2] := 'InfoTip=Carpeta de archivos recibidos por ONKOS File Transfer';
+    SaveStringsToFile(DesktopIniPath, IniLines, False);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: string;
+  InboxDir: string;
+  PublicInboxDir: string;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{commonappdata}\ONKOS');
+    if DirExists(DataDir) then
+      DelTree(DataDir, True, True, True);
+
+    InboxDir := ExpandConstant('{userdesktop}\Archivos Recibidos ONKOS');
+    if DirExists(InboxDir) then
+      DelTree(InboxDir, True, True, True);
+
+    PublicInboxDir := ExpandConstant('{commondesktop}\Archivos Recibidos ONKOS');
+    if DirExists(PublicInboxDir) then
+      DelTree(PublicInboxDir, True, True, True);
+  end;
+end;
