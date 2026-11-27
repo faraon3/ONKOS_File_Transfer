@@ -2,47 +2,51 @@ name: ONKOS File Transfer - Build
 
 on:
   push:
-    branches: [ main, master, v2-architecture ]
-  pull_request:
-    branches: [ main, master, v2-architecture ]
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Descargar código del repositorio
+      - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar .NET SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
+      - name: Configurar MSBuild
+        uses: microsoft/setup-msbuild@v2
 
-      - name: Compilar Interfaz Gráfica (Release)
-        run: dotnet build ONKOSFileTransfer/ONKOSFileTransfer.csproj -c Release
+      - name: Compilar
+        run: >
+          msbuild ONKOSFileTransfer/ONKOSFileTransfer.csproj
+          /p:Configuration=Release
+          /p:Platform=AnyCPU
 
-      - name: Compilar Servicio de Windows (Release)
-        run: dotnet build ONKOSTransferService/ONKOSTransferService.csproj -c Release
-
-      - name: Instalar Inno Setup
-        run: choco install innosetup -y --no-progress
-
-      - name: Generar Instalador con Inno Setup
+      - name: Verificar ejecutable
+        shell: pwsh
         run: |
-          $iscc = @(
-            "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
-            "C:\Program Files\Inno Setup 7\ISCC.exe",
-            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-            "C:\Program Files\Inno Setup 6\ISCC.exe"
-          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $iscc) { throw "No se encontró ISCC.exe" }
-          & $iscc "ONKOS_Setup.iss"
+          $exe = "ONKOSFileTransfer/bin/Release/ONKOSFileTransfer.exe"
+          if (!(Test-Path $exe)) {
+            throw "No se encontró el ejecutable: $exe"
+          }
+          Get-Item $exe | Select-Object FullName, Length
 
-      - name: Publicar Instalador como Artifact
-        uses: actions/upload-artifact@v4
+      - name: Empaquetar ejecutable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "ONKOSFileTransfer/bin/Release/*" -DestinationPath "ONKOS-File-Transfer.zip" -Force
+
+      - name: Publicar GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
         with:
-          name: Instalador-ONKOS-File-Transfer
-          path: Output/*.exe
-          if-no-files-found: error
+          tag_name: build-${{ github.run_number }}
+          name: ONKOS File Transfer - Build ${{ github.run_number }}
+          body: |
+            Compilación automática de ONKOS File Transfer.
+            Descarga el ZIP y extrae su contenido antes de ejecutar.
+          files: ONKOS-File-Transfer.zip
+          make_latest: true
