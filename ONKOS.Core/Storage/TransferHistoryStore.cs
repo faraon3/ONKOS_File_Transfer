@@ -121,7 +121,9 @@ namespace ONKOS.Core.Storage
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("TransferHistoryStore", "No se pudo leer contador de no vistos.", ex);
+                FileLogger.Instance.Warn(
+                    "TransferHistoryStore",
+                    $"No se pudo leer contador de no vistos ({ex.GetType().Name}: {ex.Message}).");
                 return 0;
             }
         }
@@ -180,7 +182,9 @@ namespace ONKOS.Core.Storage
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("TransferHistoryStore", "No se pudo marcar recibidos como vistos.", ex);
+                FileLogger.Instance.Warn(
+                    "TransferHistoryStore",
+                    $"No se pudo marcar recibidos como vistos ({ex.GetType().Name}: {ex.Message}).");
             }
 
             if (changed)
@@ -295,7 +299,9 @@ namespace ONKOS.Core.Storage
                 try { single(); }
                 catch (Exception ex)
                 {
-                    FileLogger.Instance.Warn("TransferHistoryStore", "Error en suscriptor de UnseenReceivedCountChanged.", ex);
+                    FileLogger.Instance.Warn(
+                        "TransferHistoryStore",
+                        $"Error en suscriptor de UnseenReceivedCountChanged ({ex.GetType().Name}: {ex.Message}).");
                 }
             }
         }
