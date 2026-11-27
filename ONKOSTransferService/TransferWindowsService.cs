@@ -9,6 +9,8 @@ namespace ONKOSTransferService
 {
     public class TransferWindowsService : ServiceBase
     {
+        private const int TransferPort = 5000;
+
         private FileReceiver _receiver;
         private string _activeInboxFolder;
 
@@ -56,10 +58,10 @@ namespace ONKOSTransferService
 
                 _receiver = new FileReceiver();
                 _receiver.BatchReceived += OnBatchReceived;
-                _receiver.ErrorOccurred += OnReceiverError;
-                _receiver.Start(_activeInboxFolder);
+                _receiver.Error += OnReceiverError;
+                _receiver.Start(TransferPort, _activeInboxFolder);
 
-                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente. Carpeta de recibidos: {_activeInboxFolder}");
+                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente en puerto {TransferPort}. Carpeta de recibidos: {_activeInboxFolder}");
             }
             catch (Exception ex)
             {
@@ -75,7 +77,7 @@ namespace ONKOSTransferService
                 if (_receiver != null)
                 {
                     _receiver.BatchReceived -= OnBatchReceived;
-                    _receiver.ErrorOccurred -= OnReceiverError;
+                    _receiver.Error -= OnReceiverError;
                     _receiver.Stop();
                     _receiver = null;
                 }
@@ -88,7 +90,7 @@ namespace ONKOSTransferService
             }
         }
 
-        private void OnBatchReceived(ReceivedBatchInfo batch)
+        private void OnBatchReceived(ReceivedBatchSummary batch)
         {
             try
             {
