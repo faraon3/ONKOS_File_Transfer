@@ -19,17 +19,39 @@ jobs:
       - name: Configurar MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: |
+          if (!(Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+          $innoPaths = @(
+            "C:\Program Files (x86)\Inno Setup 6",
+            "C:\Program Files\Inno Setup 6",
+            "C:\Program Files (x86)\Inno Setup 5"
+          )
+          foreach ($p in $innoPaths) {
+            if (Test-Path "$p\ISCC.exe") {
+              "PATH=$p;$env:PATH" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              $env:PATH = "$p;$env:PATH"
+              break
+            }
+          }
+          Get-Command iscc.exe -ErrorAction Stop | Select-Object -ExpandProperty Source
+
       - name: Compilar interfaz gráfica
         run: >
           msbuild ONKOSFileTransfer/ONKOSFileTransfer.csproj
           /p:Configuration=Release
           /p:Platform=AnyCPU
+          /m
 
       - name: Compilar servicio de Windows
         run: >
           msbuild ONKOSTransferService/ONKOSTransferService.csproj
           /p:Configuration=Release
           /p:Platform=AnyCPU
+          /m
 
       - name: Verificar compilaciones
         shell: pwsh
@@ -49,12 +71,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
           Copy-Item "ONKOSFileTransfer/bin/Release/*" package/Interfaz/ -Recurse -Force
           Copy-Item "ONKOSTransferService/bin/Release/*" package/Servicio/ -Recurse -Force
-          Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt -Force
 
-          if (Test-Path "ONKOSFileTransfer/Desinstalar_ONKOS.bat") {
+          if (Test-Path "ONKOSTransferService/README.md") {
+            Copy-Item "ONKOSTransferService/README.md" package/Servicio/README-Instalacion.txt -Force
+          }
+          if (Test-Path "Desinstalar_ONKOS.bat") {
+            Copy-Item "Desinstalar_ONKOS.bat" package/Desinstalar_ONKOS.bat -Force
+          } elseif (Test-Path "ONKOSFileTransfer/Desinstalar_ONKOS.bat") {
             Copy-Item "ONKOSFileTransfer/Desinstalar_ONKOS.bat" package/Desinstalar_ONKOS.bat -Force
           }
-          if (Test-Path "ONKOSFileTransfer/Instalar_ONKOS.bat") {
+          if (Test-Path "Instalar_ONKOS.bat") {
+            Copy-Item "Instalar_ONKOS.bat" package/Instalar_ONKOS.bat -Force
+          } elseif (Test-Path "ONKOSFileTransfer/Instalar_ONKOS.bat") {
             Copy-Item "ONKOSFileTransfer/Instalar_ONKOS.bat" package/Instalar_ONKOS.bat -Force
           }
           if (Test-Path "ONKOSFileTransfer/recibidos.ico") {
