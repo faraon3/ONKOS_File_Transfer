@@ -57,11 +57,9 @@
     <Compile Include="Network\FileSender.cs" />
     <Compile Include="Network\NetworkManager.cs" />
     <Compile Include="Network\PeerDiscoveryService.cs" />
-    <Compile Include="OnkosLogger.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="TransferHistoryForm.cs" />
     <Compile Include="TransferHistoryStore.cs" />
-    <Compile Include="UiControls.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
   </ItemGroup>
   <ItemGroup>

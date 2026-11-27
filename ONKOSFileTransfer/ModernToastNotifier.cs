@@ -13,28 +13,14 @@ namespace ONKOSFileTransfer
 {
     public static class ModernToastNotifier
     {
-        private static Control _invoker;
         private static SynchronizationContext _uiContext;
         private static readonly object _toastLock = new object();
         private static ModernBannerForm _activeToast;
 
         public static void Inicializar()
         {
-            try
-            {
-                if (_invoker == null || _invoker.IsDisposed)
-                {
-                    _invoker = new Control();
-                    IntPtr _ = _invoker.Handle;
-                }
-
-                if (SynchronizationContext.Current != null)
-                    _uiContext = SynchronizationContext.Current;
-            }
-            catch (Exception ex)
-            {
-                OnkosLogger.Warn("ModernToastNotifier", "Error inicializando contexto UI de notificaciones.", ex);
-            }
+            if (SynchronizationContext.Current != null)
+                _uiContext = SynchronizationContext.Current;
         }
 
         public static void MostrarEnvioExitoso(string resumen, string rutaAbrir = null)
@@ -167,22 +153,8 @@ namespace ONKOSFileTransfer
                         toast.Show();
                     }
                 }
-                catch (Exception ex)
+                catch
                 {
-                    OnkosLogger.Warn("ModernToastNotifier", "Error mostrando ModernBannerForm.", ex);
-                }
-            }
-
-            if (_invoker != null && !_invoker.IsDisposed && _invoker.IsHandleCreated)
-            {
-                try
-                {
-                    _invoker.BeginInvoke(new Action(ShowOnThread));
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    OnkosLogger.Warn("ModernToastNotifier", "Error invocando notificación en _invoker.", ex);
                 }
             }
 
@@ -193,9 +165,8 @@ namespace ONKOSFileTransfer
                     _uiContext.Post(_ => ShowOnThread(), null);
                     return;
                 }
-                catch (Exception ex)
+                catch
                 {
-                    OnkosLogger.Warn("ModernToastNotifier", "Error publicando notificación en _uiContext.", ex);
                 }
             }
 
@@ -223,17 +194,11 @@ namespace ONKOSFileTransfer
 
             var staThread = new Thread(() =>
             {
-                try
-                {
-                    var toast = new ModernBannerForm(titulo, mensaje, rutaAbrir, esError, resolvedBadge);
-                    toast.FormClosed += (s, e) => Application.ExitThread();
-                    toast.Show();
-                    Application.Run();
-                }
-                catch (Exception ex)
-                {
-                    OnkosLogger.Warn("ModernToastNotifier", "Error en hilo STA de respaldo.", ex);
-                }
+                Application.EnableVisualStyles();
+                var toast = new ModernBannerForm(titulo, mensaje, rutaAbrir, esError, resolvedBadge);
+                toast.FormClosed += (s, e) => Application.ExitThread();
+                toast.Show();
+                Application.Run();
             });
             staThread.SetApartmentState(ApartmentState.STA);
             staThread.IsBackground = true;
