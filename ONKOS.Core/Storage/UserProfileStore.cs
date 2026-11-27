@@ -55,7 +55,9 @@ namespace ONKOS.Core.Storage
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UserProfileStore", "Error al cargar perfil local.", ex);
+                FileLogger.Instance.Warn(
+                    "UserProfileStore",
+                    $"Error al cargar perfil local ({ex.GetType().Name}: {ex.Message}).");
                 return false;
             }
         }
