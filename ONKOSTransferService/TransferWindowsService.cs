@@ -1,12 +1,13 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
+using System.Text;
 using ONKOSFileTransfer;
 using ONKOSFileTransfer.Network;
 
 namespace ONKOSTransferService
 {
-    public partial class TransferWindowsService : ServiceBase
+    public class TransferWindowsService : ServiceBase
     {
         private const int TransferPort = 5050;
 
@@ -21,12 +22,65 @@ namespace ONKOSTransferService
             AutoLog = true;
         }
 
+        private static string GetInboxFolderSafe()
+        {
+            try
+            {
+                string settingsPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "ONKOS",
+                    "ruta_recibidos.txt");
+
+                if (File.Exists(settingsPath))
+                {
+                    string saved = File.ReadAllText(settingsPath, Encoding.UTF8).Trim();
+                    if (!string.IsNullOrWhiteSpace(saved))
+                        return saved;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnkosLogger.Warn("TransferWindowsService", "No se pudo leer ruta_recibidos.txt; usando ruta de respaldo.", ex);
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ONKOS",
+                "Recibidos");
+        }
+
+        private static long ComputePathSizeSafe(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return 0L;
+
+            try
+            {
+                if (File.Exists(path))
+                    return new FileInfo(path).Length;
+
+                if (Directory.Exists(path))
+                {
+                    long total = 0L;
+                    foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                    {
+                        try { total += new FileInfo(file).Length; } catch { }
+                    }
+                    return total;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0L;
+        }
+
         protected override void OnStart(string[] args)
         {
             try
             {
-                AppSettingsStore.EnsureInboxFolderReady();
-                _activeInboxFolder = AppSettingsStore.GetInboxFolder();
+                _activeInboxFolder = GetInboxFolderSafe();
                 Directory.CreateDirectory(_activeInboxFolder);
 
                 _receiver = new FileReceiver();
@@ -35,13 +89,11 @@ namespace ONKOSTransferService
                 _receiver.Error += OnReceiverError;
                 _receiver.Start(TransferPort, _activeInboxFolder);
 
-                OnkosLogger.Info(
-                    "TransferWindowsService",
-                    $"Servicio iniciado en puerto {TransferPort}, carpeta: {_activeInboxFolder}");
+                OnkosLogger.Info("TransferWindowsService", $"Servicio iniciado correctamente en puerto {TransferPort}. Carpeta de recibidos: {_activeInboxFolder}");
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error al iniciar el servicio de transferencia.", ex);
+                OnkosLogger.Error("TransferWindowsService", "Error crítico al iniciar el servicio de recepción.", ex);
                 throw;
             }
         }
@@ -63,59 +115,44 @@ namespace ONKOSTransferService
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio de transferencia.", ex);
+                OnkosLogger.Error("TransferWindowsService", "Error al detener el servicio de recepción.", ex);
             }
         }
 
-        private void OnFileReceived(string filePath)
+        private void OnFileReceived(string destinationPath)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(filePath))
+                if (string.IsNullOrWhiteSpace(destinationPath))
                     return;
 
-                bool isDirectory = Directory.Exists(filePath);
-                string itemName = Path.GetFileName(
-                    filePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                string itemName = Path.GetFileName(destinationPath);
+                if (string.IsNullOrWhiteSpace(itemName))
+                    itemName = destinationPath;
 
-                long sizeBytes = 0;
-                if (isDirectory)
+                long sizeBytes = ComputePathSizeSafe(destinationPath);
+                string counterparty = "Equipo en red";
+                try
                 {
-                    foreach (string f in Directory.EnumerateFiles(filePath, "*", SearchOption.AllDirectories))
-                    {
-                        try { sizeBytes += new FileInfo(f).Length; }
-                        catch { }
-                    }
-                    OnkosLogger.Info(
-                        "TransferWindowsService",
-                        $"Carpeta recibida: '{itemName}' ({sizeBytes} bytes) en '{filePath}'");
+                    string parentFolder = Path.GetFileName(Path.GetDirectoryName(destinationPath) ?? string.Empty);
+                    if (!string.IsNullOrWhiteSpace(parentFolder))
+                        counterparty = parentFolder;
                 }
-                else if (File.Exists(filePath))
+                catch
                 {
-                    sizeBytes = new FileInfo(filePath).Length;
-                    OnkosLogger.Info(
-                        "TransferWindowsService",
-                        $"Archivo recibido: '{itemName}' ({sizeBytes} bytes) en '{filePath}'");
                 }
-
-                string parentDirName = Path.GetFileName(Path.GetDirectoryName(filePath) ?? string.Empty);
-                string senderIp = parentDirName.Contains("_")
-                    ? parentDirName.Split('_')[0]
-                    : parentDirName;
 
                 TransferHistoryStore.AppendEntry(
                     "RECIBIDO",
                     itemName,
                     sizeBytes,
-                    senderIp,
+                    counterparty,
                     "Completado",
-                    senderIp);
-
-                TransferHistoryStore.IncrementUnseenReceived();
+                    destinationPath);
             }
             catch (Exception ex)
             {
-                OnkosLogger.Error("TransferWindowsService", $"Error procesando elemento recibido '{filePath}'.", ex);
+                OnkosLogger.Warn("TransferWindowsService", "No se pudo registrar recepción en historial.", ex);
             }
         }
 
@@ -123,24 +160,21 @@ namespace ONKOSTransferService
         {
             try
             {
-                if (batch == null || batch.FilePaths == null || batch.FilePaths.Count == 0)
+                if (batch == null)
                     return;
 
-                int total = batch.FilePaths.Count;
-                string quien = !string.IsNullOrWhiteSpace(batch.SenderName)
-                    ? batch.SenderName
-                    : batch.SenderIp;
+                int cantidad = batch.FilePaths != null ? batch.FilePaths.Count : 0;
+                string remitente = !string.IsNullOrWhiteSpace(batch.SenderName) ? batch.SenderName : "Equipo en red";
+                string titulo = cantidad == 1
+                    ? "Archivo recibido"
+                    : $"{cantidad} archivos recibidos";
+                string mensaje = $"De: {remitente}";
 
-                string titulo = $"Recibido de {quien}";
-                string mensaje = total == 1
-                    ? "1 archivo enviado"
-                    : $"{total} archivos enviados";
-
-                string rutaAbrir = total == 1
+                string rutaAbrir = (cantidad == 1 && batch.FilePaths != null && batch.FilePaths.Count > 0)
                     ? batch.FilePaths[0]
                     : (!string.IsNullOrWhiteSpace(batch.DestinationFolder)
                         ? batch.DestinationFolder
-                        : AppSettingsStore.GetInboxFolder());
+                        : GetInboxFolderSafe());
 
                 ServiceNotifier.Notify("SUCCESS", titulo, mensaje, rutaAbrir);
             }
