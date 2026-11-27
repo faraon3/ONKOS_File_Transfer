@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -18,7 +17,6 @@ namespace ONKOSFileTransfer.Network
         private const int BroadcastIntervalMs = 2500;
         private const int SubnetScanIntervalMs = 15000;
         private const int PresenceCheckIntervalMs = 4000;
-        private const string ContactsMutexName = "Global\\ONKOS_ContactsStore_Mutex";
         private static readonly TimeSpan PeerOnlineTimeout = TimeSpan.FromSeconds(60);
 
         private static readonly string ContactsPath =
@@ -46,36 +44,6 @@ namespace ONKOSFileTransfer.Network
             return (DateTime.UtcNow - peer.LastSeenUtc) <= PeerOnlineTimeout;
         }
 
-        private static void WithContactsFileLock(Action action)
-        {
-            using (var mutex = new Mutex(false, ContactsMutexName))
-            {
-                bool acquired = false;
-                try
-                {
-                    try
-                    {
-                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(4));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (acquired)
-                        action();
-                }
-                finally
-                {
-                    if (acquired)
-                    {
-                        try { mutex.ReleaseMutex(); }
-                        catch (Exception ex) { OnkosLogger.Warn("PeerDiscoveryService", "Error liberando Mutex de contactos.", ex); }
-                    }
-                }
-            }
-        }
-
         public void Start(PeerInfo localProfile)
         {
             LoadSavedContacts();
@@ -101,27 +69,24 @@ namespace ONKOSFileTransfer.Network
             _ = Task.Run(() => PresenceMonitorLoop(_cts.Token));
         }
 
-        private static string BuildPeerKey(string ip)
+        private static string BuildPeerKey(string name, string ip, string machine)
         {
-            return "IP:" + (ip ?? string.Empty).Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(ip) && ip != "127.0.0.1")
+                return "IP:" + ip.Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(machine))
+                return "PC:" + machine.Trim().ToLowerInvariant();
+            return "NAME:" + (name ?? string.Empty).Trim().ToLowerInvariant();
         }
 
         private void LoadSavedContacts()
         {
             try
             {
-                string[] lines = Array.Empty<string>();
-                WithContactsFileLock(() =>
-                {
-                    if (File.Exists(ContactsPath))
-                        lines = File.ReadAllLines(ContactsPath, Encoding.UTF8);
-                });
-
-                if (lines.Length == 0)
+                if (!File.Exists(ContactsPath))
                     return;
 
                 bool hadInvalid = false;
-                foreach (string line in lines)
+                foreach (string line in File.ReadAllLines(ContactsPath, Encoding.UTF8))
                 {
                     if (string.IsNullOrWhiteSpace(line))
                         continue;
@@ -135,14 +100,13 @@ namespace ONKOSFileTransfer.Network
                     string ip = parts[2].Trim();
                     string machine = parts.Length > 3 ? parts[3].Trim() : string.Empty;
 
-                    if (UserProfileStore.IsIgnoredSystemName(name) || !FileSender.TryParseStrictIPv4(ip, out IPAddress parsedIp))
+                    if (UserProfileStore.IsIgnoredSystemName(name) || string.IsNullOrWhiteSpace(ip))
                     {
                         hadInvalid = true;
                         continue;
                     }
 
-                    string cleanIp = parsedIp.ToString();
-                    string key = BuildPeerKey(cleanIp);
+                    string key = BuildPeerKey(name, ip, machine);
                     lock (_sync)
                     {
                         if (!_peersByKey.ContainsKey(key))
@@ -151,7 +115,7 @@ namespace ONKOSFileTransfer.Network
                             {
                                 FullName = name,
                                 Area = area,
-                                IPv4 = cleanIp,
+                                IPv4 = ip,
                                 MachineName = machine,
                                 LastSeenUtc = DateTime.MinValue
                             };
@@ -165,9 +129,8 @@ namespace ONKOSFileTransfer.Network
                         SaveContactsLocked();
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                OnkosLogger.Warn("PeerDiscoveryService", "Error cargando contactos guardados.", ex);
             }
         }
 
@@ -175,9 +138,12 @@ namespace ONKOSFileTransfer.Network
         {
             try
             {
-                string[] lines = _peersByKey.Values
-                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName) &&
-                                FileSender.TryParseStrictIPv4(p.IPv4, out _))
+                string dir = Path.GetDirectoryName(ContactsPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                var lines = _peersByKey.Values
+                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName))
                     .OrderBy(p => p.FullName)
                     .Select(p => string.Join("|",
                         (p.FullName ?? string.Empty).Replace("|", "/"),
@@ -186,54 +152,36 @@ namespace ONKOSFileTransfer.Network
                         p.MachineName ?? string.Empty))
                     .ToArray();
 
-                WithContactsFileLock(() =>
+                using (var fs = new FileStream(ContactsPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs, Encoding.UTF8))
                 {
-                    string dir = Path.GetDirectoryName(ContactsPath);
-                    if (!string.IsNullOrEmpty(dir))
-                        Directory.CreateDirectory(dir);
-
-                    string tempFile = $"{ContactsPath}.{Process.GetCurrentProcess().Id}.{Guid.NewGuid():N}.tmp";
-                    try
-                    {
-                        File.WriteAllLines(tempFile, lines, new UTF8Encoding(false));
-                        if (File.Exists(ContactsPath))
-                            File.Replace(tempFile, ContactsPath, null);
-                        else
-                            File.Move(tempFile, ContactsPath);
-                    }
-                    finally
-                    {
-                        if (File.Exists(tempFile))
-                        {
-                            try { File.Delete(tempFile); } catch { }
-                        }
-                    }
-                });
+                    foreach (string line in lines)
+                        sw.WriteLine(line);
+                }
             }
-            catch (Exception ex)
+            catch
             {
-                OnkosLogger.Warn("PeerDiscoveryService", "Error guardando contactos.", ex);
             }
         }
 
         private bool UpsertPeer(string name, string area, string ip, string machine)
         {
-            if (UserProfileStore.IsIgnoredSystemName(name) || !FileSender.TryParseStrictIPv4(ip, out IPAddress parsedIp))
+            if (UserProfileStore.IsIgnoredSystemName(name) || string.IsNullOrWhiteSpace(ip))
                 return false;
 
-            string cleanIp = parsedIp.ToString();
             string localIp = NetworkManager.GetLocalIPv4();
             bool isSameMachine = !string.IsNullOrWhiteSpace(machine) &&
                 string.Equals(machine, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
-            bool isSameIp = string.Equals(cleanIp, localIp, StringComparison.OrdinalIgnoreCase);
+            bool isSameIp = string.Equals(ip, localIp, StringComparison.OrdinalIgnoreCase);
 
             if (isSameMachine || isSameIp)
                 return false;
 
             string cleanName = name.Replace("|", "/").Trim();
             string cleanArea = (area ?? string.Empty).Replace("|", "/").Trim();
+            string cleanIp = ip.Trim();
             string cleanMachine = (machine ?? string.Empty).Trim();
-            string key = BuildPeerKey(cleanIp);
+            string key = BuildPeerKey(cleanName, cleanIp, cleanMachine);
 
             bool changed = false;
             lock (_sync)
@@ -280,9 +228,11 @@ namespace ONKOSFileTransfer.Network
         {
             string cleanName = (fullName ?? string.Empty).Replace("|", "/").Trim();
             string cleanArea = string.IsNullOrWhiteSpace(area) ? "Manual" : area.Replace("|", "/").Trim();
+            string cleanIp = (ipv4 ?? string.Empty).Trim();
 
             if (UserProfileStore.IsIgnoredSystemName(cleanName) ||
-                !FileSender.TryParseStrictIPv4(ipv4, out IPAddress parsed))
+                !IPAddress.TryParse(cleanIp, out IPAddress parsed) ||
+                parsed.AddressFamily != AddressFamily.InterNetwork)
             {
                 return null;
             }
@@ -296,7 +246,7 @@ namespace ONKOSFileTransfer.Network
                 LastSeenUtc = DateTime.UtcNow
             };
 
-            string key = BuildPeerKey(peer.IPv4);
+            string key = BuildPeerKey(cleanName, peer.IPv4, string.Empty);
             lock (_sync)
             {
                 _peersByKey[key] = peer;
@@ -321,8 +271,7 @@ namespace ONKOSFileTransfer.Network
                         string.Equals(kv.Value.IPv4, localIp, StringComparison.OrdinalIgnoreCase) ||
                         (!string.IsNullOrWhiteSpace(kv.Value.MachineName) &&
                          string.Equals(kv.Value.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase)) ||
-                        UserProfileStore.IsIgnoredSystemName(kv.Value.FullName) ||
-                        !FileSender.TryParseStrictIPv4(kv.Value.IPv4, out _))
+                        UserProfileStore.IsIgnoredSystemName(kv.Value.FullName))
                     .Select(kv => kv.Key)
                     .ToList();
 
@@ -348,8 +297,7 @@ namespace ONKOSFileTransfer.Network
             lock (_sync)
             {
                 snapshot = _peersByKey.Values
-                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName) &&
-                                FileSender.TryParseStrictIPv4(p.IPv4, out _))
+                    .Where(p => !UserProfileStore.IsIgnoredSystemName(p.FullName))
                     .Where(p => !onlyOnline || IsPeerOnline(p))
                     .ToList();
             }
@@ -409,7 +357,7 @@ namespace ONKOSFileTransfer.Network
                     lock (_sync)
                     {
                         candidates = _peersByKey.Values
-                            .Where(p => FileSender.TryParseStrictIPv4(p.IPv4, out _) &&
+                            .Where(p => !string.IsNullOrWhiteSpace(p.IPv4) &&
                                         !UserProfileStore.IsIgnoredSystemName(p.FullName))
                             .ToList();
                     }
@@ -424,7 +372,7 @@ namespace ONKOSFileTransfer.Network
                         {
                             lock (_sync)
                             {
-                                string key = BuildPeerKey(p.IPv4);
+                                string key = BuildPeerKey(p.FullName, p.IPv4, p.MachineName);
                                 if (_peersByKey.TryGetValue(key, out PeerInfo current))
                                     current.LastSeenUtc = DateTime.UtcNow;
                             }
@@ -448,9 +396,8 @@ namespace ONKOSFileTransfer.Network
                     if (stateChanged)
                         PeersUpdated?.Invoke();
                 }
-                catch (Exception ex)
+                catch
                 {
-                    OnkosLogger.Warn("PeerDiscoveryService", "Error en PresenceMonitorLoop.", ex);
                 }
 
                 try
@@ -487,10 +434,9 @@ namespace ONKOSFileTransfer.Network
                 {
                     break;
                 }
-                catch (Exception ex)
+                catch
                 {
-                    OnkosLogger.Warn("PeerDiscoveryService", "Error en ListenLoop UDP.", ex);
-                    try { await Task.Delay(300, token); } catch (TaskCanceledException) { break; }
+                    await Task.Delay(300, token);
                 }
             }
         }
@@ -519,9 +465,6 @@ namespace ONKOSFileTransfer.Network
                     return;
 
                 string localIp = NetworkManager.GetLocalIPv4();
-                if (!FileSender.TryParseStrictIPv4(localIp, out _))
-                    return;
-
                 string payload = string.Join("|",
                     _localProfile.FullName,
                     _localProfile.Area,
@@ -543,9 +486,8 @@ namespace ONKOSFileTransfer.Network
                     }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                OnkosLogger.Warn("PeerDiscoveryService", "Error en BroadcastOnce.", ex);
             }
         }
 
@@ -557,52 +499,45 @@ namespace ONKOSFileTransfer.Network
                 {
                     string localIp = NetworkManager.GetLocalIPv4();
                     string[] octets = localIp.Split('.');
-                    if (octets.Length == 4 && FileSender.TryParseStrictIPv4(localIp, out _))
+                    if (octets.Length == 4)
                     {
                         string prefix = octets[0] + "." + octets[1] + "." + octets[2] + ".";
-                        using (var semaphore = new SemaphoreSlim(32))
+                        var semaphore = new SemaphoreSlim(32);
+                        var tasks = new List<Task>();
+
+                        for (int host = 1; host <= 254; host++)
                         {
-                            var tasks = new List<Task>();
+                            if (token.IsCancellationRequested || !_running)
+                                break;
 
-                            for (int host = 1; host <= 254; host++)
+                            string candidateIp = prefix + host;
+                            if (string.Equals(candidateIp, localIp, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            tasks.Add(Task.Run(async () =>
                             {
-                                if (token.IsCancellationRequested || !_running)
-                                    break;
-
-                                string candidateIp = prefix + host;
-                                if (string.Equals(candidateIp, localIp, StringComparison.OrdinalIgnoreCase))
-                                    continue;
-
-                                tasks.Add(Task.Run(async () =>
+                                await semaphore.WaitAsync(token);
+                                try
                                 {
-                                    await semaphore.WaitAsync(token);
-                                    try
+                                    var id = await FileSender.QueryPeerIdentityAsync(candidateIp, TransferPort, 800);
+                                    if (!string.IsNullOrWhiteSpace(id.FullName) &&
+                                        !UserProfileStore.IsIgnoredSystemName(id.FullName))
                                     {
-                                        var id = await FileSender.QueryPeerIdentityAsync(candidateIp, TransferPort, 800);
-                                        if (!string.IsNullOrWhiteSpace(id.FullName) &&
-                                            !UserProfileStore.IsIgnoredSystemName(id.FullName))
-                                        {
-                                            UpsertPeer(id.FullName, id.Area, id.IPv4 ?? candidateIp, id.MachineName);
-                                        }
+                                        UpsertPeer(id.FullName, id.Area, id.IPv4 ?? candidateIp, id.MachineName);
                                     }
-                                    finally
-                                    {
-                                        semaphore.Release();
-                                    }
-                                }, token));
-                            }
-
-                            await Task.WhenAll(tasks);
+                                }
+                                finally
+                                {
+                                    semaphore.Release();
+                                }
+                            }, token));
                         }
+
+                        await Task.WhenAll(tasks);
                     }
                 }
-                catch (OperationCanceledException)
+                catch
                 {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    OnkosLogger.Warn("PeerDiscoveryService", "Error en SubnetScanLoop.", ex);
                 }
 
                 try
@@ -619,10 +554,10 @@ namespace ONKOSFileTransfer.Network
         public void Dispose()
         {
             _running = false;
-            try { _cts?.Cancel(); } catch (Exception ex) { OnkosLogger.Warn("PeerDiscoveryService", "Error cancelando CTS.", ex); }
-            try { _listener?.Close(); } catch (Exception ex) { OnkosLogger.Warn("PeerDiscoveryService", "Error cerrando UDP.", ex); }
-            try { _listener?.Dispose(); } catch (Exception ex) { OnkosLogger.Warn("PeerDiscoveryService", "Error disponiendo UDP.", ex); }
-            try { _cts?.Dispose(); } catch (Exception ex) { OnkosLogger.Warn("PeerDiscoveryService", "Error disponiendo CTS.", ex); }
+            try { _cts?.Cancel(); } catch { }
+            try { _listener?.Close(); } catch { }
+            try { _listener?.Dispose(); } catch { }
+            try { _cts?.Dispose(); } catch { }
         }
     }
 }
