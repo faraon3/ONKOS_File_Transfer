@@ -51,12 +51,15 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="InboxMonitor.cs" />
     <Compile Include="MainForm.cs" />
     <Compile Include="ModernToastNotifier.cs" />
     <Compile Include="Network\FileReceiver.cs" />
     <Compile Include="Network\FileSender.cs" />
     <Compile Include="Network\NetworkManager.cs" />
     <Compile Include="Network\PeerDiscoveryService.cs" />
+    <Compile Include="ONKOSTray\ToastNotificationForm.cs" />
+    <Compile Include="ONKOSTray\TrayApplicationContext.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="TransferHistoryForm.cs" />
     <Compile Include="TransferHistoryStore.cs" />
