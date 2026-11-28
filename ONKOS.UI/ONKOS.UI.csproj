@@ -4,14 +4,16 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{A1B2C3D4-5E6F-4A7B-8C9D-0E1F2A3B4C5D}</ProjectGuid>
+    <ProjectGuid>{7A4C2B91-6E3D-4B8A-9C12-5D8E3F1A4B20}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>ONKOS.UI</RootNamespace>
     <AssemblyName>ONKOSFileTransfer</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <ApplicationIcon>..\ONKOSFileTransfer\onkos.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -33,56 +35,42 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
-  <PropertyGroup>
-    <ApplicationIcon>..\ONKOSFileTransfer\onkos.ico</ApplicationIcon>
-  </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="System.IO.Compression.FileSystem" />
-    <Reference Include="System.ServiceProcess" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ONKOS.Core\ONKOS.Core.csproj">
-      <Project>{8C3B2A10-5E4D-4B9A-9F1E-2C3D4E5F6A71}</Project>
+      <Project>{4F1E8A72-3C9B-42E1-8A54-7B2C9D1E6F30}</Project>
       <Name>ONKOS.Core</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ActivityForm.cs" />
     <Compile Include="FirstRunWizardForm.cs" />
+    <Compile Include="LineIcons.cs" />
     <Compile Include="MainForm.cs" />
     <Compile Include="ManualPeerDialog.cs" />
-    <Compile Include="NotificationCenterForm.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SettingsForm.cs" />
     <Compile Include="ThemeManager.cs" />
-    <Compile Include="TransferHistoryForm.cs" />
     <Compile Include="UiResources.cs" />
     <Compile Include="VisualToastForm.cs" />
-    <Compile Include="WelcomeRegistrationForm.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.manifest" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="..\ONKOSFileTransfer\onkos.ico">
-      <Link>onkos.ico</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\ONKOSFileTransfer\recibidos.ico">
-      <Link>recibidos.ico</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
