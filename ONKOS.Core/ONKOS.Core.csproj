@@ -50,6 +50,7 @@
     <Compile Include="Logging\ILogger.cs" />
     <Compile Include="Models\PeerInfo.cs" />
     <Compile Include="Models\TransferHistoryEntry.cs" />
+    <Compile Include="Notifications\NotificationCenterStore.cs" />
     <Compile Include="Protocol\SecureTransferProtocol.cs" />
     <Compile Include="Security\DeviceIdentityStore.cs" />
     <Compile Include="Security\PeerAuthorizationStore.cs" />
