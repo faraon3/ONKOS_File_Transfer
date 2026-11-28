@@ -17,93 +17,81 @@ namespace ONKOS.UI
         private readonly CheckBox _chkAuth;
         private readonly CheckBox _chkSecurity;
         private readonly CheckBox _chkService;
+        private readonly Timer _fadeTimer;
 
         public NotificationCenterForm()
         {
-            Text = "ONKOS File Transfer 2.0 — Centro de Notificaciones (visual, sin sonido)";
-            Size = new Size(920, 540);
-            MinimumSize = new Size(760, 440);
-            StartPosition = FormStartPosition.CenterParent;
-            BackColor = Color.FromArgb(14, 15, 24);
-            ForeColor = Color.FromArgb(246, 247, 252);
-            Font = new Font("Segoe UI", 9.5F);
+            ThemePalette p = ThemeManager.GetCurrentPalette();
 
-            var pnlTop = new Panel
+            Text = "Avisos (visuales · sin sonido)";
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            Size = new Size(900, 520);
+            MinimumSize = new Size(720, 420);
+            StartPosition = FormStartPosition.CenterParent;
+            Opacity = 0.0;
+            BackColor = p.WindowBg;
+            ForeColor = p.TextPrimary;
+            Font = ThemeManager.BaseFont;
+
+            var pnlTop = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 52,
-                BackColor = Color.FromArgb(20, 22, 34),
-                Padding = new Padding(12, 10, 12, 8)
+                Height = 48,
+                BackColor = p.HeaderBg,
+                Padding = new Padding(12, 8, 12, 8)
             };
 
             _chkUnreadOnly = new CheckBox
             {
-                Text = "Solo no leídas",
-                Location = new Point(14, 14),
-                Size = new Size(130, 24)
+                Text = "Solo nuevas",
+                AutoSize = true,
+                Padding = new Padding(0, 5, 10, 0)
             };
             _chkUnreadOnly.CheckedChanged += (s, e) => ReloadNotifications();
+            pnlTop.Controls.Add(_chkUnreadOnly);
 
-            var btnMarkRead = new Button
-            {
-                Text = "Marcar todas leídas",
-                Location = new Point(154, 12),
-                Size = new Size(155, 28),
-                BackColor = Color.FromArgb(38, 41, 62),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
+            var btnMarkRead = new Button { Text = "Marcar leídas", Size = new Size(120, 30) };
+            ThemeManager.StyleButton(btnMarkRead, p);
             btnMarkRead.Click += (s, e) =>
             {
                 NotificationCenterStore.MarkAllAsRead();
                 ReloadNotifications();
             };
+            pnlTop.Controls.Add(btnMarkRead);
 
-            var lblDur = new Label
-            {
-                Text = "Duración (s):",
-                Location = new Point(330, 15),
-                Size = new Size(90, 22)
-            };
+            pnlTop.Controls.Add(new Label { Text = "Segundos:", AutoSize = true, Padding = new Padding(16, 6, 4, 0) });
 
             _numDuration = new NumericUpDown
             {
-                Location = new Point(422, 13),
-                Size = new Size(60, 26),
+                Width = 58,
                 Minimum = 2,
                 Maximum = 30,
                 Value = 6,
-                BackColor = Color.FromArgb(28, 31, 48),
-                ForeColor = Color.White
+                BackColor = p.InputBg,
+                ForeColor = p.TextPrimary
             };
+            pnlTop.Controls.Add(_numDuration);
 
-            var btnSavePrefs = new Button
-            {
-                Text = "Guardar avisos",
-                Location = new Point(494, 12),
-                Size = new Size(125, 28),
-                BackColor = Color.FromArgb(124, 77, 224),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
+            var btnSavePrefs = new Button { Text = "Guardar", Size = new Size(95, 30) };
+            ThemeManager.StyleButton(btnSavePrefs, p, isPrimary: true);
             btnSavePrefs.Click += BtnSavePrefs_Click;
+            pnlTop.Controls.Add(btnSavePrefs);
 
-            pnlTop.Controls.AddRange(new Control[] { _chkUnreadOnly, btnMarkRead, lblDur, _numDuration, btnSavePrefs });
-
-            var pnlPrefs = new Panel
+            var pnlPrefs = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 38,
-                BackColor = Color.FromArgb(18, 20, 32),
-                Padding = new Padding(12, 6, 12, 6)
+                Height = 36,
+                BackColor = p.WindowBg,
+                Padding = new Padding(12, 6, 12, 4)
             };
 
-            _chkSent = new CheckBox { Text = "Envíos", Location = new Point(14, 8), Size = new Size(85, 22) };
-            _chkReceived = new CheckBox { Text = "Recepciones", Location = new Point(105, 8), Size = new Size(110, 22) };
-            _chkErrors = new CheckBox { Text = "Errores", Location = new Point(220, 8), Size = new Size(85, 22) };
-            _chkAuth = new CheckBox { Text = "Autorización", Location = new Point(310, 8), Size = new Size(115, 22) };
-            _chkSecurity = new CheckBox { Text = "Seguridad", Location = new Point(430, 8), Size = new Size(100, 22) };
-            _chkService = new CheckBox { Text = "Servicio", Location = new Point(535, 8), Size = new Size(90, 22) };
+            _chkSent = new CheckBox { Text = "Envíos", AutoSize = true, Padding = new Padding(0, 0, 10, 0) };
+            _chkReceived = new CheckBox { Text = "Recepciones", AutoSize = true, Padding = new Padding(0, 0, 10, 0) };
+            _chkErrors = new CheckBox { Text = "Errores", AutoSize = true, Padding = new Padding(0, 0, 10, 0) };
+            _chkAuth = new CheckBox { Text = "Autorización", AutoSize = true, Padding = new Padding(0, 0, 10, 0) };
+            _chkSecurity = new CheckBox { Text = "Seguridad", AutoSize = true, Padding = new Padding(0, 0, 10, 0) };
+            _chkService = new CheckBox { Text = "Servicio", AutoSize = true };
 
             pnlPrefs.Controls.AddRange(new Control[] { _chkSent, _chkReceived, _chkErrors, _chkAuth, _chkSecurity, _chkService });
 
@@ -112,19 +100,33 @@ namespace ONKOS.UI
                 Dock = DockStyle.Fill,
                 View = View.Details,
                 FullRowSelect = true,
-                BackColor = Color.FromArgb(18, 20, 32),
-                ForeColor = Color.FromArgb(242, 244, 252),
-                BorderStyle = BorderStyle.None
+                BackColor = p.CardBg,
+                ForeColor = p.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle
             };
-            _lvNotifs.Columns.Add("Hora", 140);
-            _lvNotifs.Columns.Add("Estado", 85);
-            _lvNotifs.Columns.Add("Tipo", 125);
+            _lvNotifs.Columns.Add("Hora", 145);
+            _lvNotifs.Columns.Add("Estado", 80);
+            _lvNotifs.Columns.Add("Tipo", 120);
             _lvNotifs.Columns.Add("Aviso", 220);
-            _lvNotifs.Columns.Add("Remitente / Destino", 170);
+            _lvNotifs.Columns.Add("Origen / Destino", 180);
             _lvNotifs.Columns.Add("Detalle", 240);
+
+            _fadeTimer = new Timer { Interval = 20 };
+            _fadeTimer.Tick += (s, e) =>
+            {
+                if (Opacity < 1.0)
+                    Opacity = Math.Min(1.0, Opacity + 0.16);
+                else
+                    _fadeTimer.Stop();
+            };
 
             Controls.AddRange(new Control[] { _lvNotifs, pnlPrefs, pnlTop });
             Load += OnFormLoad;
+            FormClosed += (s, e) =>
+            {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
+            };
         }
 
         private void OnFormLoad(object sender, EventArgs e)
@@ -139,6 +141,7 @@ namespace ONKOS.UI
             _chkService.Checked = prefs.EnableServiceStatus;
 
             ReloadNotifications();
+            _fadeTimer.Start();
         }
 
         private void BtnSavePrefs_Click(object sender, EventArgs e)
