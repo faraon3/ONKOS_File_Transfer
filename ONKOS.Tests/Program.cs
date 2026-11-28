@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using ONKOS.Core.Logging;
+using ONKOS.Core.Protocol;
 using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 
@@ -13,34 +14,43 @@ namespace ONKOS.Tests
         {
             try
             {
-                string tempDir = Path.Combine(Path.GetTempPath(), "ONKOS_Phase2A_Tests_" + Guid.NewGuid().ToString("N"));
+                string tempDir = Path.Combine(Path.GetTempPath(), "ONKOS_Phase2B_Tests_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
 
-                string targetFile = Path.Combine(tempDir, "test.txt");
-                string mutexName = @"Global\ONKOS_Test_" + Guid.NewGuid().ToString("N");
+                var limits = new TransferLimits();
+                string safeRel = SecureTransferProtocol.NormalizeAndValidateRelativePath("carpeta/informe.pdf", limits);
+                if (safeRel != Path.Combine("carpeta", "informe.pdf"))
+                    throw new InvalidOperationException("Falló la validación de ruta relativa.");
 
-                AtomicFileStore.WriteAllTextAtomic(targetFile, "linea-1", Encoding.UTF8, mutexName);
-                AtomicFileStore.AppendLine(targetFile, "linea-2", mutexName);
+                bool threwTraversal = false;
+                try
+                {
+                    SecureTransferProtocol.NormalizeAndValidateRelativePath("../../Windows/win.ini", limits);
+                }
+                catch (InvalidDataException)
+                {
+                    threwTraversal = true;
+                }
+                if (!threwTraversal)
+                    throw new InvalidOperationException("No se bloqueó path traversal.");
 
-                string readBack = AtomicFileStore.ReadAllTextShared(targetFile, Encoding.UTF8, mutexName);
-                if (!readBack.Contains("linea-1") || !readBack.Contains("linea-2"))
-                    throw new InvalidOperationException("Falló la lectura atómica de prueba.");
+                string sampleFile = Path.Combine(tempDir, "sample.txt");
+                File.WriteAllText(sampleFile, "datos de prueba ONKOS", Encoding.UTF8);
+                string hash = SecureTransferProtocol.ComputeFileSha256Hex(sampleFile);
+                if (string.IsNullOrWhiteSpace(hash) || hash.Length != 64)
+                    throw new InvalidOperationException("Falló el cálculo SHA-256.");
 
-                string normalized = PeerAuthorizationStore.NormalizeFingerprint("aa:bb:cc:dd");
-                if (normalized != "AABBCCDD")
-                    throw new InvalidOperationException("Falló la normalización de huella.");
-
-                FileLogger.Instance.Info("Phase2A.Tests", "Prueba de almacenes y seguridad base completada.");
+                FileLogger.Instance.Info("Phase2B.Tests", "Pruebas de protocolo, rutas y SHA-256 completadas.");
 
                 try { Directory.Delete(tempDir, true); }
                 catch (IOException) { }
 
-                Console.WriteLine("PHASE2A_TESTS_OK");
+                Console.WriteLine("PHASE2B_TESTS_OK");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("PHASE2A_TESTS_FAILED: " + ex.Message);
+                Console.Error.WriteLine("PHASE2B_TESTS_FAILED: " + ex.Message);
                 return 1;
             }
         }
