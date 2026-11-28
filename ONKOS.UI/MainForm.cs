@@ -489,8 +489,8 @@ namespace ONKOS.UI
 
                 using (NetworkStream rawStream = client.GetStream())
                 using (SslStream sslStream = await SecureTransferProtocol.AuthenticateClientAsync(rawStream, host, token).ConfigureAwait(false))
-                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
-                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
+                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, true))
+                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, true))
                 {
                     string senderName = _localProfile != null ? _localProfile.FullName : Environment.UserName;
                     string senderArea = _localProfile != null ? _localProfile.Area : string.Empty;
