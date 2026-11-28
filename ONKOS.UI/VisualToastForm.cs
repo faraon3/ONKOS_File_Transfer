@@ -8,9 +8,11 @@ namespace ONKOS.UI
     public sealed class VisualToastForm : Form
     {
         private readonly Timer _closeTimer;
-        private readonly Timer _fadeTimer;
+        private readonly Timer _animTimer;
+        private readonly int _targetX;
+        private readonly int _targetY;
 
-        public VisualToastForm(NotificationRecord record, int durationSeconds)
+        public VisualToastForm(NotificationRecord record, int durationSeconds, Action onOpenAction = null)
         {
             ThemePalette p = ThemeManager.GetCurrentPalette();
 
@@ -18,68 +20,91 @@ namespace ONKOS.UI
             ShowInTaskbar = false;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
-            Size = new Size(356, 94);
-            BackColor = p.CardBg;
+            Size = new Size(340, 68);
+            BackColor = p.SurfaceBg;
             ForeColor = p.TextPrimary;
-            Font = ThemeManager.BaseFont;
-            Opacity = 0.0;
+            Font = ThemeManager.BodyFont;
+            Opacity = ThemeManager.AreAnimationsEnabled() ? 0.0 : 0.96;
 
-            var lblCat = new Label
-            {
-                Text = GetCategoryLabel(record.Category),
-                Font = ThemeManager.BoldFont,
-                ForeColor = p.PrimaryAccent,
-                Location = new Point(14, 10),
-                Size = new Size(295, 18)
-            };
-
-            var btnClose = new Button
-            {
-                Text = "×",
-                Location = new Point(320, 6),
-                Size = new Size(26, 22),
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = p.TextSecondary,
-                BackColor = p.CardBg,
-                Cursor = Cursors.Hand
-            };
-            btnClose.FlatAppearance.BorderSize = 0;
-            btnClose.Click += (s, e) => Close();
+            Screen screen = Screen.FromPoint(Cursor.Position) ?? Screen.PrimaryScreen;
+            Rectangle work = screen.WorkingArea;
+            _targetX = Math.Max(work.Left + 12, work.Right - Width - 16);
+            _targetY = Math.Max(work.Top + 12, work.Bottom - Height - 16);
+            Location = new Point(_targetX, ThemeManager.AreAnimationsEnabled() ? _targetY + 14 : _targetY);
 
             var lblTitle = new Label
             {
-                Text = record.Title ?? string.Empty,
-                Font = ThemeManager.BoldFont,
+                Text = record.Title ?? "Aviso",
+                Font = ThemeManager.BodyFont,
                 ForeColor = p.TextPrimary,
-                Location = new Point(14, 30),
-                Size = new Size(328, 20)
+                Location = new Point(42, 13),
+                Size = new Size(210, 20)
             };
 
-            var lblPeer = new Label
+            var lblSub = new Label
             {
                 Text = record.SenderOrTarget ?? string.Empty,
+                Font = ThemeManager.SecondaryFont,
                 ForeColor = p.TextSecondary,
-                Location = new Point(14, 52),
-                Size = new Size(328, 18)
+                Location = new Point(42, 34),
+                Size = new Size(210, 18)
             };
 
-            var lblDetail = new Label
+            var btnOpen = new Button
             {
-                Text = record.Detail ?? string.Empty,
-                ForeColor = p.TextSecondary,
-                Location = new Point(14, 71),
-                Size = new Size(328, 18)
+                Text = "Abrir",
+                Size = new Size(68, 30),
+                Location = new Point(258, 19)
+            };
+            ThemeManager.ConfigureSmoothButton(btnOpen, p, ButtonVariant.Secondary, 10);
+            btnOpen.Click += (s, e) =>
+            {
+                Close();
+                if (onOpenAction != null)
+                    onOpenAction();
             };
 
-            Controls.AddRange(new Control[] { lblCat, btnClose, lblTitle, lblPeer, lblDetail });
-            ThemeManager.ApplyRoundedRegion(this, 12);
-            PositionOnActiveMonitor();
+            Paint += (s, e) =>
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var r = new RectangleF(0.5F, 0.5F, Width - 1F, Height - 1F);
+                using (var gp = ThemeManager.CreateRoundedRectangle(r, 14F))
+                using (var b = new SolidBrush(p.SurfaceBg))
+                using (var pen = new Pen(p.BorderSoft, 1F))
+                {
+                    e.Graphics.FillPath(b, gp);
+                    e.Graphics.DrawPath(pen, gp);
+                }
 
-            _fadeTimer = new Timer { Interval = 25 };
-            _fadeTimer.Tick += OnFadeTick;
+                Color iconCol = record.Category == NotificationCategory.Error ? p.StatusError : p.AccentStart;
+                LineIconKind kind = record.Category == NotificationCategory.Error ? LineIconKind.ErrorCircle : LineIconKind.CheckCircle;
+                LineIcons.DrawIcon(e.Graphics, kind, new Rectangle(12, 21, 22, 22), iconCol, 1.75F);
+            };
 
-            int intervalMs = Math.Max(2, Math.Min(30, durationSeconds)) * 1000;
-            _closeTimer = new Timer { Interval = intervalMs };
+            Controls.AddRange(new Control[] { lblTitle, lblSub, btnOpen });
+
+            _animTimer = new Timer { Interval = 18 };
+            _animTimer.Tick += (s, e) =>
+            {
+                if (IsDisposed || Disposing) return;
+                if (!ThemeManager.AreAnimationsEnabled())
+                {
+                    Location = new Point(_targetX, _targetY);
+                    Opacity = 0.96;
+                    _animTimer.Stop();
+                    return;
+                }
+
+                if (Location.Y > _targetY)
+                    Location = new Point(_targetX, Math.Max(_targetY, Location.Y - 3));
+                if (Opacity < 0.96)
+                    Opacity = Math.Min(0.96, Opacity + 0.16);
+                if (Location.Y <= _targetY && Opacity >= 0.96)
+                    _animTimer.Stop();
+            };
+
+            int ms = Math.Max(2, Math.Min(20, durationSeconds)) * 1000;
+            _closeTimer = new Timer { Interval = ms };
             _closeTimer.Tick += (s, e) =>
             {
                 _closeTimer.Stop();
@@ -88,60 +113,18 @@ namespace ONKOS.UI
 
             Shown += (s, e) =>
             {
-                _fadeTimer.Start();
+                _animTimer.Start();
                 _closeTimer.Start();
             };
-
             FormClosed += (s, e) =>
             {
-                _fadeTimer.Stop();
-                _fadeTimer.Dispose();
+                _animTimer.Stop();
+                _animTimer.Dispose();
                 _closeTimer.Stop();
                 _closeTimer.Dispose();
             };
         }
 
         protected override bool ShowWithoutActivation => true;
-
-        private void OnFadeTick(object sender, EventArgs e)
-        {
-            if (IsDisposed || Disposing)
-                return;
-
-            if (Opacity < 0.96)
-                Opacity = Math.Min(0.96, Opacity + 0.16);
-            else
-                _fadeTimer.Stop();
-        }
-
-        private void PositionOnActiveMonitor()
-        {
-            Screen targetScreen = Screen.FromPoint(Cursor.Position) ?? Screen.PrimaryScreen;
-            Rectangle work = targetScreen.WorkingArea;
-            int x = work.Right - Width - 16;
-            int y = work.Bottom - Height - 16;
-            Location = new Point(Math.Max(work.Left + 8, x), Math.Max(work.Top + 8, y));
-        }
-
-        private static string GetCategoryLabel(NotificationCategory cat)
-        {
-            switch (cat)
-            {
-                case NotificationCategory.Sent:
-                    return "ENVÍO";
-                case NotificationCategory.Received:
-                    return "RECEPCIÓN";
-                case NotificationCategory.Error:
-                    return "ERROR";
-                case NotificationCategory.AuthorizationRequest:
-                    return "AUTORIZACIÓN";
-                case NotificationCategory.SecurityChange:
-                    return "SEGURIDAD";
-                case NotificationCategory.ServiceStatus:
-                    return "SERVICIO";
-                default:
-                    return "AVISO";
-            }
-        }
     }
 }
