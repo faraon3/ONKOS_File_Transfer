@@ -36,7 +36,9 @@ namespace ONKOS.Service
             }
             catch (Exception logEx)
             {
-                FileLogger.Instance.Warn("ServiceNotifier", "No se pudo escribir en Event Log de Windows.", logEx);
+                FileLogger.Instance.Warn(
+                    "ServiceNotifier",
+                    $"No se pudo escribir en Event Log de Windows ({logEx.GetType().Name}: {logEx.Message}).");
             }
         }
     }
