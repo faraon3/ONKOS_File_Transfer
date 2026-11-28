@@ -199,8 +199,8 @@ namespace ONKOS.Service
                 using (client)
                 using (NetworkStream rawStream = client.GetStream())
                 using (SslStream sslStream = await SecureTransferProtocol.AuthenticateServerAsync(rawStream, token).ConfigureAwait(false))
-                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
-                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
+                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, true))
+                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, true))
                 {
                     string senderFingerprint = SecureTransferProtocol.GetRemoteFingerprintSha256(sslStream);
                     if (string.IsNullOrWhiteSpace(senderFingerprint))
