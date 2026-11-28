@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
+using ONKOS.Core.Notifications;
 using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 using ONKOS.Core.Transfers;
@@ -24,9 +25,12 @@ namespace ONKOS.UI
         private readonly LanDiscoveryService _discovery = new LanDiscoveryService();
         private readonly TransferQueueManager _queue = new TransferQueueManager();
         private readonly CancellationTokenSource _uiCts = new CancellationTokenSource();
+        private readonly System.Windows.Forms.Timer _liveSyncTimer;
 
         private PeerInfo _localProfile;
         private long _cachedSelectionBytes;
+        private int _lastSeenUnseenCount = -1;
+        private string _lastShownNotificationId;
 
         private readonly Label _lblIdentity;
         private readonly Label _lblInboxPath;
@@ -44,6 +48,7 @@ namespace ONKOS.UI
         private readonly Button _btnPauseResume;
         private readonly Button _btnCancelQueue;
         private readonly Button _btnRetryFailed;
+        private readonly Button _btnNotifications;
         private readonly Button _btnInbox;
         private readonly Button _btnHistory;
         private readonly Button _btnSettings;
@@ -55,8 +60,8 @@ namespace ONKOS.UI
             _queue.SetLocalProfile(_localProfile);
 
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(860, 650);
-            MinimumSize = new Size(760, 560);
+            Size = new Size(900, 650);
+            MinimumSize = new Size(780, 560);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
@@ -105,8 +110,8 @@ namespace ONKOS.UI
             _btnProfile = new Button
             {
                 Text = "Mi Perfil",
-                Location = new Point(500, 16),
-                Size = new Size(80, 30),
+                Location = new Point(435, 16),
+                Size = new Size(78, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -116,8 +121,8 @@ namespace ONKOS.UI
             _btnHistory = new Button
             {
                 Text = "Historial",
-                Location = new Point(586, 16),
-                Size = new Size(84, 30),
+                Location = new Point(519, 16),
+                Size = new Size(82, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -126,13 +131,29 @@ namespace ONKOS.UI
             {
                 using (var dlg = new TransferHistoryForm())
                     dlg.ShowDialog(this);
-                RefreshInboxBadgeText();
+                RefreshInboxBadgeText(force: true);
+            };
+
+            _btnNotifications = new Button
+            {
+                Text = "Avisos",
+                Location = new Point(607, 16),
+                Size = new Size(76, 30),
+                BackColor = Color.FromArgb(38, 41, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _btnNotifications.Click += (s, e) =>
+            {
+                using (var dlg = new NotificationCenterForm())
+                    dlg.ShowDialog(this);
+                RefreshInboxBadgeText(force: true);
             };
 
             _btnSettings = new Button
             {
                 Text = "Configuración",
-                Location = new Point(676, 16),
+                Location = new Point(689, 16),
                 Size = new Size(92, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -143,15 +164,15 @@ namespace ONKOS.UI
             _btnInbox = new Button
             {
                 Text = "Recibidos",
-                Location = new Point(774, 16),
-                Size = new Size(68, 30),
+                Location = new Point(787, 16),
+                Size = new Size(94, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
             };
             _btnInbox.Click += (s, e) => OpenInboxFolder();
 
-            pnlTop.Controls.AddRange(new Control[] { lblTitle, _lblIdentity, _btnProfile, _btnHistory, _btnSettings, _btnInbox });
+            pnlTop.Controls.AddRange(new Control[] { lblTitle, _lblIdentity, _btnProfile, _btnHistory, _btnNotifications, _btnSettings, _btnInbox });
 
             var lblTarget = new Label
             {
@@ -200,7 +221,7 @@ namespace ONKOS.UI
             _clbPeers = new CheckedListBox
             {
                 Location = new Point(18, 130),
-                Size = new Size(818, 105),
+                Size = new Size(858, 105),
                 CheckOnClick = true,
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
@@ -218,7 +239,7 @@ namespace ONKOS.UI
             _btnAddFiles = new Button
             {
                 Text = "+ Adjuntar",
-                Location = new Point(630, 241),
+                Location = new Point(670, 241),
                 Size = new Size(100, 28),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -229,7 +250,7 @@ namespace ONKOS.UI
             _btnRemoveFile = new Button
             {
                 Text = "Quitar",
-                Location = new Point(738, 241),
+                Location = new Point(778, 241),
                 Size = new Size(98, 28),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -240,7 +261,7 @@ namespace ONKOS.UI
             _lstFiles = new ListBox
             {
                 Location = new Point(18, 274),
-                Size = new Size(818, 92),
+                Size = new Size(858, 92),
                 SelectionMode = SelectionMode.MultiExtended,
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
@@ -258,7 +279,7 @@ namespace ONKOS.UI
             _btnPauseResume = new Button
             {
                 Text = "Pausar",
-                Location = new Point(526, 369),
+                Location = new Point(566, 369),
                 Size = new Size(92, 26),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -269,7 +290,7 @@ namespace ONKOS.UI
             _btnCancelQueue = new Button
             {
                 Text = "Cancelar",
-                Location = new Point(626, 369),
+                Location = new Point(666, 369),
                 Size = new Size(96, 26),
                 BackColor = Color.FromArgb(120, 42, 60),
                 ForeColor = Color.White,
@@ -280,7 +301,7 @@ namespace ONKOS.UI
             _btnRetryFailed = new Button
             {
                 Text = "Reintentar fallidos",
-                Location = new Point(730, 369),
+                Location = new Point(770, 369),
                 Size = new Size(106, 26),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -291,7 +312,7 @@ namespace ONKOS.UI
             _lstQueue = new ListBox
             {
                 Location = new Point(18, 399),
-                Size = new Size(818, 120),
+                Size = new Size(858, 120),
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(225, 232, 250),
                 BorderStyle = BorderStyle.FixedSingle
@@ -307,9 +328,9 @@ namespace ONKOS.UI
 
             _lblStatus = new Label
             {
-                Text = "Listo. Cola activa en segundo plano y canal cifrado TLS 1.2+.",
+                Text = "Listo. Avisos visuales sin sonido y contador sincronizado entre procesos.",
                 Location = new Point(16, 10),
-                Size = new Size(640, 22),
+                Size = new Size(680, 22),
                 ForeColor = Color.FromArgb(215, 220, 240)
             };
 
@@ -317,14 +338,14 @@ namespace ONKOS.UI
             {
                 Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder(),
                 Location = new Point(16, 36),
-                Size = new Size(640, 22),
+                Size = new Size(680, 22),
                 ForeColor = Color.FromArgb(155, 162, 192)
             };
 
             _btnSend = new Button
             {
                 Text = "Enviar",
-                Location = new Point(682, 16),
+                Location = new Point(722, 16),
                 Size = new Size(154, 40),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -333,6 +354,9 @@ namespace ONKOS.UI
             _btnSend.Click += BtnSend_Click;
 
             pnlBottom.Controls.AddRange(new Control[] { _lblStatus, _lblInboxPath, _btnSend });
+
+            _liveSyncTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+            _liveSyncTimer.Tick += OnLiveSyncTimerTick;
 
             _discovery.PeersUpdated += OnDiscoveryPeersUpdated;
             _discovery.NewPeerDiscovered += OnNewPeerDiscovered;
@@ -369,16 +393,20 @@ namespace ONKOS.UI
 
         private void OnMainFormLoad(object sender, EventArgs e)
         {
-            RefreshInboxBadgeText();
+            RefreshInboxBadgeText(force: true);
             _queue.EnsureStarted();
             _discovery.Start(_localProfile);
             RefreshGroupsCombo();
             RefreshPeersList();
             RefreshQueueList();
+            _liveSyncTimer.Start();
         }
 
         private void OnMainFormClosed(object sender, FormClosedEventArgs e)
         {
+            _liveSyncTimer.Stop();
+            _liveSyncTimer.Dispose();
+
             try { _uiCts.Cancel(); }
             catch (ObjectDisposedException) { }
 
@@ -390,6 +418,37 @@ namespace ONKOS.UI
 
             _discovery.Dispose();
             _uiCts.Dispose();
+        }
+
+        private void OnLiveSyncTimerTick(object sender, EventArgs e)
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            RefreshInboxBadgeText(force: false);
+            CheckNewUnreadNotifications();
+        }
+
+        private void CheckNewUnreadNotifications()
+        {
+            List<NotificationRecord> unread = NotificationCenterStore.GetAll(onlyUnread: true);
+            int unreadCount = unread.Count;
+            _btnNotifications.Text = unreadCount > 0 ? $"Avisos ({unreadCount})" : "Avisos";
+
+            if (unread.Count == 0)
+                return;
+
+            NotificationRecord latest = unread[0];
+            if (string.Equals(latest.Id, _lastShownNotificationId, StringComparison.Ordinal))
+                return;
+
+            _lastShownNotificationId = latest.Id;
+            NotificationPreferences prefs = NotificationCenterStore.LoadPreferences();
+            if (NotificationCenterStore.IsCategoryEnabled(prefs, latest.Category))
+            {
+                var toast = new VisualToastForm(latest, prefs.ToastDurationSeconds);
+                toast.Show();
+            }
         }
 
         private void OnDiscoveryPeersUpdated()
@@ -428,6 +487,13 @@ namespace ONKOS.UI
             if (IsDisposed || Disposing || record == null)
                 return;
 
+            NotificationCenterStore.PublishGrouped(
+                NotificationCategory.AuthorizationRequest,
+                "auth-" + record.FingerprintSha256,
+                "Solicitud de autorización pendiente",
+                $"{record.DisplayName} ({record.LastIp})",
+                $"Huella: {record.FingerprintSha256}");
+
             if (InvokeRequired)
             {
                 try { BeginInvoke(new Action(() => ShowSilentBanner($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})"))); }
@@ -457,6 +523,16 @@ namespace ONKOS.UI
         {
             if (IsDisposed || Disposing || snapshot == null || snapshot.Count == 0)
                 return;
+
+            int ok = snapshot.Count(j => j.State == QueueJobState.Completed);
+            int fail = snapshot.Count(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
+
+            NotificationCenterStore.PublishGrouped(
+                fail > 0 ? NotificationCategory.Error : NotificationCategory.Sent,
+                "batch-summary",
+                "Envío finalizado",
+                $"{ok} ok / {fail} fallidos",
+                $"Total en lote: {snapshot.Count} transferencia(s)");
 
             if (InvokeRequired)
             {
@@ -640,10 +716,15 @@ namespace ONKOS.UI
             return $"{name} ({area})  •  IP: {ip}  •  Equipo: {Environment.MachineName}";
         }
 
-        private void RefreshInboxBadgeText()
+        private void RefreshInboxBadgeText(bool force)
         {
             int unseen = TransferHistoryStore.GetUnseenReceivedCount();
-            _btnInbox.Text = unseen > 0 ? $"Recibidos ({unseen})" : "Recibidos";
+            if (force || unseen != _lastSeenUnseenCount)
+            {
+                _lastSeenUnseenCount = unseen;
+                _btnInbox.Text = unseen > 0 ? $"Recibidos ({unseen})" : "Recibidos";
+            }
+
             _lblInboxPath.Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder();
         }
 
@@ -660,7 +741,7 @@ namespace ONKOS.UI
                 }
 
                 TransferHistoryStore.MarkReceivedAsSeen();
-                RefreshInboxBadgeText();
+                RefreshInboxBadgeText(force: true);
                 Process.Start("explorer.exe", folder);
             }
             catch (Exception ex)
@@ -678,7 +759,7 @@ namespace ONKOS.UI
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    RefreshInboxBadgeText();
+                    RefreshInboxBadgeText(force: true);
                     _lblStatus.Text = "Carpeta de recibidos actualizada.";
                 }
             }
