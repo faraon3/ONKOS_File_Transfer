@@ -153,7 +153,7 @@ namespace ONKOS.UI
         {
             FileLogger.Instance.Error("UI.ThreadException", "Error no controlado en hilo de interfaz.", e.Exception);
             MessageBox.Show(
-                "Ocurrió un error inesperado en la interfaz. Puedes revisar el detalle en el registro de ONKOS.",
+                "Ocurrió un error inesperado en la interfaz.",
                 UiResources.AppTitle,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
