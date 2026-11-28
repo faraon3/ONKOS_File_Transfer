@@ -1,8 +1,8 @@
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.ServiceProcess;
@@ -25,41 +25,62 @@ namespace ONKOS.UI
         private readonly TransferQueueManager _queue = new TransferQueueManager();
         private readonly CancellationTokenSource _uiCts = new CancellationTokenSource();
         private readonly System.Windows.Forms.Timer _liveSyncTimer;
-        private readonly System.Windows.Forms.Timer _fadeInTimer;
+        private readonly System.Windows.Forms.Timer _fadeTimer;
         private readonly NotifyIcon _trayIcon;
         private readonly ContextMenuStrip _trayMenu;
-        private readonly ContextMenuStrip _addMenu;
-        private readonly ContextMenuStrip _moreMenu;
+        private readonly ContextMenuStrip _avatarMenu;
 
         private PeerInfo _localProfile;
         private ThemePalette _palette;
         private long _cachedSelectionBytes;
         private int _lastSeenUnseenCount = -1;
         private string _lastShownNotificationId;
-        private string _lastTechnicalError = string.Empty;
+        private string _activeAreaFilter = "Todos";
+        private bool _isSendingMode;
+        private bool _isDragHovering;
+        private int _hoveredFileIndex = -1;
+        private string _hoveredQueueJobId = string.Empty;
 
-        private readonly Label _lblIdentity;
-        private readonly Label _lblInboxPath;
-        private readonly Label _lblStatus;
-        private readonly Label _lblSelectionSize;
-        private readonly ComboBox _cmbGroupOrArea;
-        private readonly Button _btnSelectGroup;
-        private readonly Button _btnSelectAllPeers;
-        private readonly Button _btnAddManualPeer;
-        private readonly CheckedListBox _clbPeers;
-        private readonly ListBox _lstFiles;
-        private readonly ListBox _lstQueue;
-        private readonly Button _btnAddItem;
-        private readonly Button _btnRemoveItem;
-        private readonly Button _btnSend;
-        private readonly Button _btnDetails;
-        private readonly Button _btnMore;
-        private readonly Button _btnPauseResume;
-        private readonly Button _btnCancelQueue;
-        private readonly Button _btnRetryFailed;
-        private readonly Button _btnNotifications;
-        private readonly Button _btnInbox;
-        private readonly Button _btnHistory;
+        private readonly List<string> _selectedPaths = new List<string>();
+        private readonly HashSet<string> _selectedPeerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _expandedQueueErrors = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // Cabecera
+        private readonly Panel _pnlHeader;
+        private readonly Panel _pnlAvatarBtn;
+        private readonly Panel _pnlBellBtn;
+        private readonly Label _lblUserName;
+        private readonly Label _lblUserArea;
+        private bool _hasUnreadNotifications;
+
+        // Estado 1: Vacío
+        private readonly Panel _pnlEmptyState;
+        private readonly Panel _pnlDropZone;
+        private readonly LinkLabel _lnkChooseFolder;
+
+        // Estado 2: Con archivos y destinatarios
+        private readonly Panel _pnlComposeState;
+        private readonly Button _btnAddMoreBar;
+        private readonly Label _lblFilesSummary;
+        private readonly Panel _pnlFilesList;
+        private readonly FlowLayoutPanel _pnlAreaChips;
+        private readonly TextBox _txtPeerSearch;
+        private readonly Panel _pnlPeersList;
+
+        // Estado 3: Enviando / Cola
+        private readonly Panel _pnlSendingState;
+        private readonly Label _lblSendSummary;
+        private readonly LinkLabel _lnkEditBatch;
+        private readonly Label _lblSendingProgressTitle;
+        private readonly Panel _pnlQueueList;
+
+        // Pie
+        private readonly Panel _pnlFooter;
+        private readonly Panel _pnlLockBadge;
+        private readonly Panel _pnlServiceDot;
+        private readonly Label _lblServiceStatus;
+        private readonly Button _btnNewReceivedChip;
+        private readonly Button _btnSendPill;
 
         public MainForm(PeerInfo profile)
         {
@@ -70,15 +91,15 @@ namespace ONKOS.UI
             Text = UiResources.AppTitle;
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
-            Size = new Size(920, 680);
-            MinimumSize = new Size(760, 560);
+            Size = new Size(460, 760);
+            MinimumSize = new Size(400, 620);
             StartPosition = FormStartPosition.CenterScreen;
             KeyPreview = true;
             AllowDrop = true;
-            Opacity = 0.0;
+            Opacity = ThemeManager.AreAnimationsEnabled() ? 0.0 : 1.0;
             BackColor = _palette.WindowBg;
             ForeColor = _palette.TextPrimary;
-            Font = ThemeManager.BaseFont;
+            Font = ThemeManager.BodyFont;
 
             Icon loadedIcon = null;
             try
@@ -95,285 +116,328 @@ namespace ONKOS.UI
                 FileLogger.Instance.Warn("UI.MainForm", $"No se pudo cargar icono ({ex.Message}).");
             }
 
-            // Cabecera limpia con acciones clave y menú desplegable
-            var pnlTop = new Panel
+            // Cabecera mínima
+            _pnlHeader = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 66,
-                BackColor = _palette.HeaderBg,
-                Padding = new Padding(16, 8, 16, 8)
+                Height = 68,
+                BackColor = _palette.WindowBg,
+                Padding = new Padding(18, 12, 18, 8)
             };
+            _pnlHeader.Paint += OnHeaderPaint;
 
-            var lblTitle = new Label
+            _lblUserName = new Label
             {
                 Text = UiResources.AppTitle,
-                Font = ThemeManager.HeaderTitleFont,
-                ForeColor = _palette.PrimaryAccent,
-                Location = new Point(16, 8),
+                Font = ThemeManager.SectionFont,
+                ForeColor = _palette.TextPrimary,
+                Location = new Point(58, 10),
                 AutoSize = true
             };
 
-            _lblIdentity = new Label
+            _lblUserArea = new Label
             {
-                Text = BuildIdentityText(),
+                Text = BuildUserSubtitle(),
+                Font = ThemeManager.SecondaryFont,
                 ForeColor = _palette.TextSecondary,
-                Location = new Point(17, 36),
+                Location = new Point(58, 34),
                 AutoSize = true
             };
 
-            _moreMenu = new ContextMenuStrip();
-            _moreMenu.Items.Add("Mi perfil", null, (s, e) => OpenProfileWizard());
-            _moreMenu.Items.Add("Configuración y diagnóstico", null, (s, e) => OpenSettings());
-            var themeSub = new ToolStripMenuItem("Tema visual");
-            themeSub.DropDownItems.Add("Oscuro", null, (s, e) => ApplyTheme(AppThemeMode.Dark));
-            themeSub.DropDownItems.Add("Claro", null, (s, e) => ApplyTheme(AppThemeMode.Light));
-            themeSub.DropDownItems.Add("Alto contraste", null, (s, e) => ApplyTheme(AppThemeMode.HighContrast));
-            _moreMenu.Items.Add(themeSub);
-            _moreMenu.Items.Add("Ayuda y atajos (F1)", null, (s, e) => ShowHelpDialog());
+            _avatarMenu = new ContextMenuStrip();
+            _avatarMenu.Items.Add("Mi perfil", null, (s, e) => OpenProfileWizard());
+            _avatarMenu.Items.Add("Configuración", null, (s, e) => OpenSettings());
+            _avatarMenu.Items.Add("Ayuda", null, (s, e) => ShowHelpDialog());
 
-            var topButtons = new FlowLayoutPanel
+            _pnlAvatarBtn = new Panel
             {
-                Dock = DockStyle.Right,
-                FlowDirection = FlowDirection.LeftToRight,
+                Size = new Size(34, 34),
+                Location = new Point(Width - 54, 17),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Cursor = Cursors.Hand
+            };
+            _pnlAvatarBtn.Paint += OnAvatarPaint;
+            _pnlAvatarBtn.Click += (s, e) => _avatarMenu.Show(_pnlAvatarBtn, new Point(0, _pnlAvatarBtn.Height + 6));
+
+            _pnlBellBtn = new Panel
+            {
+                Size = new Size(34, 34),
+                Location = new Point(Width - 94, 17),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Cursor = Cursors.Hand
+            };
+            _pnlBellBtn.Paint += OnBellPaint;
+            _pnlBellBtn.Click += (s, e) => OpenActivityWindow("Alertas");
+
+            _pnlHeader.Controls.AddRange(new Control[] { _lblUserName, _lblUserArea, _pnlBellBtn, _pnlAvatarBtn });
+
+            // Estado 1: Vacío
+            _pnlEmptyState = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = _palette.WindowBg,
+                Padding = new Padding(18, 6, 18, 10)
+            };
+
+            _pnlDropZone = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = _palette.SurfaceBg,
+                Cursor = Cursors.Hand
+            };
+            _pnlDropZone.Paint += OnDropZonePaint;
+            _pnlDropZone.Click += (s, e) => PickFilesDialog();
+            _pnlDropZone.DragEnter += OnDragEnter;
+            _pnlDropZone.DragOver += OnDragOver;
+            _pnlDropZone.DragLeave += OnDragLeave;
+            _pnlDropZone.DragDrop += OnDragDrop;
+
+            _lnkChooseFolder = new LinkLabel
+            {
+                Text = UiResources.ChooseFolderLink,
+                Font = ThemeManager.SecondaryFont,
+                LinkColor = _palette.AccentStart,
+                ActiveLinkColor = _palette.AccentEnd,
+                VisitedLinkColor = _palette.AccentStart,
+                LinkBehavior = LinkBehavior.HoverUnderline,
                 AutoSize = true,
-                WrapContents = false,
+                BackColor = _palette.SurfaceBg
+            };
+            _lnkChooseFolder.Click += (s, e) => PickFolderDialog();
+            _pnlDropZone.Controls.Add(_lnkChooseFolder);
+            _pnlDropZone.Resize += (s, e) => LayoutDropZoneControls();
+            _pnlEmptyState.Controls.Add(_pnlDropZone);
+
+            // Estado 2: Con archivos y destinatarios
+            _pnlComposeState = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = _palette.WindowBg,
+                Padding = new Padding(18, 4, 18, 8),
+                Visible = false
+            };
+
+            _btnAddMoreBar = new Button
+            {
+                Text = "+  Suelta más archivos o haz clic",
+                Dock = DockStyle.Top,
+                Height = 36
+            };
+            ThemeManager.ConfigureSmoothButton(_btnAddMoreBar, _palette, ButtonVariant.Secondary, 10);
+            _btnAddMoreBar.Click += (s, e) => PickFilesDialog();
+
+            var pnlFilesHeader = new Panel { Dock = DockStyle.Top, Height = 28, Padding = new Padding(0, 6, 0, 0) };
+            var lblForSend = new Label
+            {
+                Text = "Para enviar",
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextSecondary,
+                Dock = DockStyle.Left,
+                AutoSize = true
+            };
+            _lblFilesSummary = new Label
+            {
+                Text = string.Empty,
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextSecondary,
+                Dock = DockStyle.Right,
+                AutoSize = true
+            };
+            pnlFilesHeader.Controls.AddRange(new Control[] { lblForSend, _lblFilesSummary });
+
+            _pnlFilesList = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 196,
+                AutoScroll = true,
+                BackColor = _palette.WindowBg
+            };
+            _pnlFilesList.Resize += (s, e) => RebuildFileCards();
+
+            var lblSendTo = new Label
+            {
+                Text = "Enviar a",
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextSecondary,
+                Dock = DockStyle.Top,
+                Height = 22,
                 Padding = new Padding(0, 6, 0, 0)
             };
 
-            _btnHistory = new Button { Text = "Historial", Size = new Size(88, 32), AccessibleName = "Abrir historial" };
-            ThemeManager.StyleButton(_btnHistory, _palette);
-            _btnHistory.Click += (s, e) =>
+            _pnlAreaChips = new FlowLayoutPanel
             {
-                using (var dlg = new TransferHistoryForm())
-                    dlg.ShowDialog(this);
-                RefreshInboxBadgeText(force: true);
+                Dock = DockStyle.Top,
+                Height = 36,
+                WrapContents = false,
+                AutoScroll = true,
+                BackColor = _palette.WindowBg
             };
 
-            _btnNotifications = new Button { Text = "Avisos", Size = new Size(92, 32), AccessibleName = "Abrir centro de avisos" };
-            ThemeManager.StyleButton(_btnNotifications, _palette);
-            _btnNotifications.Click += (s, e) =>
+            _txtPeerSearch = new TextBox
             {
-                using (var dlg = new NotificationCenterForm())
-                    dlg.ShowDialog(this);
-                RefreshInboxBadgeText(force: true);
+                Dock = DockStyle.Top,
+                Height = 28,
+                BackColor = _palette.SurfaceBg,
+                ForeColor = _palette.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle,
+                Visible = false
             };
+            _txtPeerSearch.TextChanged += (s, e) => RebuildPeerCards();
 
-            _btnInbox = new Button { Text = "Recibidos", Size = new Size(106, 32), AccessibleName = "Abrir carpeta de recibidos" };
-            ThemeManager.StyleButton(_btnInbox, _palette);
-            _btnInbox.Click += (s, e) => OpenInboxFolder();
-
-            _btnMore = new Button { Text = "Más ▾", Size = new Size(76, 32), AccessibleName = "Más opciones y tema" };
-            ThemeManager.StyleButton(_btnMore, _palette);
-            _btnMore.Click += (s, e) => _moreMenu.Show(_btnMore, new Point(0, _btnMore.Height + 4));
-
-            topButtons.Controls.AddRange(new Control[] { _btnHistory, _btnNotifications, _btnInbox, _btnMore });
-            pnlTop.Controls.Add(topButtons);
-            pnlTop.Controls.Add(lblTitle);
-            pnlTop.Controls.Add(_lblIdentity);
-
-            // Grilla principal en 3 pasos esenciales
-            var mainGrid = new TableLayoutPanel
+            _pnlPeersList = new Panel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 6,
-                Padding = new Padding(16, 10, 16, 10)
+                AutoScroll = true,
+                BackColor = _palette.WindowBg
             };
-            mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 32F));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 32F));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            mainGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 36F));
+            _pnlPeersList.Resize += (s, e) => RebuildPeerCards();
 
-            // Paso 1: Botón único "+ Agregar" (archivo o carpeta)
-            _addMenu = new ContextMenuStrip();
-            _addMenu.Items.Add("Seleccionar archivos...", null, (s, e) => PickFilesDialog());
-            _addMenu.Items.Add("Seleccionar carpeta...", null, (s, e) => PickFolderDialog());
+            _pnlComposeState.Controls.Add(_pnlPeersList);
+            _pnlComposeState.Controls.Add(_txtPeerSearch);
+            _pnlComposeState.Controls.Add(_pnlAreaChips);
+            _pnlComposeState.Controls.Add(lblSendTo);
+            _pnlComposeState.Controls.Add(_pnlFilesList);
+            _pnlComposeState.Controls.Add(pnlFilesHeader);
+            _pnlComposeState.Controls.Add(_btnAddMoreBar);
 
-            var step1Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 2, 0, 6) };
-            step1Header.Controls.Add(new Label
+            // Estado 3: Enviando / Cola
+            _pnlSendingState = new Panel
             {
-                Text = UiResources.Step1Title,
-                Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.PrimaryAccent,
-                AutoSize = true,
-                Padding = new Padding(0, 6, 12, 0)
-            });
+                Dock = DockStyle.Fill,
+                BackColor = _palette.WindowBg,
+                Padding = new Padding(18, 4, 18, 8),
+                Visible = false
+            };
 
-            _btnAddItem = new Button { Text = UiResources.BtnAddItem, Size = new Size(105, 32), AccessibleName = "Agregar archivo o carpeta" };
-            ThemeManager.StyleButton(_btnAddItem, _palette, isPrimary: true);
-            _btnAddItem.Click += (s, e) => _addMenu.Show(_btnAddItem, new Point(0, _btnAddItem.Height + 4));
-
-            _btnRemoveItem = new Button { Text = UiResources.BtnRemoveItem, Size = new Size(84, 32), AccessibleName = "Quitar seleccionados" };
-            ThemeManager.StyleButton(_btnRemoveItem, _palette);
-            _btnRemoveItem.Click += BtnRemoveItem_Click;
-
-            _lblSelectionSize = new Label
+            var pnlBatchBanner = new Panel
             {
-                Text = "0 elementos · 0 B",
+                Dock = DockStyle.Top,
+                Height = 36,
+                BackColor = _palette.ElevatedSurfaceBg,
+                Padding = new Padding(12, 8, 12, 8)
+            };
+            _lblSendSummary = new Label
+            {
+                Text = string.Empty,
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextPrimary,
+                Dock = DockStyle.Left,
+                AutoSize = true
+            };
+            _lnkEditBatch = new LinkLabel
+            {
+                Text = "Editar",
+                Font = ThemeManager.SecondaryFont,
+                LinkColor = _palette.AccentStart,
+                ActiveLinkColor = _palette.AccentEnd,
+                VisitedLinkColor = _palette.AccentStart,
+                LinkBehavior = LinkBehavior.HoverUnderline,
+                Dock = DockStyle.Right,
+                AutoSize = true
+            };
+            _lnkEditBatch.Click += (s, e) => ExitSendingViewToEdit();
+            pnlBatchBanner.Controls.AddRange(new Control[] { _lblSendSummary, _lnkEditBatch });
+
+            var pnlSendingHeader = new Panel { Dock = DockStyle.Top, Height = 28, Padding = new Padding(0, 8, 0, 0) };
+            var lblSendingLabel = new Label
+            {
+                Text = "Enviando",
+                Font = ThemeManager.SecondaryFont,
                 ForeColor = _palette.TextSecondary,
-                AutoSize = true,
-                Padding = new Padding(10, 8, 0, 0)
+                Dock = DockStyle.Left,
+                AutoSize = true
             };
+            _lblSendingProgressTitle = new Label
+            {
+                Text = string.Empty,
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextSecondary,
+                Dock = DockStyle.Right,
+                AutoSize = true
+            };
+            pnlSendingHeader.Controls.AddRange(new Control[] { lblSendingLabel, _lblSendingProgressTitle });
 
-            step1Header.Controls.AddRange(new Control[] { _btnAddItem, _btnRemoveItem, _lblSelectionSize });
-
-            _lstFiles = new ListBox
+            _pnlQueueList = new Panel
             {
                 Dock = DockStyle.Fill,
-                SelectionMode = SelectionMode.MultiExtended,
-                BackColor = _palette.CardBg,
-                ForeColor = _palette.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Archivos y carpetas a enviar"
+                AutoScroll = true,
+                BackColor = _palette.WindowBg
             };
+            _pnlQueueList.Resize += (s, e) => RebuildQueueCards();
 
-            // Paso 2: Destinatarios simplificado
-            var step2Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 10, 0, 6) };
-            step2Header.Controls.Add(new Label
-            {
-                Text = UiResources.Step2Title,
-                Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.PrimaryAccent,
-                AutoSize = true,
-                Padding = new Padding(0, 6, 12, 0)
-            });
+            _pnlSendingState.Controls.Add(_pnlQueueList);
+            _pnlSendingState.Controls.Add(pnlSendingHeader);
+            _pnlSendingState.Controls.Add(pnlBatchBanner);
 
-            _btnAddManualPeer = new Button { Text = UiResources.BtnAddManualPeer, Size = new Size(128, 32), AccessibleName = "Agregar destinatario por IP" };
-            ThemeManager.StyleButton(_btnAddManualPeer, _palette);
-            _btnAddManualPeer.Click += BtnAddManualPeer_Click;
-
-            _btnSelectAllPeers = new Button { Text = UiResources.BtnSelectAllPeers, Size = new Size(76, 32), AccessibleName = "Seleccionar todos" };
-            ThemeManager.StyleButton(_btnSelectAllPeers, _palette);
-            _btnSelectAllPeers.Click += BtnSelectAllPeers_Click;
-
-            _cmbGroupOrArea = new ComboBox
-            {
-                Width = 165,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = _palette.InputBg,
-                ForeColor = _palette.TextPrimary,
-                AccessibleName = "Área o grupo"
-            };
-            step2Header.Controls.Add(_cmbGroupOrArea);
-
-            _btnSelectGroup = new Button { Text = UiResources.BtnSelectByGroup, Size = new Size(112, 32), AccessibleName = "Marcar área o grupo" };
-            ThemeManager.StyleButton(_btnSelectGroup, _palette);
-            _btnSelectGroup.Click += BtnSelectGroup_Click;
-
-            step2Header.Controls.AddRange(new Control[] { _btnAddManualPeer, _btnSelectAllPeers, _btnSelectGroup });
-
-            _clbPeers = new CheckedListBox
-            {
-                Dock = DockStyle.Fill,
-                CheckOnClick = true,
-                BackColor = _palette.CardBg,
-                ForeColor = _palette.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Equipos en red"
-            };
-            _clbPeers.ItemCheck += (s, e) => BeginInvoke(new Action(UpdateSendButtonState));
-
-            // Paso 3: Cola limpia
-            var step3Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 10, 0, 6) };
-            step3Header.Controls.Add(new Label
-            {
-                Text = UiResources.Step3Title,
-                Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.PrimaryAccent,
-                AutoSize = true,
-                Padding = new Padding(0, 5, 12, 0)
-            });
-
-            _btnPauseResume = new Button { Text = "Pausar", Size = new Size(92, 30), AccessibleName = "Pausar o reanudar" };
-            ThemeManager.StyleButton(_btnPauseResume, _palette);
-            _btnPauseResume.Click += BtnPauseResume_Click;
-
-            _btnCancelQueue = new Button { Text = "Cancelar", Size = new Size(92, 30), AccessibleName = "Cancelar envío" };
-            ThemeManager.StyleButton(_btnCancelQueue, _palette, isDanger: true);
-            _btnCancelQueue.Click += (s, e) => _queue.CancelAllActive();
-
-            _btnRetryFailed = new Button { Text = "Reintentar", Size = new Size(102, 30), AccessibleName = "Reintentar fallidos" };
-            ThemeManager.StyleButton(_btnRetryFailed, _palette);
-            _btnRetryFailed.Click += (s, e) => _queue.RetryFailedJobs();
-
-            step3Header.Controls.AddRange(new Control[] { _btnPauseResume, _btnCancelQueue, _btnRetryFailed });
-
-            _lstQueue = new ListBox
-            {
-                Dock = DockStyle.Fill,
-                BackColor = _palette.CardBg,
-                ForeColor = _palette.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Cola de transferencias"
-            };
-
-            mainGrid.Controls.Add(step1Header, 0, 0);
-            mainGrid.Controls.Add(_lstFiles, 0, 1);
-            mainGrid.Controls.Add(step2Header, 0, 2);
-            mainGrid.Controls.Add(_clbPeers, 0, 3);
-            mainGrid.Controls.Add(step3Header, 0, 4);
-            mainGrid.Controls.Add(_lstQueue, 0, 5);
-
-            // Barra inferior concisa
-            var pnlBottom = new Panel
+            // Barra inferior
+            _pnlFooter = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 76,
-                BackColor = _palette.HeaderBg,
-                Padding = new Padding(16, 10, 16, 10)
+                Height = 64,
+                BackColor = _palette.WindowBg,
+                Padding = new Padding(18, 10, 18, 12)
             };
 
-            _lblStatus = new Label
+            _pnlLockBadge = new Panel
             {
-                Text = "Listo · TLS 1.2+ · Avisos visuales sin sonido",
-                Location = new Point(16, 12),
-                Size = new Size(540, 20),
-                ForeColor = _palette.TextPrimary
+                Size = new Size(18, 18),
+                Location = new Point(18, 22),
+                Cursor = Cursors.Hand
             };
+            _pnlLockBadge.Paint += (s, e) => LineIcons.DrawIcon(e.Graphics, LineIconKind.Lock, new Rectangle(1, 1, 16, 16), _palette.TextSecondary, 1.5F);
+            var tip = new ToolTip();
+            tip.SetToolTip(_pnlLockBadge, "Conexión cifrada");
 
-            _lblInboxPath = new Label
+            _pnlServiceDot = new Panel
             {
-                Text = "Destino: " + AppSettingsStore.GetInboxFolder(),
-                Location = new Point(16, 38),
-                Size = new Size(540, 20),
-                ForeColor = _palette.TextSecondary
+                Size = new Size(8, 8),
+                Location = new Point(42, 27)
             };
+            _pnlServiceDot.Paint += OnServiceDotPaint;
 
-            var actionDock = new FlowLayoutPanel
+            _lblServiceStatus = new Label
             {
-                Dock = DockStyle.Right,
-                FlowDirection = FlowDirection.LeftToRight,
-                AutoSize = true,
-                WrapContents = false,
-                Padding = new Padding(0, 10, 0, 0)
+                Text = "Servicio activo",
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = _palette.TextSecondary,
+                Location = new Point(54, 22),
+                AutoSize = true
             };
 
-            _btnDetails = new Button { Text = "Detalles", Size = new Size(92, 38), Visible = false, AccessibleName = "Ver detalle" };
-            ThemeManager.StyleButton(_btnDetails, _palette);
-            _btnDetails.Click += BtnDetails_Click;
+            _btnNewReceivedChip = new Button
+            {
+                Text = string.Empty,
+                Size = new Size(92, 30),
+                Location = new Point(136, 16),
+                Visible = false
+            };
+            ThemeManager.ConfigureSmoothButton(_btnNewReceivedChip, _palette, ButtonVariant.Secondary, 15);
+            _btnNewReceivedChip.Click += (s, e) => OpenActivityWindow("Recibidos");
 
-            _btnSend = new Button { Text = UiResources.SendNeedFiles, Size = new Size(255, 38), AccessibleName = "Enviar" };
-            ThemeManager.StyleButton(_btnSend, _palette, isPrimary: true);
-            _btnSend.Click += BtnSend_Click;
+            _btnSendPill = new Button
+            {
+                Text = UiResources.SendBaseText,
+                Size = new Size(192, 40),
+                Location = new Point(Width - 210, 12),
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom,
+                Enabled = false
+            };
+            ThemeManager.ConfigureSmoothButton(_btnSendPill, _palette, ButtonVariant.Primary, 20);
+            _btnSendPill.Click += BtnSendPill_Click;
 
-            actionDock.Controls.Add(_btnDetails);
-            actionDock.Controls.Add(_btnSend);
-            pnlBottom.Controls.Add(actionDock);
-            pnlBottom.Controls.Add(_lblStatus);
-            pnlBottom.Controls.Add(_lblInboxPath);
+            _pnlFooter.Controls.AddRange(new Control[]
+            {
+                _pnlLockBadge,
+                _pnlServiceDot,
+                _lblServiceStatus,
+                _btnNewReceivedChip,
+                _btnSendPill
+            });
 
             // Bandeja del sistema
             _trayMenu = new ContextMenuStrip();
             _trayMenu.Items.Add("Abrir " + UiResources.AppTitle, null, (s, e) => BringToFrontFromSecondInstance());
-            _trayMenu.Items.Add("Abrir Recibidos", null, (s, e) => OpenInboxFolder());
-            _trayMenu.Items.Add("Centro de Avisos", null, (s, e) =>
-            {
-                using (var dlg = new NotificationCenterForm())
-                    dlg.ShowDialog(this);
-            });
+            _trayMenu.Items.Add("Actividad", null, (s, e) => OpenActivityWindow("Recibidos"));
             _trayMenu.Items.Add("Configuración", null, (s, e) => OpenSettings());
 
             _trayIcon = new NotifyIcon
@@ -385,14 +449,13 @@ namespace ONKOS.UI
             };
             _trayIcon.DoubleClick += (s, e) => BringToFrontFromSecondInstance();
 
-            _fadeInTimer = new System.Windows.Forms.Timer { Interval = 20 };
-            _fadeInTimer.Tick += OnFadeInTick;
+            _fadeTimer = new System.Windows.Forms.Timer { Interval = 18 };
+            _fadeTimer.Tick += OnFadeTick;
 
-            _liveSyncTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+            _liveSyncTimer = new System.Windows.Forms.Timer { Interval = 1200 };
             _liveSyncTimer.Tick += OnLiveSyncTimerTick;
 
             _discovery.PeersUpdated += OnDiscoveryPeersUpdated;
-            _discovery.NewPeerDiscovered += OnNewPeerDiscovered;
             PeerAuthorizationStore.PendingRequestReceived += OnPendingAuthorizationReceived;
             _queue.QueueChanged += OnQueueChanged;
             _queue.BatchCompleted += OnQueueBatchCompleted;
@@ -403,58 +466,148 @@ namespace ONKOS.UI
             Load += OnMainFormLoad;
             FormClosed += OnMainFormClosed;
 
-            Controls.Add(mainGrid);
-            Controls.Add(pnlBottom);
-            Controls.Add(pnlTop);
+            Controls.Add(_pnlEmptyState);
+            Controls.Add(_pnlComposeState);
+            Controls.Add(_pnlSendingState);
+            Controls.Add(_pnlFooter);
+            Controls.Add(_pnlHeader);
 
-            UpdateSendButtonState();
+            SyncVisualState();
+            LayoutDropZoneControls();
         }
 
-        private void OnFadeInTick(object sender, EventArgs e)
+        private void OnFadeTick(object sender, EventArgs e)
         {
             if (IsDisposed || Disposing)
                 return;
-
-            if (Opacity < 1.0)
-                Opacity = Math.Min(1.0, Opacity + 0.14);
-            else
-                _fadeInTimer.Stop();
+            if (!ThemeManager.AreAnimationsEnabled() || Opacity >= 1.0)
+            {
+                Opacity = 1.0;
+                _fadeTimer.Stop();
+                return;
+            }
+            Opacity = Math.Min(1.0, Opacity + 0.16);
         }
 
-        private void ApplyTheme(AppThemeMode mode)
+        private void OnHeaderPaint(object sender, PaintEventArgs e)
         {
-            ThemeManager.SaveMode(mode);
-            _palette = ThemeManager.GetPalette(mode);
-            BackColor = _palette.WindowBg;
-            ForeColor = _palette.TextPrimary;
-            _lstFiles.BackColor = _palette.CardBg;
-            _lstFiles.ForeColor = _palette.TextPrimary;
-            _clbPeers.BackColor = _palette.CardBg;
-            _clbPeers.ForeColor = _palette.TextPrimary;
-            _lstQueue.BackColor = _palette.CardBg;
-            _lstQueue.ForeColor = _palette.TextPrimary;
-            _cmbGroupOrArea.BackColor = _palette.InputBg;
-            _cmbGroupOrArea.ForeColor = _palette.TextPrimary;
-            _lblStatus.ForeColor = _palette.TextPrimary;
-            _lblInboxPath.ForeColor = _palette.TextSecondary;
-            _lblSelectionSize.ForeColor = _palette.TextSecondary;
-            _lblIdentity.ForeColor = _palette.TextSecondary;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var logoRect = new RectangleF(18, 15, 32, 32);
+            using (GraphicsPath path = ThemeManager.CreateRoundedRectangle(logoRect, 9F))
+            using (var grad = new LinearGradientBrush(logoRect, _palette.AccentStart, _palette.AccentEnd, LinearGradientMode.DiagonalForward))
+            {
+                e.Graphics.FillPath(grad, path);
+            }
+            using (var pen = new Pen(Color.White, 2F) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                e.Graphics.DrawLine(pen, 29, 25, 39, 25);
+                e.Graphics.DrawLine(pen, 34, 20, 34, 30);
+            }
+        }
 
-            ThemeManager.StyleButton(_btnAddItem, _palette, isPrimary: true);
-            ThemeManager.StyleButton(_btnRemoveItem, _palette);
-            ThemeManager.StyleButton(_btnAddManualPeer, _palette);
-            ThemeManager.StyleButton(_btnSelectAllPeers, _palette);
-            ThemeManager.StyleButton(_btnSelectGroup, _palette);
-            ThemeManager.StyleButton(_btnPauseResume, _palette);
-            ThemeManager.StyleButton(_btnCancelQueue, _palette, isDanger: true);
-            ThemeManager.StyleButton(_btnRetryFailed, _palette);
-            ThemeManager.StyleButton(_btnDetails, _palette);
-            ThemeManager.StyleButton(_btnSend, _palette, isPrimary: true);
-            ThemeManager.StyleButton(_btnHistory, _palette);
-            ThemeManager.StyleButton(_btnNotifications, _palette);
-            ThemeManager.StyleButton(_btnInbox, _palette);
-            ThemeManager.StyleButton(_btnMore, _palette);
-            SetFriendlyStatus($"Tema cambiado a {mode}.");
+        private void OnBellPaint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            LineIcons.DrawIcon(e.Graphics, LineIconKind.Bell, new Rectangle(5, 5, 24, 24), _palette.TextPrimary, 1.7F);
+            if (_hasUnreadNotifications)
+            {
+                using (var dotBrush = new SolidBrush(_palette.AccentStart))
+                {
+                    e.Graphics.FillEllipse(dotBrush, 22, 5, 8, 8);
+                }
+            }
+        }
+
+        private void OnAvatarPaint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var rect = new RectangleF(1, 1, 32, 32);
+            using (var brush = new SolidBrush(_palette.ElevatedSurfaceBg))
+            using (var pen = new Pen(_palette.BorderSoft, 1F))
+            {
+                e.Graphics.FillEllipse(brush, rect);
+                e.Graphics.DrawEllipse(pen, rect);
+            }
+            string initials = GetInitials(_localProfile != null ? _localProfile.FullName : UiResources.AppTitle);
+            TextRenderer.DrawText(
+                e.Graphics,
+                initials,
+                ThemeManager.AvatarFont,
+                Rectangle.Round(rect),
+                _palette.TextPrimary,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
+        private void OnServiceDotPaint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Color c = IsServiceRunning() ? _palette.StatusSuccess : _palette.StatusWarning;
+            using (var b = new SolidBrush(c))
+            {
+                e.Graphics.FillEllipse(b, 0, 0, 8, 8);
+            }
+        }
+
+        private void OnDropZonePaint(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            RectangleF r = new RectangleF(1, 1, _pnlDropZone.Width - 2, _pnlDropZone.Height - 2);
+            using (GraphicsPath path = ThemeManager.CreateRoundedRectangle(r, 18F))
+            {
+                Color fill = _isDragHovering ? _palette.HoverSurfaceBg : _palette.SurfaceBg;
+                using (var bg = new SolidBrush(fill))
+                {
+                    e.Graphics.FillPath(bg, path);
+                }
+                Color borderColor = _isDragHovering ? _palette.AccentStart : _palette.BorderSoft;
+                using (var pen = new Pen(borderColor, _isDragHovering ? 1.8F : 1.2F))
+                {
+                    pen.DashStyle = DashStyle.Dash;
+                    pen.DashPattern = new float[] { 5F, 4F };
+                    e.Graphics.DrawPath(pen, path);
+                }
+            }
+
+            int cx = _pnlDropZone.Width / 2;
+            int cy = _pnlDropZone.Height / 2;
+
+            var badgeRect = new RectangleF(cx - 24, cy - 76, 48, 48);
+            using (GraphicsPath bPath = ThemeManager.CreateRoundedRectangle(badgeRect, 14F))
+            using (var bBrush = new SolidBrush(_palette.ElevatedSurfaceBg))
+            {
+                e.Graphics.FillPath(bBrush, bPath);
+            }
+            using (var pen = new Pen(_palette.AccentStart, 1.8F) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                e.Graphics.DrawLine(pen, cx, cy - 42, cx, cy - 62);
+                e.Graphics.DrawLine(pen, cx - 7, cy - 55, cx, cy - 62);
+                e.Graphics.DrawLine(pen, cx + 7, cy - 55, cx, cy - 62);
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                UiResources.DropPromptTitle,
+                ThemeManager.SectionFont,
+                new Rectangle(20, cy - 12, _pnlDropZone.Width - 40, 28),
+                _palette.TextPrimary,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                "o haz clic para elegir ·",
+                ThemeManager.SecondaryFont,
+                new Rectangle(20, cy + 16, _pnlDropZone.Width - 40, 22),
+                _palette.TextSecondary,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
+        private void LayoutDropZoneControls()
+        {
+            if (_pnlDropZone == null || _lnkChooseFolder == null)
+                return;
+            int cx = _pnlDropZone.Width / 2;
+            int cy = _pnlDropZone.Height / 2;
+            _lnkChooseFolder.Location = new Point(cx - (_lnkChooseFolder.Width / 2) + 52, cy + 17);
         }
 
         private void OnMainFormKeyDown(object sender, KeyEventArgs e)
@@ -464,15 +617,10 @@ namespace ONKOS.UI
                 e.Handled = true;
                 PickFilesDialog();
             }
-            else if (e.KeyCode == Keys.Delete && _lstFiles.Focused)
+            else if (e.Control && e.KeyCode == Keys.Enter && _btnSendPill.Enabled && !_isSendingMode)
             {
                 e.Handled = true;
-                BtnRemoveItem_Click(this, EventArgs.Empty);
-            }
-            else if (e.Control && e.KeyCode == Keys.Enter)
-            {
-                e.Handled = true;
-                BtnSend_Click(this, EventArgs.Empty);
+                BtnSendPill_Click(this, EventArgs.Empty);
             }
             else if (e.KeyCode == Keys.F1)
             {
@@ -483,40 +631,35 @@ namespace ONKOS.UI
 
         private void ShowHelpDialog()
         {
-            MessageBox.Show(this, UiResources.HelpMessage, "Ayuda — " + UiResources.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, UiResources.HelpMessage, UiResources.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void OnMainFormLoad(object sender, EventArgs e)
         {
-            RefreshInboxBadgeText(force: true);
             _queue.EnsureStarted();
             _discovery.Start(_localProfile);
-            RefreshGroupsCombo();
-            RefreshPeersList();
-            RefreshQueueList();
-            UpdateTrayTooltip();
-            _fadeInTimer.Start();
+            RefreshPeersAndAreas();
+            RefreshActivityBadge();
+            _fadeTimer.Start();
             _liveSyncTimer.Start();
         }
 
         private void OnMainFormClosed(object sender, FormClosedEventArgs e)
         {
-            _fadeInTimer.Stop();
-            _fadeInTimer.Dispose();
+            _fadeTimer.Stop();
+            _fadeTimer.Dispose();
             _liveSyncTimer.Stop();
             _liveSyncTimer.Dispose();
 
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _trayMenu.Dispose();
-            _addMenu.Dispose();
-            _moreMenu.Dispose();
+            _avatarMenu.Dispose();
 
             try { _uiCts.Cancel(); }
             catch (ObjectDisposedException) { }
 
             _discovery.PeersUpdated -= OnDiscoveryPeersUpdated;
-            _discovery.NewPeerDiscovered -= OnNewPeerDiscovered;
             PeerAuthorizationStore.PendingRequestReceived -= OnPendingAuthorizationReceived;
             _queue.QueueChanged -= OnQueueChanged;
             _queue.BatchCompleted -= OnQueueBatchCompleted;
@@ -531,50 +674,33 @@ namespace ONKOS.UI
             if (IsDisposed || Disposing)
                 return;
 
-            RefreshInboxBadgeText(force: false);
-            CheckNewUnreadNotifications();
-            UpdateTrayTooltip();
+            RefreshActivityBadge();
+            _pnlServiceDot.Invalidate();
+            _lblServiceStatus.Text = IsServiceRunning() ? "Servicio activo" : "Servicio en pausa";
+
+            if (_isSendingMode)
+                RebuildQueueCards();
         }
 
-        private void UpdateTrayTooltip()
+        private void RefreshActivityBadge()
         {
-            string svc = "Activo";
-            try
+            int unseen = TransferHistoryStore.GetUnseenReceivedCount();
+            int unreadNotifs = NotificationCenterStore.GetAll(onlyUnread: true).Count;
+            _hasUnreadNotifications = unreadNotifs > 0;
+            _pnlBellBtn.Invalidate();
+
+            if (unseen != _lastSeenUnseenCount)
             {
-                using (var sc = new ServiceController("ONKOSTransferService"))
+                _lastSeenUnseenCount = unseen;
+                if (unseen > 0)
                 {
-                    if (sc.Status != ServiceControllerStatus.Running)
-                        svc = sc.Status.ToString();
+                    _btnNewReceivedChip.Text = $"↓ {unseen} nuevos";
+                    _btnNewReceivedChip.Visible = true;
                 }
-            }
-            catch (Exception)
-            {
-            }
-
-            int unseen = Math.Max(0, _lastSeenUnseenCount);
-            string tip = $"{UiResources.AppTitle} · {svc} · Nuevos: {unseen}";
-            _trayIcon.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
-        }
-
-        private void CheckNewUnreadNotifications()
-        {
-            List<NotificationRecord> unread = NotificationCenterStore.GetAll(onlyUnread: true);
-            int unreadCount = unread.Count;
-            _btnNotifications.Text = unreadCount > 0 ? $"Avisos ({unreadCount})" : "Avisos";
-
-            if (unread.Count == 0)
-                return;
-
-            NotificationRecord latest = unread[0];
-            if (string.Equals(latest.Id, _lastShownNotificationId, StringComparison.Ordinal))
-                return;
-
-            _lastShownNotificationId = latest.Id;
-            NotificationPreferences prefs = NotificationCenterStore.LoadPreferences();
-            if (NotificationCenterStore.IsCategoryEnabled(prefs, latest.Category))
-            {
-                var toast = new VisualToastForm(latest, prefs.ToastDurationSeconds);
-                toast.Show();
+                else
+                {
+                    _btnNewReceivedChip.Visible = false;
+                }
             }
         }
 
@@ -582,31 +708,13 @@ namespace ONKOS.UI
         {
             if (IsDisposed || Disposing)
                 return;
-
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(() => { RefreshGroupsCombo(); RefreshPeersList(); })); }
+                try { BeginInvoke(new Action(RefreshPeersAndAreas)); }
                 catch (ObjectDisposedException) { }
                 return;
             }
-
-            RefreshGroupsCombo();
-            RefreshPeersList();
-        }
-
-        private void OnNewPeerDiscovered(PeerInfo peer)
-        {
-            if (IsDisposed || Disposing || peer == null)
-                return;
-
-            if (InvokeRequired)
-            {
-                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Nuevo en red: {peer.FullName} ({peer.IPv4})"))); }
-                catch (ObjectDisposedException) { }
-                return;
-            }
-
-            SetFriendlyStatus($"Nuevo en red: {peer.FullName} ({peer.IPv4})");
+            RefreshPeersAndAreas();
         }
 
         private void OnPendingAuthorizationReceived(AuthorizedPeerRecord record)
@@ -617,33 +725,30 @@ namespace ONKOS.UI
             NotificationCenterStore.PublishGrouped(
                 NotificationCategory.AuthorizationRequest,
                 "auth-" + record.FingerprintSha256,
-                "Autorización pendiente",
-                $"{record.DisplayName} ({record.LastIp})",
-                $"Huella: {record.FingerprintSha256}");
-
-            if (InvokeRequired)
-            {
-                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Autorización pendiente: {record.DisplayName}"))); }
-                catch (ObjectDisposedException) { }
-                return;
-            }
-
-            SetFriendlyStatus($"Autorización pendiente: {record.DisplayName}");
+                "Solicitud de autorización",
+                record.DisplayName,
+                record.LastIp);
+            RefreshActivityBadge();
         }
 
         private void OnQueueChanged()
         {
             if (IsDisposed || Disposing)
                 return;
-
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(RefreshQueueList)); }
+                try { BeginInvoke(new Action(OnQueueChangedUi)); }
                 catch (ObjectDisposedException) { }
                 return;
             }
+            OnQueueChangedUi();
+        }
 
-            RefreshQueueList();
+        private void OnQueueChangedUi()
+        {
+            if (_isSendingMode)
+                RebuildQueueCards();
+            UpdateSendPillAppearance();
         }
 
         private void OnQueueBatchCompleted(List<TransferJob> snapshot)
@@ -657,149 +762,577 @@ namespace ONKOS.UI
             NotificationCenterStore.PublishGrouped(
                 fail > 0 ? NotificationCategory.Error : NotificationCategory.Sent,
                 "batch-summary",
-                "Envío finalizado",
-                $"{ok} ok · {fail} con incidencia",
-                $"Lote: {snapshot.Count} elemento(s)");
+                fail > 0 ? "Envío con incidencias" : "Envío completado",
+                $"{ok} enviados · {fail} pendientes",
+                string.Empty);
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(() => ShowBatchSummary(snapshot))); }
+                try { BeginInvoke(new Action(() => { RebuildQueueCards(); UpdateSendPillAppearance(); RefreshActivityBadge(); })); }
                 catch (ObjectDisposedException) { }
+            }
+        }
+
+        private void SyncVisualState()
+        {
+            if (_isSendingMode)
+            {
+                _pnlEmptyState.Visible = false;
+                _pnlComposeState.Visible = false;
+                _pnlSendingState.Visible = true;
+                RebuildQueueCards();
+            }
+            else if (_selectedPaths.Count == 0)
+            {
+                _pnlEmptyState.Visible = true;
+                _pnlComposeState.Visible = false;
+                _pnlSendingState.Visible = false;
+                LayoutDropZoneControls();
+            }
+            else
+            {
+                _pnlEmptyState.Visible = false;
+                _pnlComposeState.Visible = true;
+                _pnlSendingState.Visible = false;
+                RebuildFileCards();
+                RebuildAreaChips();
+                RebuildPeerCards();
+            }
+
+            UpdateSendPillAppearance();
+        }
+
+        private void ExitSendingViewToEdit()
+        {
+            _isSendingMode = false;
+            SyncVisualState();
+        }
+
+        private void UpdateSendPillAppearance()
+        {
+            if (_isSendingMode)
+            {
+                List<TransferJob> jobs = _queue.GetSnapshot();
+                long total = jobs.Sum(j => Math.Max(0L, j.TotalBytes));
+                long sent = jobs.Sum(j => Math.Max(0L, j.SentBytes));
+                int pct = total > 0
+                    ? (int)Math.Min(100, Math.Round((sent * 100.0) / total))
+                    : (jobs.Count > 0 && jobs.All(j => j.State == QueueJobState.Completed) ? 100 : 0);
+
+                bool anyActive = jobs.Any(j => j.State == QueueJobState.Running || j.State == QueueJobState.Queued || j.State == QueueJobState.Paused);
+                _btnSendPill.Enabled = anyActive;
+                _btnSendPill.Text = anyActive ? $"Enviando...  {pct} %" : $"Listo  {pct} %";
                 return;
             }
 
-            ShowBatchSummary(snapshot);
+            int files = _selectedPaths.Count;
+            int peers = _selectedPeerKeys.Count;
+            _btnSendPill.Enabled = files > 0 && peers > 0;
+            _btnSendPill.Text = (files > 0 && peers > 0)
+                ? $"{UiResources.SendBaseText}  {files} {(files == 1 ? "archivo" : "archivos")} → {peers} {(peers == 1 ? "equipo" : "equipos")}"
+                : UiResources.SendBaseText;
         }
 
-        private void ShowBatchSummary(List<TransferJob> snapshot)
+        private void RebuildFileCards()
         {
-            int ok = snapshot.Count(j => j.State == QueueJobState.Completed);
-            int fail = snapshot.Count(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
+            _pnlFilesList.SuspendLayout();
+            _pnlFilesList.Controls.Clear();
 
-            string msg = $"Completados: {ok} · Fallidos/cancelados: {fail}";
-            if (fail > 0)
+            int cardWidth = Math.Max(220, _pnlFilesList.ClientSize.Width - 6);
+            int cardHeight = 52;
+            int gap = 8;
+
+            for (int i = 0; i < _selectedPaths.Count; i++)
             {
-                TransferJob firstFail = snapshot.FirstOrDefault(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
-                if (firstFail != null)
+                int idx = i;
+                string path = _selectedPaths[idx];
+                bool isHovered = (_hoveredFileIndex == idx);
+
+                var card = new Panel
                 {
-                    _lastTechnicalError = $"Destino: {firstFail.TargetLabel} | Elemento: {firstFail.ItemName} | Detalle: {firstFail.ErrorMessage}";
-                    _btnDetails.Visible = true;
-                    if (!string.IsNullOrWhiteSpace(firstFail.SuggestedAction))
-                        msg += " · " + firstFail.SuggestedAction;
+                    Width = cardWidth,
+                    Height = cardHeight,
+                    Location = new Point(2, i * (cardHeight + gap)),
+                    BackColor = isHovered ? _palette.ElevatedSurfaceBg : _palette.SurfaceBg,
+                    Cursor = Cursors.Default
+                };
+
+                card.MouseEnter += (s, e) => { _hoveredFileIndex = idx; RebuildFileCards(); };
+                card.MouseLeave += (s, e) =>
+                {
+                    if (!card.ClientRectangle.Contains(card.PointToClient(Cursor.Position)))
+                    {
+                        _hoveredFileIndex = -1;
+                        RebuildFileCards();
+                    }
+                };
+
+                card.Paint += (s, e) =>
+                {
+                    e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    var r = new RectangleF(0.5F, 0.5F, card.Width - 1F, card.Height - 1F);
+                    using (GraphicsPath gp = ThemeManager.CreateRoundedRectangle(r, 12F))
+                    using (var b = new SolidBrush(card.BackColor))
+                    using (var p = new Pen(isHovered ? _palette.AccentStart : _palette.BorderSoft, 1F))
+                    {
+                        e.Graphics.FillPath(b, gp);
+                        e.Graphics.DrawPath(p, gp);
+                    }
+
+                    LineIconKind kind = LineIcons.DetectFileKind(path);
+                    Color iconCol = kind == LineIconKind.Folder ? _palette.StatusWarning : _palette.AccentStart;
+                    LineIcons.DrawIcon(e.Graphics, kind, new Rectangle(12, 14, 24, 24), iconCol, 1.7F);
+
+                    string name = Path.GetFileName(path);
+                    if (string.IsNullOrEmpty(name)) name = path;
+
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        name,
+                        ThemeManager.BodyFont,
+                        new Rectangle(44, 8, card.Width - 82, 20),
+                        _palette.TextPrimary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                    string sub = Directory.Exists(path) ? "Carpeta" : FormatBytes(SafeFileLength(path));
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        sub,
+                        ThemeManager.SecondaryFont,
+                        new Rectangle(44, 28, card.Width - 82, 18),
+                        _palette.TextSecondary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                };
+
+                if (isHovered)
+                {
+                    var btnRemove = new Button
+                    {
+                        Text = "×",
+                        Size = new Size(26, 26),
+                        Location = new Point(card.Width - 34, 13)
+                    };
+                    ThemeManager.ConfigureSmoothButton(btnRemove, _palette, ButtonVariant.Secondary, 13);
+                    btnRemove.Click += (s, e) => RemovePathAt(idx);
+                    card.Controls.Add(btnRemove);
                 }
+
+                _pnlFilesList.Controls.Add(card);
             }
 
-            SetFriendlyStatus(msg);
+            _pnlFilesList.ResumeLayout();
+            _lblFilesSummary.Text = _selectedPaths.Count > 0
+                ? $"{_selectedPaths.Count} {(_selectedPaths.Count == 1 ? "elemento" : "elementos")} · {FormatBytes(_cachedSelectionBytes)}"
+                : string.Empty;
         }
 
-        private void SetFriendlyStatus(string message)
+        private void RebuildAreaChips()
         {
-            if (IsDisposed || Disposing)
-                return;
-            _lblStatus.Text = message;
-        }
+            _pnlAreaChips.SuspendLayout();
+            _pnlAreaChips.Controls.Clear();
 
-        private void SetActionableError(string friendlyMessage, Exception ex)
-        {
-            _lastTechnicalError = ex != null
-                ? $"{ex.GetType().Name}: {ex.Message}\r\n{ex.StackTrace}"
-                : friendlyMessage;
-            _btnDetails.Visible = true;
-            SetFriendlyStatus(friendlyMessage);
-        }
-
-        private void BtnDetails_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(_lastTechnicalError))
-                return;
-
-            MessageBox.Show(
-                this,
-                _lastTechnicalError + "\r\n\r\nLogs: " + FileLogger.Instance.LogsFolder,
-                "Detalle técnico",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-
-        private void RefreshGroupsCombo()
-        {
-            if (IsDisposed || Disposing)
-                return;
-
-            string current = _cmbGroupOrArea.SelectedItem != null ? _cmbGroupOrArea.SelectedItem.ToString() : null;
-            List<string> groups = AddressBookStore.GetGroupsAndAreas(_discovery.GetPeers());
-
-            _cmbGroupOrArea.BeginUpdate();
-            _cmbGroupOrArea.Items.Clear();
-            foreach (string g in groups)
-                _cmbGroupOrArea.Items.Add(g);
-
-            if (!string.IsNullOrEmpty(current))
+            var areas = new List<string> { "Todos" };
+            foreach (string g in AddressBookStore.GetGroupsAndAreas(_discovery.GetPeers()))
             {
-                int idx = _cmbGroupOrArea.Items.IndexOf(current);
-                if (idx >= 0)
-                    _cmbGroupOrArea.SelectedIndex = idx;
+                if (!areas.Any(a => string.Equals(a, g, StringComparison.OrdinalIgnoreCase)))
+                    areas.Add(g);
             }
-            else if (_cmbGroupOrArea.Items.Count > 0)
+
+            foreach (string area in areas)
             {
-                _cmbGroupOrArea.SelectedIndex = 0;
+                bool active = string.Equals(_activeAreaFilter, area, StringComparison.OrdinalIgnoreCase);
+                var chip = new Button
+                {
+                    Text = area,
+                    Height = 28,
+                    Width = Math.Max(56, TextRenderer.MeasureText(area, ThemeManager.SecondaryFont).Width + 24),
+                    Margin = new Padding(0, 2, 6, 2)
+                };
+                ThemeManager.ConfigureSmoothButton(chip, _palette, active ? ButtonVariant.Primary : ButtonVariant.Secondary, 14);
+                string captured = area;
+                chip.Click += (s, e) =>
+                {
+                    _activeAreaFilter = captured;
+                    RebuildAreaChips();
+                    RebuildPeerCards();
+                };
+                _pnlAreaChips.Controls.Add(chip);
             }
-            _cmbGroupOrArea.EndUpdate();
+
+            var plusChip = new Button
+            {
+                Text = UiResources.AddManualPeerChip,
+                Size = new Size(30, 28),
+                Margin = new Padding(0, 2, 0, 2)
+            };
+            ThemeManager.ConfigureSmoothButton(plusChip, _palette, ButtonVariant.Secondary, 14);
+            plusChip.Click += (s, e) => AddManualPeer();
+            _pnlAreaChips.Controls.Add(plusChip);
+
+            _pnlAreaChips.ResumeLayout();
         }
 
-        private void RefreshPeersList()
+        private void RefreshPeersAndAreas()
         {
-            if (IsDisposed || Disposing)
-                return;
-
-            var checkedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (object checkedObj in _clbPeers.CheckedItems)
+            List<PeerInfo> allPeers = _discovery.GetPeers();
+            _txtPeerSearch.Visible = allPeers.Count > 8;
+            if (!_isSendingMode && _selectedPaths.Count > 0)
             {
-                if (checkedObj is PeerListItem pli && pli.Peer != null)
-                    checkedKeys.Add(PeerContactsStore.BuildContactKey(pli.Peer));
+                RebuildAreaChips();
+                RebuildPeerCards();
             }
-
-            List<PeerInfo> peers = _discovery.GetPeers();
-            _clbPeers.BeginUpdate();
-            _clbPeers.Items.Clear();
-
-            foreach (PeerInfo p in peers)
-            {
-                var item = new PeerListItem(p);
-                string key = PeerContactsStore.BuildContactKey(p);
-                bool isChecked = checkedKeys.Contains(key);
-                _clbPeers.Items.Add(item, isChecked);
-            }
-
-            _clbPeers.EndUpdate();
-            UpdateSendButtonState();
         }
 
-        private void RefreshQueueList()
+        private void RebuildPeerCards()
         {
-            if (IsDisposed || Disposing)
-                return;
+            _pnlPeersList.SuspendLayout();
+            _pnlPeersList.Controls.Clear();
+
+            string query = (_txtPeerSearch.Text ?? string.Empty).Trim();
+            List<PeerInfo> peers = _discovery.GetPeers()
+                .Where(p => string.Equals(_activeAreaFilter, "Todos", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(p.Area, _activeAreaFilter, StringComparison.OrdinalIgnoreCase))
+                .Where(p => string.IsNullOrEmpty(query) ||
+                            (!string.IsNullOrEmpty(p.FullName) && p.FullName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                            (!string.IsNullOrEmpty(p.Area) && p.Area.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                            (!string.IsNullOrEmpty(p.IPv4) && p.IPv4.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))
+                .ToList();
+
+            int cardWidth = Math.Max(220, _pnlPeersList.ClientSize.Width - 6);
+            int cardHeight = 54;
+            int gap = 8;
+
+            for (int i = 0; i < peers.Count; i++)
+            {
+                PeerInfo peer = peers[i];
+                string key = PeerContactsStore.BuildContactKey(peer);
+                bool checkedState = _selectedPeerKeys.Contains(key);
+
+                var card = new Panel
+                {
+                    Width = cardWidth,
+                    Height = cardHeight,
+                    Location = new Point(2, i * (cardHeight + gap)),
+                    BackColor = checkedState ? _palette.ElevatedSurfaceBg : _palette.SurfaceBg,
+                    Cursor = Cursors.Hand
+                };
+
+                card.Click += (s, e) =>
+                {
+                    if (_selectedPeerKeys.Contains(key))
+                        _selectedPeerKeys.Remove(key);
+                    else
+                        _selectedPeerKeys.Add(key);
+                    RebuildPeerCards();
+                    UpdateSendPillAppearance();
+                };
+
+                card.Paint += (s, e) =>
+                {
+                    e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    var r = new RectangleF(0.5F, 0.5F, card.Width - 1F, card.Height - 1F);
+                    using (GraphicsPath gp = ThemeManager.CreateRoundedRectangle(r, 12F))
+                    using (var b = new SolidBrush(card.BackColor))
+                    using (var p = new Pen(checkedState ? _palette.AccentStart : _palette.BorderSoft, checkedState ? 1.5F : 1F))
+                    {
+                        e.Graphics.FillPath(b, gp);
+                        e.Graphics.DrawPath(p, gp);
+                    }
+
+                    var avRect = new RectangleF(12, 11, 32, 32);
+                    using (var avBrush = new SolidBrush(_palette.ElevatedSurfaceBg))
+                    {
+                        e.Graphics.FillEllipse(avBrush, avRect);
+                    }
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        GetInitials(peer.FullName),
+                        ThemeManager.AvatarFont,
+                        Rectangle.Round(avRect),
+                        _palette.TextPrimary,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        peer.FullName ?? peer.IPv4,
+                        ThemeManager.BodyFont,
+                        new Rectangle(54, 8, card.Width - 96, 20),
+                        _palette.TextPrimary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                    using (var dotB = new SolidBrush(_palette.StatusSuccess))
+                    {
+                        e.Graphics.FillEllipse(dotB, 54, 34, 7, 7);
+                    }
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        peer.Area ?? string.Empty,
+                        ThemeManager.SecondaryFont,
+                        new Rectangle(67, 29, card.Width - 110, 18),
+                        _palette.TextSecondary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                    if (checkedState)
+                    {
+                        var chkRect = new RectangleF(card.Width - 34, 17, 20, 20);
+                        using (var chkBrush = new SolidBrush(_palette.AccentStart))
+                        {
+                            e.Graphics.FillEllipse(chkBrush, chkRect);
+                        }
+                        using (var pen = new Pen(Color.White, 1.8F) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                        {
+                            e.Graphics.DrawLine(pen, card.Width - 28, 27, card.Width - 25, 30);
+                            e.Graphics.DrawLine(pen, card.Width - 25, 30, card.Width - 19, 24);
+                        }
+                    }
+                };
+
+                _pnlPeersList.Controls.Add(card);
+            }
+
+            _pnlPeersList.ResumeLayout();
+        }
+
+        private void RebuildQueueCards()
+        {
+            _pnlQueueList.SuspendLayout();
+            _pnlQueueList.Controls.Clear();
 
             List<TransferJob> jobs = _queue.GetSnapshot();
-            _btnPauseResume.Text = _queue.IsPaused ? "Reanudar" : "Pausar";
+            int completedCount = jobs.Count(j => j.State == QueueJobState.Completed);
+            _lblSendingProgressTitle.Text = $"{completedCount} de {jobs.Count} completado";
 
-            _lstQueue.BeginUpdate();
-            _lstQueue.Items.Clear();
+            int cardWidth = Math.Max(220, _pnlQueueList.ClientSize.Width - 6);
+            int yPos = 2;
+            int gap = 8;
 
-            foreach (TransferJob j in jobs)
+            foreach (TransferJob job in jobs)
             {
-                double pct = j.TotalBytes > 0
-                    ? Math.Min(100.0, (j.SentBytes * 100.0) / j.TotalBytes)
-                    : (j.State == QueueJobState.Completed ? 100.0 : 0.0);
+                bool isFailed = job.State == QueueJobState.Failed;
+                bool isPaused = job.State == QueueJobState.Paused;
+                bool isDone = job.State == QueueJobState.Completed;
+                bool isRunning = job.State == QueueJobState.Running;
+                bool isHovered = string.Equals(_hoveredQueueJobId, job.Id, StringComparison.Ordinal);
+                bool showTechDetail = _expandedQueueErrors.ContainsKey(job.Id);
 
-                _lstQueue.Items.Add($"{j.ItemName} -> {j.TargetLabel} · {pct:0}% · {j.State}");
+                int cardHeight = isFailed ? (showTechDetail ? 106 : 78) : (isRunning ? 74 : 58);
+
+                var card = new Panel
+                {
+                    Width = cardWidth,
+                    Height = cardHeight,
+                    Location = new Point(2, yPos),
+                    BackColor = isFailed ? Color.FromArgb(24, _palette.StatusError) : _palette.SurfaceBg
+                };
+
+                string capturedId = job.Id;
+                card.MouseEnter += (s, e) => { _hoveredQueueJobId = capturedId; RebuildQueueCards(); };
+                card.MouseLeave += (s, e) =>
+                {
+                    if (!card.ClientRectangle.Contains(card.PointToClient(Cursor.Position)))
+                    {
+                        _hoveredQueueJobId = string.Empty;
+                        RebuildQueueCards();
+                    }
+                };
+
+                card.Paint += (s, e) =>
+                {
+                    e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    var r = new RectangleF(0.5F, 0.5F, card.Width - 1F, card.Height - 1F);
+                    using (GraphicsPath gp = ThemeManager.CreateRoundedRectangle(r, 12F))
+                    using (var bg = new SolidBrush(card.BackColor))
+                    using (var border = new Pen(isFailed ? _palette.StatusError : _palette.BorderSoft, 1F))
+                    {
+                        e.Graphics.FillPath(bg, gp);
+                        e.Graphics.DrawPath(border, gp);
+                    }
+
+                    LineIconKind stIcon = isDone
+                        ? LineIconKind.CheckCircle
+                        : (isPaused ? LineIconKind.PauseIcon : (isFailed ? LineIconKind.ErrorCircle : LineIcons.DetectFileKind(job.ItemName)));
+                    Color stColor = isDone
+                        ? _palette.StatusSuccess
+                        : (isPaused ? _palette.StatusWarning : (isFailed ? _palette.StatusError : _palette.AccentStart));
+                    LineIcons.DrawIcon(e.Graphics, stIcon, new Rectangle(12, 14, 22, 22), stColor, 1.7F);
+
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        job.ItemName ?? string.Empty,
+                        ThemeManager.BodyFont,
+                        new Rectangle(42, 8, card.Width - 140, 20),
+                        _palette.TextPrimary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        job.TargetLabel ?? string.Empty,
+                        ThemeManager.SecondaryFont,
+                        new Rectangle(42, 27, card.Width - 140, 18),
+                        _palette.TextSecondary,
+                        TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                    if (isDone)
+                    {
+                        TextRenderer.DrawText(
+                            e.Graphics,
+                            "Enviado",
+                            ThemeManager.SecondaryFont,
+                            new Rectangle(card.Width - 88, 16, 76, 20),
+                            _palette.StatusSuccess,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                    }
+                    else if (job.State == QueueJobState.Queued)
+                    {
+                        TextRenderer.DrawText(
+                            e.Graphics,
+                            "En espera",
+                            ThemeManager.SecondaryFont,
+                            new Rectangle(card.Width - 88, 16, 76, 20),
+                            _palette.TextSecondary,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                    }
+                    else if (isRunning || isPaused)
+                    {
+                        double pct = job.TotalBytes > 0 ? Math.Min(100.0, (job.SentBytes * 100.0) / job.TotalBytes) : 0.0;
+                        int barY = 52;
+                        int barW = card.Width - 24;
+                        var track = new RectangleF(12, barY, barW, 4F);
+                        using (GraphicsPath tPath = ThemeManager.CreateRoundedRectangle(track, 2F))
+                        using (var tBrush = new SolidBrush(_palette.ElevatedSurfaceBg))
+                        {
+                            e.Graphics.FillPath(tBrush, tPath);
+                        }
+
+                        float fillW = (float)(barW * (pct / 100.0));
+                        if (fillW > 2F)
+                        {
+                            var fillR = new RectangleF(12, barY, fillW, 4F);
+                            using (GraphicsPath fPath = ThemeManager.CreateRoundedRectangle(fillR, 2F))
+                            using (var fGrad = new LinearGradientBrush(fillR, _palette.AccentStart, _palette.AccentEnd, LinearGradientMode.Horizontal))
+                            {
+                                e.Graphics.FillPath(fGrad, fPath);
+                            }
+                        }
+
+                        string speed = job.BytesPerSecond > 0 ? FormatBytes((long)job.BytesPerSecond) + "/s" : string.Empty;
+                        string leftText = $"{(int)Math.Round(pct)}%{(string.IsNullOrEmpty(speed) ? string.Empty : " · " + speed)}";
+                        string etaText = job.EstimatedRemaining.HasValue && isRunning
+                            ? $"faltan {Math.Max(1, (int)job.EstimatedRemaining.Value.TotalSeconds)} s"
+                            : (isPaused ? "En pausa" : string.Empty);
+
+                        TextRenderer.DrawText(
+                            e.Graphics,
+                            leftText,
+                            ThemeManager.SecondaryFont,
+                            new Rectangle(12, 57, 170, 16),
+                            _palette.TextSecondary,
+                            TextFormatFlags.Left);
+
+                        TextRenderer.DrawText(
+                            e.Graphics,
+                            etaText,
+                            ThemeManager.SecondaryFont,
+                            new Rectangle(card.Width - 130, 57, 118, 16),
+                            _palette.TextSecondary,
+                            TextFormatFlags.Right);
+                    }
+                    else if (isFailed)
+                    {
+                        string friendly = string.IsNullOrWhiteSpace(job.ErrorMessage)
+                            ? "No se pudo completar el envío."
+                            : job.ErrorMessage;
+                        if (!string.IsNullOrWhiteSpace(job.SuggestedAction))
+                            friendly += " " + job.SuggestedAction;
+
+                        TextRenderer.DrawText(
+                            e.Graphics,
+                            friendly,
+                            ThemeManager.SecondaryFont,
+                            new Rectangle(12, 50, card.Width - 110, 22),
+                            _palette.StatusError,
+                            TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+                        if (showTechDetail)
+                        {
+                            TextRenderer.DrawText(
+                                e.Graphics,
+                                $"Detalle: {job.ErrorMessage}",
+                                ThemeManager.SecondaryFont,
+                                new Rectangle(12, 76, card.Width - 24, 24),
+                                _palette.TextSecondary,
+                                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                        }
+                    }
+                };
+
+                if ((isRunning || isPaused) && isHovered)
+                {
+                    var btnPause = new Button
+                    {
+                        Text = isPaused ? "▶" : "||",
+                        Size = new Size(28, 24),
+                        Location = new Point(card.Width - 72, 12)
+                    };
+                    ThemeManager.ConfigureSmoothButton(btnPause, _palette, ButtonVariant.Secondary, 8);
+                    btnPause.Click += (s, e) =>
+                    {
+                        if (job.State == QueueJobState.Paused) _queue.ResumeAll();
+                        else _queue.PauseAll();
+                    };
+
+                    var btnCancel = new Button
+                    {
+                        Text = "×",
+                        Size = new Size(28, 24),
+                        Location = new Point(card.Width - 40, 12)
+                    };
+                    ThemeManager.ConfigureSmoothButton(btnCancel, _palette, ButtonVariant.Secondary, 8);
+                    btnCancel.Click += (s, e) => _queue.CancelAllActive();
+
+                    card.Controls.AddRange(new Control[] { btnPause, btnCancel });
+                }
+
+                if (isFailed)
+                {
+                    var btnRetry = new Button
+                    {
+                        Text = "Reintentar",
+                        Size = new Size(80, 24),
+                        Location = new Point(card.Width - 92, 12)
+                    };
+                    ThemeManager.ConfigureSmoothButton(btnRetry, _palette, ButtonVariant.Secondary, 8);
+                    btnRetry.Click += (s, e) => _queue.RetryFailedJobs();
+                    card.Controls.Add(btnRetry);
+
+                    var lnkTech = new LinkLabel
+                    {
+                        Text = showTechDetail ? "ocultar detalle" : "ver detalle técnico",
+                        Font = ThemeManager.SecondaryFont,
+                        LinkColor = _palette.TextSecondary,
+                        LinkBehavior = LinkBehavior.HoverUnderline,
+                        Location = new Point(card.Width - 122, 51),
+                        AutoSize = true
+                    };
+                    lnkTech.Click += (s, e) =>
+                    {
+                        if (_expandedQueueErrors.ContainsKey(capturedId))
+                            _expandedQueueErrors.Remove(capturedId);
+                        else
+                            _expandedQueueErrors[capturedId] = job.ErrorMessage ?? string.Empty;
+                        RebuildQueueCards();
+                    };
+                    card.Controls.Add(lnkTech);
+                }
+
+                _pnlQueueList.Controls.Add(card);
+                yPos += cardHeight + gap;
             }
 
-            _lstQueue.EndUpdate();
-            UpdateSendButtonState();
+            _pnlQueueList.ResumeLayout();
         }
 
-        private void BtnAddManualPeer_Click(object sender, EventArgs e)
+        private void AddManualPeer()
         {
             using (var dlg = new ManualPeerDialog())
             {
@@ -810,153 +1343,174 @@ namespace ONKOS.UI
                         AddressBookStore.UpsertContact(peer, peer.Area);
 
                     _discovery.UpsertPeer(peer.FullName, peer.Area, peer.IPv4, peer.MachineName, peer.FingerprintSha256);
-                    RefreshPeersList();
-
-                    for (int i = 0; i < _clbPeers.Items.Count; i++)
-                    {
-                        if (_clbPeers.Items[i] is PeerListItem pli && pli.Peer != null &&
-                            string.Equals(pli.Peer.IPv4, peer.IPv4, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _clbPeers.SetItemChecked(i, true);
-                            break;
-                        }
-                    }
-
-                    UpdateSendButtonState();
-                    SetFriendlyStatus($"Agregado: {peer.FullName} ({peer.IPv4})");
+                    _selectedPeerKeys.Add(PeerContactsStore.BuildContactKey(peer));
+                    RebuildAreaChips();
+                    RebuildPeerCards();
+                    UpdateSendPillAppearance();
                 }
             }
         }
 
-        private void BtnSelectAllPeers_Click(object sender, EventArgs e)
+        private void OnDragEnter(object sender, DragEventArgs e)
         {
-            for (int i = 0; i < _clbPeers.Items.Count; i++)
-                _clbPeers.SetItemChecked(i, true);
-            UpdateSendButtonState();
+            bool valid = e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop);
+            e.Effect = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            if (valid && !_isDragHovering)
+            {
+                _isDragHovering = true;
+                _pnlDropZone.Invalidate();
+            }
         }
 
-        private void BtnSelectGroup_Click(object sender, EventArgs e)
+        private void OnDragOver(object sender, DragEventArgs e)
         {
-            string groupName = _cmbGroupOrArea.SelectedItem != null ? _cmbGroupOrArea.SelectedItem.ToString() : string.Empty;
-            if (string.IsNullOrWhiteSpace(groupName))
-                return;
+            if (e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effect = DragDropEffects.Copy;
+        }
 
-            List<AddressBookEntry> book = AddressBookStore.LoadAll();
-            var groupIps = new HashSet<string>(
-                book.Where(b => string.Equals(b.GroupName, groupName, StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(b.Area, groupName, StringComparison.OrdinalIgnoreCase))
-                    .Select(b => b.IPv4 ?? string.Empty),
-                StringComparer.OrdinalIgnoreCase);
+        private void OnDragLeave(object sender, EventArgs e)
+        {
+            _isDragHovering = false;
+            _pnlDropZone.Invalidate();
+        }
 
-            int marked = 0;
-            for (int i = 0; i < _clbPeers.Items.Count; i++)
+        private void OnDragDrop(object sender, DragEventArgs e)
+        {
+            _isDragHovering = false;
+            _pnlDropZone.Invalidate();
+            if (e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop))
             {
-                if (_clbPeers.Items[i] is PeerListItem item && item.Peer != null)
+                var dropped = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (dropped != null)
+                    _ = AddPathsAsync(dropped);
+            }
+        }
+
+        private void PickFilesDialog()
+        {
+            using (var ofd = new OpenFileDialog { Multiselect = true, Title = UiResources.AppTitle })
+            {
+                if (ofd.ShowDialog(this) == DialogResult.OK)
+                    _ = AddPathsAsync(ofd.FileNames);
+            }
+        }
+
+        private void PickFolderDialog()
+        {
+            using (var fbd = new FolderBrowserDialog { Description = UiResources.AppTitle })
+            {
+                if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    _ = AddPathsAsync(new[] { fbd.SelectedPath });
+            }
+        }
+
+        private async Task AddPathsAsync(IEnumerable<string> paths)
+        {
+            try
+            {
+                foreach (string p in paths)
                 {
-                    bool matchArea = string.Equals(item.Peer.Area, groupName, StringComparison.OrdinalIgnoreCase);
-                    bool matchBook = !string.IsNullOrWhiteSpace(item.Peer.IPv4) && groupIps.Contains(item.Peer.IPv4.Trim());
-                    if (matchArea || matchBook)
-                    {
-                        _clbPeers.SetItemChecked(i, true);
-                        marked++;
-                    }
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    if (!File.Exists(p) && !Directory.Exists(p)) continue;
+                    if (!_selectedPaths.Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase)))
+                        _selectedPaths.Add(p);
                 }
-            }
 
-            UpdateSendButtonState();
-            SetFriendlyStatus(marked > 0
-                ? $"Marcados {marked} de '{groupName}'"
-                : $"Sin activos en '{groupName}'");
+                _isSendingMode = false;
+                SyncVisualState();
+                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Instance.Warn("UI.MainForm", $"Error al agregar rutas ({ex.Message}).");
+            }
         }
 
-        private void UpdateSendButtonState()
+        private void RemovePathAt(int index)
         {
-            if (IsDisposed || Disposing)
+            if (index < 0 || index >= _selectedPaths.Count)
                 return;
-
-            int fileCount = _lstFiles.Items.Count;
-            int peerCount = _clbPeers.CheckedItems.Count;
-
-            if (fileCount == 0)
-            {
-                _btnSend.Enabled = false;
-                _btnSend.Text = UiResources.SendNeedFiles;
-                return;
-            }
-
-            if (peerCount == 0)
-            {
-                _btnSend.Enabled = false;
-                _btnSend.Text = UiResources.SendNeedTargets;
-                return;
-            }
-
-            _btnSend.Enabled = true;
-            _btnSend.Text = $"{UiResources.SendReady} ({fileCount} · {peerCount})";
+            string p = _selectedPaths[index];
+            PathSizeCache.Invalidate(p);
+            _selectedPaths.RemoveAt(index);
+            _hoveredFileIndex = -1;
+            SyncVisualState();
+            _ = RecalculateSelectionSizeAsync();
         }
 
-        private void BtnPauseResume_Click(object sender, EventArgs e)
+        private async Task RecalculateSelectionSizeAsync()
         {
-            if (_queue.IsPaused)
-                _queue.ResumeAll();
-            else
-                _queue.PauseAll();
+            long total = 0L;
+            foreach (string p in _selectedPaths.ToList())
+            {
+                PathSizeSummary summary = await PathSizeCache.GetOrComputeAsync(p, _uiCts.Token).ConfigureAwait(true);
+                total += summary.TotalBytes;
+            }
+            _cachedSelectionBytes = total;
+            if (!IsDisposed && !Disposing && !_isSendingMode && _selectedPaths.Count > 0)
+                RebuildFileCards();
+        }
+
+        private async void BtnSendPill_Click(object sender, EventArgs e)
+        {
+            if (_isSendingMode)
+            {
+                _queue.CancelAllActive();
+                UpdateSendPillAppearance();
+                return;
+            }
+
+            List<PeerInfo> targets = _discovery.GetPeers()
+                .Where(p => _selectedPeerKeys.Contains(PeerContactsStore.BuildContactKey(p)))
+                .ToList();
+
+            if (targets.Count == 0 || _selectedPaths.Count == 0)
+                return;
+
+            foreach (PeerInfo t in targets)
+                AddressBookStore.UpsertContact(t);
+
+            List<string> itemsToSend = _selectedPaths.ToList();
+            int fileCount = itemsToSend.Count;
+            int peerCount = targets.Count;
+
+            _queue.EnqueueBatch(itemsToSend, targets);
+            _selectedPaths.Clear();
+            _cachedSelectionBytes = 0L;
+            _isSendingMode = true;
+            _lblSendSummary.Text = $"{fileCount} {(fileCount == 1 ? "archivo" : "archivos")} → {peerCount} {(peerCount == 1 ? "equipo" : "equipos")}";
+
+            SyncVisualState();
+            await RecalculateSelectionSizeAsync().ConfigureAwait(true);
         }
 
         public void BringToFrontFromSecondInstance()
         {
-            if (IsDisposed)
-                return;
-
+            if (IsDisposed) return;
             if (WindowState == FormWindowState.Minimized)
                 WindowState = FormWindowState.Normal;
-
             Show();
             BringToFront();
             Activate();
         }
 
-        private string BuildIdentityText()
+        private string BuildUserSubtitle()
         {
-            string name = _localProfile != null ? _localProfile.FullName : "Sin perfil";
-            string area = _localProfile != null ? _localProfile.Area : "";
-            string ip = _discovery.GetLocalIPv4Cached();
-            return $"{name} · {area} · {ip}";
+            string name = _localProfile != null ? _localProfile.FullName : string.Empty;
+            string area = _localProfile != null ? _localProfile.Area : string.Empty;
+            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(area))
+                return $"{name} · {area}";
+            return !string.IsNullOrWhiteSpace(name) ? name : area;
         }
 
-        private void RefreshInboxBadgeText(bool force)
+        private void OpenActivityWindow(string initialTab)
         {
-            int unseen = TransferHistoryStore.GetUnseenReceivedCount();
-            if (force || unseen != _lastSeenUnseenCount)
-            {
-                _lastSeenUnseenCount = unseen;
-                _btnInbox.Text = unseen > 0 ? $"Recibidos ({unseen})" : "Recibidos";
-            }
-
-            _lblInboxPath.Text = "Destino: " + AppSettingsStore.GetInboxFolder();
-        }
-
-        private void OpenInboxFolder()
-        {
-            try
-            {
-                string folder;
-                string err;
-                if (!AppSettingsStore.TryEnsureInboxReady(out folder, out err))
-                {
-                    SetFriendlyStatus("Revisa la carpeta de recibidos o sus permisos.");
-                    return;
-                }
-
-                TransferHistoryStore.MarkReceivedAsSeen();
-                RefreshInboxBadgeText(force: true);
-                Process.Start("explorer.exe", folder);
-            }
-            catch (Exception ex)
-            {
-                FileLogger.Instance.Warn("UI.MainForm", $"Error al abrir carpeta de recibidos ({ex.Message}).");
-                SetActionableError("No se pudo abrir la carpeta de recibidos.", ex);
-            }
+            using (var dlg = new ActivityForm(initialTab))
+                dlg.ShowDialog(this);
+            RefreshActivityBadge();
         }
 
         private void OpenSettings()
@@ -965,9 +1519,9 @@ namespace ONKOS.UI
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    ApplyTheme(dlg.SelectedTheme);
-                    RefreshInboxBadgeText(force: true);
-                    SetFriendlyStatus("Configuración guardada.");
+                    _palette = ThemeManager.GetCurrentPalette();
+                    ApplyPaletteToMain();
+                    RefreshActivityBadge();
                 }
             }
         }
@@ -981,155 +1535,76 @@ namespace ONKOS.UI
                     _localProfile = dlg.RegisteredProfile;
                     _queue.SetLocalProfile(_localProfile);
                     _discovery.UpdateLocalProfile(_localProfile);
-                    _lblIdentity.Text = BuildIdentityText();
-                    SetFriendlyStatus("Perfil actualizado.");
+                    _lblUserArea.Text = BuildUserSubtitle();
+                    _pnlAvatarBtn.Invalidate();
                 }
             }
         }
 
-        private void OnDragEnter(object sender, DragEventArgs e)
+        private void ApplyPaletteToMain()
         {
-            e.Effect = (e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop))
-                ? DragDropEffects.Copy
-                : DragDropEffects.None;
+            BackColor = _palette.WindowBg;
+            ForeColor = _palette.TextPrimary;
+            _pnlHeader.BackColor = _palette.WindowBg;
+            _pnlEmptyState.BackColor = _palette.WindowBg;
+            _pnlDropZone.BackColor = _palette.SurfaceBg;
+            _lnkChooseFolder.BackColor = _palette.SurfaceBg;
+            _lnkChooseFolder.LinkColor = _palette.AccentStart;
+            _pnlComposeState.BackColor = _palette.WindowBg;
+            _pnlFilesList.BackColor = _palette.WindowBg;
+            _pnlAreaChips.BackColor = _palette.WindowBg;
+            _pnlPeersList.BackColor = _palette.WindowBg;
+            _txtPeerSearch.BackColor = _palette.SurfaceBg;
+            _txtPeerSearch.ForeColor = _palette.TextPrimary;
+            _pnlSendingState.BackColor = _palette.WindowBg;
+            _pnlQueueList.BackColor = _palette.WindowBg;
+            _lnkEditBatch.LinkColor = _palette.AccentStart;
+            _pnlFooter.BackColor = _palette.WindowBg;
+            _lblUserName.ForeColor = _palette.TextPrimary;
+            _lblUserArea.ForeColor = _palette.TextSecondary;
+            _lblFilesSummary.ForeColor = _palette.TextSecondary;
+            _lblServiceStatus.ForeColor = _palette.TextSecondary;
+
+            ThemeManager.ConfigureSmoothButton(_btnAddMoreBar, _palette, ButtonVariant.Secondary, 10);
+            ThemeManager.ConfigureSmoothButton(_btnNewReceivedChip, _palette, ButtonVariant.Secondary, 15);
+            ThemeManager.ConfigureSmoothButton(_btnSendPill, _palette, ButtonVariant.Primary, 20);
+            SyncVisualState();
+            Invalidate(true);
         }
 
-        private void OnDragDrop(object sender, DragEventArgs e)
-        {
-            if (e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                var dropped = e.Data.GetData(DataFormats.FileDrop) as string[];
-                if (dropped != null)
-                    _ = AddPathsAsync(dropped);
-            }
-        }
-
-        private void PickFilesDialog()
-        {
-            using (var ofd = new OpenFileDialog { Multiselect = true, Title = "Seleccionar archivos" })
-            {
-                if (ofd.ShowDialog(this) == DialogResult.OK)
-                    _ = AddPathsAsync(ofd.FileNames);
-            }
-        }
-
-        private void PickFolderDialog()
-        {
-            using (var fbd = new FolderBrowserDialog { Description = "Seleccionar carpeta" })
-            {
-                if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                    _ = AddPathsAsync(new[] { fbd.SelectedPath });
-            }
-        }
-
-        private async Task AddPathsAsync(IEnumerable<string> paths)
+        private static bool IsServiceRunning()
         {
             try
             {
-                foreach (string p in paths)
-                {
-                    if (string.IsNullOrWhiteSpace(p))
-                        continue;
-                    if (!File.Exists(p) && !Directory.Exists(p))
-                        continue;
-
-                    bool exists = _lstFiles.Items.Cast<string>().Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase));
-                    if (!exists)
-                        _lstFiles.Items.Add(p);
-                }
-
-                UpdateSendButtonState();
-                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+                using (var sc = new ServiceController("ONKOSTransferService"))
+                    return sc.Status == ServiceControllerStatus.Running;
             }
-            catch (OperationCanceledException)
+            catch (Exception)
             {
-            }
-            catch (Exception ex)
-            {
-                FileLogger.Instance.Warn("UI.MainForm", $"Error calculando tamaños ({ex.Message}).");
+                return true;
             }
         }
 
-        private void BtnRemoveItem_Click(object sender, EventArgs e)
-        {
-            var selected = _lstFiles.SelectedItems.Cast<string>().ToList();
-            foreach (string item in selected)
-            {
-                PathSizeCache.Invalidate(item);
-                _lstFiles.Items.Remove(item);
-            }
-            UpdateSendButtonState();
-            _ = RecalculateSelectionSizeAsync();
-        }
-
-        private async Task RecalculateSelectionSizeAsync()
-        {
-            List<string> items = _lstFiles.Items.Cast<string>().ToList();
-            long total = 0L;
-            foreach (string p in items)
-            {
-                PathSizeSummary summary = await PathSizeCache.GetOrComputeAsync(p, _uiCts.Token).ConfigureAwait(true);
-                total += summary.TotalBytes;
-            }
-
-            _cachedSelectionBytes = total;
-            if (!IsDisposed && !Disposing)
-                _lblSelectionSize.Text = $"{items.Count} elementos · {FormatBytes(_cachedSelectionBytes)}";
-        }
-
-        private async void BtnSend_Click(object sender, EventArgs e)
+        private static long SafeFileLength(string path)
         {
             try
             {
-                List<PeerInfo> targets = CollectCheckedTargets();
-                if (targets.Count == 0)
-                {
-                    SetFriendlyStatus("Elige al menos un destinatario.");
-                    return;
-                }
-
-                List<string> items = _lstFiles.Items.Cast<string>().ToList();
-                if (items.Count == 0)
-                {
-                    SetFriendlyStatus("Agrega al menos un archivo o carpeta.");
-                    return;
-                }
-
-                foreach (PeerInfo t in targets)
-                    AddressBookStore.UpsertContact(t);
-
-                List<TransferJob> jobs = _queue.EnqueueBatch(items, targets);
-                _lstFiles.Items.Clear();
-                _cachedSelectionBytes = 0L;
-                UpdateSendButtonState();
-                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
-
-                _btnDetails.Visible = false;
-                SetFriendlyStatus($"Encolados {jobs.Count} envío(s).");
+                return new FileInfo(path).Length;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                FileLogger.Instance.Error("UI.Send", "Error al encolar transferencia.", ex);
-                SetActionableError("No se pudo iniciar el envío.", ex);
+                return 0L;
             }
         }
 
-        private List<PeerInfo> CollectCheckedTargets()
+        private static string GetInitials(string name)
         {
-            var result = new List<PeerInfo>();
-            var seenIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (object checkedObj in _clbPeers.CheckedItems)
-            {
-                if (checkedObj is PeerListItem pli && pli.Peer != null && !string.IsNullOrWhiteSpace(pli.Peer.IPv4))
-                {
-                    string ip = pli.Peer.IPv4.Trim();
-                    if (seenIps.Add(ip))
-                        result.Add(pli.Peer);
-                }
-            }
-
-            return result;
+            if (string.IsNullOrWhiteSpace(name))
+                return "OT";
+            string[] parts = name.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1)
+                return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpperInvariant();
+            return (parts[0].Substring(0, 1) + parts[parts.Length - 1].Substring(0, 1)).ToUpperInvariant();
         }
 
         private static string FormatBytes(long bytes)
@@ -1140,26 +1615,6 @@ namespace ONKOS.UI
             double mb = kb / 1024.0;
             if (mb < 1024.0) return mb.ToString("0.#") + " MB";
             return (mb / 1024.0).ToString("0.##") + " GB";
-        }
-
-        private sealed class PeerListItem
-        {
-            public PeerInfo Peer { get; }
-
-            public PeerListItem(PeerInfo peer)
-            {
-                Peer = peer;
-            }
-
-            public override string ToString()
-            {
-                if (Peer == null)
-                    return string.Empty;
-
-                string presence = LanDiscoveryService.FormatLastSeen(Peer);
-                string areaPart = string.IsNullOrWhiteSpace(Peer.Area) ? string.Empty : $" · {Peer.Area}";
-                return $"{Peer.FullName}{areaPart} ({Peer.IPv4}) · {presence}";
-            }
         }
     }
 }
