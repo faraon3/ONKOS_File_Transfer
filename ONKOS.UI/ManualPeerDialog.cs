@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Net;
 using System.Net.Sockets;
@@ -11,170 +10,119 @@ namespace ONKOS.UI
 {
     public sealed class ManualPeerDialog : Form
     {
-        private readonly TextBox _txtName;
-        private readonly ComboBox _cmbArea;
         private readonly TextBox _txtIp;
-        private readonly CheckBox _chkSaveToBook;
         private readonly Label _lblError;
+        private readonly Timer _fadeTimer;
 
         public PeerInfo CreatedPeer { get; private set; }
-        public bool SaveToAddressBook => _chkSaveToBook.Checked;
+        public bool SaveToAddressBook => true;
 
         public ManualPeerDialog()
         {
             ThemePalette p = ThemeManager.GetCurrentPalette();
 
-            Text = "Nuevo destinatario";
+            Text = "Agregar equipo";
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
-            Size = new Size(430, 315);
-            MinimumSize = new Size(390, 295);
+            Size = new Size(360, 190);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            KeyPreview = true;
+            Opacity = ThemeManager.AreAnimationsEnabled() ? 0.0 : 1.0;
             BackColor = p.WindowBg;
             ForeColor = p.TextPrimary;
-            Font = ThemeManager.BaseFont;
+            Font = ThemeManager.BodyFont;
 
-            var layout = new TableLayoutPanel
+            var lblTitle = new Label
             {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 8,
-                Padding = new Padding(18)
-            };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-
-            var lblHeader = new Label
-            {
-                Text = "Agregar equipo por IPv4",
-                Font = ThemeManager.SectionTitleFont,
-                ForeColor = p.PrimaryAccent,
-                AutoSize = true,
-                Margin = new Padding(0, 0, 0, 10)
+                Text = "Dirección IPv4",
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = p.TextSecondary,
+                Location = new Point(18, 18),
+                AutoSize = true
             };
 
             _txtIp = new TextBox
             {
-                Dock = DockStyle.Fill,
-                BackColor = p.InputBg,
+                Location = new Point(18, 42),
+                Size = new Size(308, 30),
+                BackColor = p.SurfaceBg,
                 ForeColor = p.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Dirección IPv4"
-            };
-
-            _txtName = new TextBox
-            {
-                Dock = DockStyle.Fill,
-                MaxLength = UserProfileStore.MaxFieldLength,
-                BackColor = p.InputBg,
-                ForeColor = p.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Nombre opcional"
-            };
-
-            _cmbArea = new ComboBox
-            {
-                Dock = DockStyle.Fill,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
-                AutoCompleteSource = AutoCompleteSource.ListItems,
-                BackColor = p.InputBg,
-                ForeColor = p.TextPrimary,
-                AccessibleName = "Área opcional"
-            };
-            List<string> areas = UserProfileStore.GetConfiguredAreas();
-            foreach (string a in areas)
-                _cmbArea.Items.Add(a);
-            if (_cmbArea.Items.Count > 0)
-                _cmbArea.SelectedIndex = 0;
-
-            _chkSaveToBook = new CheckBox
-            {
-                Text = "Guardar en libreta",
-                Checked = true,
-                AutoSize = true,
-                Margin = new Padding(0, 8, 0, 2)
+                BorderStyle = BorderStyle.FixedSingle
             };
 
             _lblError = new Label
             {
                 Text = string.Empty,
-                ForeColor = Color.FromArgb(255, 110, 130),
-                AutoSize = true
+                Font = ThemeManager.SecondaryFont,
+                ForeColor = p.StatusError,
+                Location = new Point(18, 76),
+                Size = new Size(308, 20)
             };
 
-            var pnlButtons = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.RightToLeft,
-                AutoSize = true
-            };
-
-            var btnAdd = new Button { Text = "Agregar", Size = new Size(100, 32) };
-            ThemeManager.StyleButton(btnAdd, p, isPrimary: true);
+            var btnAdd = new Button { Text = "Agregar", Size = new Size(96, 34), Location = new Point(230, 104) };
+            ThemeManager.ConfigureSmoothButton(btnAdd, p, ButtonVariant.Primary, 10);
             btnAdd.Click += BtnAdd_Click;
 
-            var btnCancel = new Button { Text = "Cancelar", Size = new Size(95, 32) };
-            ThemeManager.StyleButton(btnCancel, p);
+            var btnCancel = new Button { Text = "Cancelar", Size = new Size(88, 34), Location = new Point(134, 104) };
+            ThemeManager.ConfigureSmoothButton(btnCancel, p, ButtonVariant.Secondary, 10);
             btnCancel.Click += (s, e) =>
             {
                 DialogResult = DialogResult.Cancel;
                 Close();
             };
 
-            pnlButtons.Controls.Add(btnAdd);
-            pnlButtons.Controls.Add(btnCancel);
-
-            layout.Controls.Add(lblHeader, 0, 0);
-            layout.Controls.Add(new Label { Text = "IPv4:", AutoSize = true }, 0, 1);
-            layout.Controls.Add(_txtIp, 0, 2);
-            layout.Controls.Add(new Label { Text = "Nombre (opcional):", AutoSize = true, Margin = new Padding(0, 6, 0, 0) }, 0, 3);
-            layout.Controls.Add(_txtName, 0, 4);
-            layout.Controls.Add(new Label { Text = "Área (opcional):", AutoSize = true, Margin = new Padding(0, 6, 0, 0) }, 0, 5);
-            layout.Controls.Add(_cmbArea, 0, 6);
-
-            var bottomWrap = new Panel { Dock = DockStyle.Fill, Height = 64 };
-            _chkSaveToBook.Dock = DockStyle.Top;
-            _lblError.Dock = DockStyle.Top;
-            pnlButtons.Dock = DockStyle.Bottom;
-            bottomWrap.Controls.Add(pnlButtons);
-            bottomWrap.Controls.Add(_lblError);
-            bottomWrap.Controls.Add(_chkSaveToBook);
-            layout.Controls.Add(bottomWrap, 0, 7);
+            _fadeTimer = new Timer { Interval = 18 };
+            _fadeTimer.Tick += (s, e) =>
+            {
+                if (!ThemeManager.AreAnimationsEnabled() || Opacity >= 1.0)
+                {
+                    Opacity = 1.0;
+                    _fadeTimer.Stop();
+                    return;
+                }
+                Opacity = Math.Min(1.0, Opacity + 0.16);
+            };
 
             AcceptButton = btnAdd;
             CancelButton = btnCancel;
-            Controls.Add(layout);
+            Controls.AddRange(new Control[] { lblTitle, _txtIp, _lblError, btnCancel, btnAdd });
+            Load += (s, e) => _fadeTimer.Start();
+            FormClosed += (s, e) =>
+            {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
+            };
         }
 
         private void BtnAdd_Click(object sender, EventArgs e)
         {
-            string ipText = (_txtIp.Text ?? string.Empty).Trim();
-            IPAddress parsed;
-            if (!IPAddress.TryParse(ipText, out parsed) || parsed.AddressFamily != AddressFamily.InterNetwork)
+            string raw = (_txtIp.Text ?? string.Empty).Trim();
+            IPAddress ip;
+            if (!IPAddress.TryParse(raw, out ip) || ip.AddressFamily != AddressFamily.InterNetwork)
             {
-                _lblError.Text = "Ingresa una IPv4 válida (ej. 192.168.1.45).";
-                _txtIp.Focus();
+                _lblError.Text = "IPv4 no válida.";
                 return;
             }
 
-            string cleanName = UserProfileStore.SanitizeField(_txtName.Text);
-            if (string.IsNullOrWhiteSpace(cleanName) || UserProfileStore.IsIgnoredSystemName(cleanName))
-                cleanName = "Equipo " + parsed;
-
-            string cleanArea = UserProfileStore.SanitizeField(_cmbArea.Text);
-            if (string.IsNullOrWhiteSpace(cleanArea))
-                cleanArea = "Manual";
+            string area = "General";
+            try
+            {
+                PeerInfo local;
+                if (UserProfileStore.TryLoad(out local) && !string.IsNullOrWhiteSpace(local.Area))
+                    area = local.Area;
+            }
+            catch (Exception)
+            {
+            }
 
             CreatedPeer = new PeerInfo
             {
-                FullName = cleanName,
-                Area = cleanArea,
-                IPv4 = parsed.ToString(),
-                MachineName = parsed.ToString(),
+                FullName = "Equipo " + ip,
+                Area = area,
+                IPv4 = ip.ToString(),
+                MachineName = ip.ToString(),
                 LastSeenUtc = DateTime.UtcNow
             };
 
