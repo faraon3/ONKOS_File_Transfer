@@ -20,100 +20,83 @@ namespace ONKOS.UI
         private readonly ListView _lvHistory;
         private readonly TextBox _txtDetail;
         private readonly Label _lblSummary;
+        private readonly Timer _fadeTimer;
 
         public TransferHistoryForm()
         {
-            Text = "ONKOS File Transfer 2.0 — Historial y Auditoría";
-            Size = new Size(980, 600);
-            MinimumSize = new Size(820, 480);
-            StartPosition = FormStartPosition.CenterParent;
-            BackColor = Color.FromArgb(14, 15, 24);
-            ForeColor = Color.FromArgb(246, 247, 252);
-            Font = new Font("Segoe UI", 9.5F);
+            ThemePalette p = ThemeManager.GetCurrentPalette();
 
-            var pnlTop = new Panel
+            Text = "Historial";
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            Size = new Size(960, 580);
+            MinimumSize = new Size(780, 460);
+            StartPosition = FormStartPosition.CenterParent;
+            Opacity = 0.0;
+            BackColor = p.WindowBg;
+            ForeColor = p.TextPrimary;
+            Font = ThemeManager.BaseFont;
+
+            var pnlTop = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 56,
-                BackColor = Color.FromArgb(20, 22, 34),
-                Padding = new Padding(12, 12, 12, 10)
+                Height = 50,
+                BackColor = p.HeaderBg,
+                Padding = new Padding(12, 9, 12, 8)
             };
 
             _cmbFilter = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(12, 14),
-                Size = new Size(115, 28),
-                BackColor = Color.FromArgb(31, 34, 52),
-                ForeColor = Color.White
+                Width = 105,
+                BackColor = p.InputBg,
+                ForeColor = p.TextPrimary
             };
             _cmbFilter.Items.AddRange(new object[] { "TODOS", "ENVIADO", "RECIBIDO" });
             _cmbFilter.SelectedIndex = 0;
             _cmbFilter.SelectedIndexChanged += (s, e) => LoadEntries();
+            pnlTop.Controls.Add(_cmbFilter);
 
             _cmbStatus = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(134, 14),
-                Size = new Size(125, 28),
-                BackColor = Color.FromArgb(31, 34, 52),
-                ForeColor = Color.White
+                Width = 120,
+                BackColor = p.InputBg,
+                ForeColor = p.TextPrimary
             };
             _cmbStatus.Items.AddRange(new object[] { "TODOS", "Completado", "Error", "Cancelado" });
             _cmbStatus.SelectedIndex = 0;
             _cmbStatus.SelectedIndexChanged += (s, e) => LoadEntries();
+            pnlTop.Controls.Add(_cmbStatus);
 
-            _dtpFrom = new DateTimePicker
-            {
-                Format = DateTimePickerFormat.Short,
-                Location = new Point(266, 15),
-                Size = new Size(105, 26),
-                Value = DateTime.Today.AddDays(-30)
-            };
+            _dtpFrom = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 102, Value = DateTime.Today.AddDays(-30) };
             _dtpFrom.ValueChanged += (s, e) => LoadEntries();
+            pnlTop.Controls.Add(_dtpFrom);
 
-            _dtpTo = new DateTimePicker
-            {
-                Format = DateTimePickerFormat.Short,
-                Location = new Point(377, 15),
-                Size = new Size(105, 26),
-                Value = DateTime.Today
-            };
+            _dtpTo = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 102, Value = DateTime.Today };
             _dtpTo.ValueChanged += (s, e) => LoadEntries();
+            pnlTop.Controls.Add(_dtpTo);
 
             _txtSearch = new TextBox
             {
-                Location = new Point(490, 15),
-                Size = new Size(195, 26),
-                BackColor = Color.FromArgb(31, 34, 52),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
+                Width = 185,
+                BackColor = p.InputBg,
+                ForeColor = p.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle,
+                AccessibleName = "Buscar en historial"
             };
             _txtSearch.TextChanged += (s, e) => LoadEntries();
+            pnlTop.Controls.Add(_txtSearch);
 
-            var btnExport = new Button
-            {
-                Text = "Exportar CSV",
-                Location = new Point(695, 14),
-                Size = new Size(115, 28),
-                BackColor = Color.FromArgb(38, 41, 62),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
+            var btnExport = new Button { Text = "CSV", Size = new Size(72, 30) };
+            ThemeManager.StyleButton(btnExport, p);
             btnExport.Click += BtnExport_Click;
+            pnlTop.Controls.Add(btnExport);
 
-            var btnClear = new Button
-            {
-                Text = "Limpiar historial",
-                Location = new Point(818, 14),
-                Size = new Size(135, 28),
-                BackColor = Color.FromArgb(140, 42, 62),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
+            var btnClear = new Button { Text = "Limpiar", Size = new Size(86, 30) };
+            ThemeManager.StyleButton(btnClear, p, isDanger: true);
             btnClear.Click += BtnClear_Click;
-
-            pnlTop.Controls.AddRange(new Control[] { _cmbFilter, _cmbStatus, _dtpFrom, _dtpTo, _txtSearch, btnExport, btnClear });
+            pnlTop.Controls.Add(btnClear);
 
             _lvHistory = new ListView
             {
@@ -121,51 +104,69 @@ namespace ONKOS.UI
                 View = View.Details,
                 FullRowSelect = true,
                 MultiSelect = false,
-                BackColor = Color.FromArgb(18, 20, 32),
-                ForeColor = Color.FromArgb(242, 244, 252),
-                BorderStyle = BorderStyle.None
+                BackColor = p.CardBg,
+                ForeColor = p.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle
             };
-            _lvHistory.Columns.Add("Fecha / Hora", 145);
-            _lvHistory.Columns.Add("Tipo", 90);
-            _lvHistory.Columns.Add("Elemento", 220);
+            _lvHistory.Columns.Add("Fecha", 145);
+            _lvHistory.Columns.Add("Tipo", 88);
+            _lvHistory.Columns.Add("Elemento", 230);
             _lvHistory.Columns.Add("Tamaño", 85, HorizontalAlignment.Right);
-            _lvHistory.Columns.Add("Remitente / Destino", 160);
+            _lvHistory.Columns.Add("Contacto", 170);
             _lvHistory.Columns.Add("Estado", 95);
-            _lvHistory.Columns.Add("SHA-256 / Detalle", 240);
+            _lvHistory.Columns.Add("SHA-256 / Nota", 230);
             _lvHistory.SelectedIndexChanged += (s, e) => ShowSelectedDetail();
             _lvHistory.DoubleClick += (s, e) => OpenSelectedTarget();
 
             _txtDetail = new TextBox
             {
                 Dock = DockStyle.Bottom,
-                Height = 86,
+                Height = 76,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                BackColor = Color.FromArgb(22, 25, 40),
-                ForeColor = Color.FromArgb(215, 222, 245),
+                BackColor = p.InputBg,
+                ForeColor = p.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                Text = "Selecciona un registro para ver sus detalles (hash SHA-256, ruta, origen/destino y observaciones)."
+                Text = "Selecciona un registro para ver detalles."
             };
 
             var pnlBottom = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 36,
-                BackColor = Color.FromArgb(20, 22, 34),
-                Padding = new Padding(12, 8, 12, 6)
+                Height = 34,
+                BackColor = p.HeaderBg,
+                Padding = new Padding(12, 7, 12, 6)
             };
 
             _lblSummary = new Label
             {
-                Text = "0 registro(s)",
+                Text = "0 registros",
                 Dock = DockStyle.Fill,
-                ForeColor = Color.FromArgb(170, 176, 204)
+                ForeColor = p.TextSecondary
             };
             pnlBottom.Controls.Add(_lblSummary);
 
+            _fadeTimer = new Timer { Interval = 20 };
+            _fadeTimer.Tick += (s, e) =>
+            {
+                if (Opacity < 1.0)
+                    Opacity = Math.Min(1.0, Opacity + 0.16);
+                else
+                    _fadeTimer.Stop();
+            };
+
             Controls.AddRange(new Control[] { _lvHistory, _txtDetail, pnlBottom, pnlTop });
-            Shown += (s, e) => LoadEntries();
+            Shown += (s, e) =>
+            {
+                LoadEntries();
+                _fadeTimer.Start();
+            };
+            FormClosed += (s, e) =>
+            {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
+            };
         }
 
         private void LoadEntries()
@@ -200,7 +201,7 @@ namespace ONKOS.UI
             }
 
             _lvHistory.EndUpdate();
-            _lblSummary.Text = $"{entries.Count} registro(s) — Doble clic en un recibido para abrir su ubicación";
+            _lblSummary.Text = $"{entries.Count} registro(s) · Doble clic en recibido abre su ubicación";
         }
 
         private void ShowSelectedDetail()
@@ -213,9 +214,9 @@ namespace ONKOS.UI
                 return;
 
             _txtDetail.Text =
-                $"Elemento: {entry.ItemName} | Tipo: {entry.Direction} | Estado: {entry.Status} | Tamaño: {entry.SizeBytes} bytes ({FormatBytes(entry.SizeBytes)})\r\n" +
-                $"Contraparte: {entry.Counterparty} | Ruta destino: {entry.TargetPath}\r\n" +
-                $"SHA-256: {entry.Sha256} | Observaciones: {entry.Notes}";
+                $"{entry.ItemName} · {entry.Direction} · {entry.Status} · {FormatBytes(entry.SizeBytes)}\r\n" +
+                $"Contacto: {entry.Counterparty} · Destino: {entry.TargetPath}\r\n" +
+                $"SHA-256: {entry.Sha256} · {entry.Notes}";
         }
 
         private void BtnExport_Click(object sender, EventArgs e)
@@ -240,7 +241,7 @@ namespace ONKOS.UI
                     if (sfd.ShowDialog(this) == DialogResult.OK)
                     {
                         TransferHistoryStore.ExportToCsv(sfd.FileName, entries);
-                        _lblSummary.Text = "Historial exportado correctamente a CSV.";
+                        _lblSummary.Text = "Exportado a CSV.";
                     }
                 }
             }
@@ -282,9 +283,7 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn(
-                    "UI.History",
-                    $"No se pudo abrir la ubicación del elemento recibido ({ex.GetType().Name}: {ex.Message}).");
+                FileLogger.Instance.Warn("UI.History", $"No se pudo abrir ubicación ({ex.Message}).");
             }
         }
 
@@ -292,7 +291,7 @@ namespace ONKOS.UI
         {
             DialogResult res = MessageBox.Show(
                 this,
-                "¿Deseas limpiar todos los registros del historial local? (Requiere privilegios de administrador)",
+                "¿Limpiar el historial local? (Requiere administrador)",
                 "Confirmar",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
