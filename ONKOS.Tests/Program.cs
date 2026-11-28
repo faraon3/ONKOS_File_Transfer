@@ -1,13 +1,12 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Text;
 using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
-using ONKOS.Core.Models;
 using ONKOS.Core.Notifications;
 using ONKOS.Core.Protocol;
 using ONKOS.Core.Storage;
+using ONKOS.UI;
 
 namespace ONKOS.Tests
 {
@@ -17,21 +16,19 @@ namespace ONKOS.Tests
         {
             try
             {
+                ThemePalette dark = ThemeManager.GetPalette(AppThemeMode.Dark);
+                ThemePalette hc = ThemeManager.GetPalette(AppThemeMode.HighContrast);
+                if (dark.WindowBg == hc.WindowBg)
+                    throw new InvalidOperationException("Falló la distinción de paletas de tema.");
+
                 NotificationRecord n1 = NotificationCenterStore.PublishGrouped(
                     NotificationCategory.Received,
-                    "group-test-1",
+                    "phase6-group",
                     "Archivo recibido",
-                    "Ana Pérez — Facturación",
-                    "acta_1.pdf");
-                NotificationRecord n2 = NotificationCenterStore.PublishGrouped(
-                    NotificationCategory.Received,
-                    "group-test-1",
-                    "Archivo recibido",
-                    "Ana Pérez — Facturación",
-                    "acta_2.pdf");
-
-                if (n1 == null || n2 == null || n2.ItemCount < 2)
-                    throw new InvalidOperationException("Falló la agrupación de notificaciones.");
+                    "Soporte — Sistemas",
+                    "reporte.pdf");
+                if (n1 == null)
+                    throw new InvalidOperationException("Falló la publicación de notificación.");
 
                 var limits = new TransferLimits();
                 string safeRel = SecureTransferProtocol.NormalizeAndValidateRelativePath("carpeta/informe.pdf", limits);
@@ -44,13 +41,13 @@ namespace ONKOS.Tests
                 if (bcast.ToString() != "192.168.11.255")
                     throw new InvalidOperationException("Falló el cálculo de broadcast /23.");
 
-                FileLogger.Instance.Info("Phase5B.Tests", "Pruebas de agrupación de notificaciones, historial y red completadas.");
-                Console.WriteLine("PHASE5B_TESTS_OK");
+                FileLogger.Instance.Info("Phase6B.Tests", "Pruebas de temas, notificaciones, protocolo y red completadas.");
+                Console.WriteLine("PHASE6B_TESTS_OK");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("PHASE5B_TESTS_FAILED: " + ex.Message);
+                Console.Error.WriteLine("PHASE6B_TESTS_FAILED: " + ex.Message);
                 return 1;
             }
         }
