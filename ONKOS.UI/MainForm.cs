@@ -6,12 +6,15 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
+using ONKOS.Core.Protocol;
 using ONKOS.Core.Storage;
 
 namespace ONKOS.UI
@@ -19,6 +22,7 @@ namespace ONKOS.UI
     public sealed class MainForm : Form
     {
         private const int TransferPort = 5050;
+        private readonly TransferLimits _limits = new TransferLimits();
         private PeerInfo _localProfile;
         private bool _isSending;
 
@@ -196,7 +200,7 @@ namespace ONKOS.UI
 
             _lblStatus = new Label
             {
-                Text = "Listo. Solo el servicio de Windows recibe archivos y registra el historial.",
+                Text = "Listo. Canal cifrado TLS 1.2+ con autenticación mutua.",
                 Location = new Point(16, 10),
                 Size = new Size(540, 22),
                 ForeColor = Color.FromArgb(215, 220, 240)
@@ -368,8 +372,8 @@ namespace ONKOS.UI
                 return;
             }
 
-            List<string> items = _lstFiles.Items.Cast<string>().ToList();
-            if (items.Count == 0)
+            List<string> sourceItems = _lstFiles.Items.Cast<string>().ToList();
+            if (sourceItems.Count == 0)
             {
                 _lblStatus.Text = "Agrega al menos un archivo o carpeta para enviar.";
                 return;
@@ -381,19 +385,25 @@ namespace ONKOS.UI
 
             try
             {
-                foreach (string sourcePath in items)
+                var payloadList = new List<Tuple<ManifestItem, string>>();
+                long batchBytes = 0L;
+
+                foreach (string sourcePath in sourceItems)
                 {
-                    string payloadPath = sourcePath;
                     string displayName = Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                     if (string.IsNullOrWhiteSpace(displayName))
                         displayName = sourcePath;
+
+                    string fileToSend = sourcePath;
+                    string relName = displayName;
 
                     if (Directory.Exists(sourcePath))
                     {
                         string zipPath = Path.Combine(Path.GetTempPath(), $"{displayName}_{Guid.NewGuid():N}.onkosfolder");
                         ZipFile.CreateFromDirectory(sourcePath, zipPath, CompressionLevel.Fastest, false);
                         tempFiles.Add(zipPath);
-                        payloadPath = zipPath;
+                        fileToSend = zipPath;
+                        relName = Path.GetFileName(zipPath);
                     }
                     else if (!File.Exists(sourcePath))
                     {
@@ -401,28 +411,49 @@ namespace ONKOS.UI
                         continue;
                     }
 
-                    long sizeBytes = new FileInfo(payloadPath).Length;
-                    _lblStatus.Text = $"Enviando '{displayName}' a {targetIp}...";
+                    long sizeBytes = new FileInfo(fileToSend).Length;
+                    batchBytes += sizeBytes;
+                    string sha = SecureTransferProtocol.ComputeFileSha256Hex(fileToSend);
+                    string safeRel = SecureTransferProtocol.NormalizeAndValidateRelativePath(relName, _limits);
 
-                    await SendSingleFileAsync(targetIp.ToString(), TransferPort, payloadPath, displayName).ConfigureAwait(true);
+                    var item = new ManifestItem
+                    {
+                        RelativePath = safeRel,
+                        SizeBytes = sizeBytes,
+                        Sha256Hex = sha,
+                        IsDirectory = false
+                    };
+                    payloadList.Add(Tuple.Create(item, fileToSend));
+                }
 
+                if (payloadList.Count == 0)
+                {
+                    _lblStatus.Text = "No hay elementos válidos para enviar.";
+                    return;
+                }
+
+                _lblStatus.Text = $"Conectando con TLS 1.2+ a {targetIp}...";
+                await SendBatchTlsAsync(targetIp.ToString(), TransferPort, payloadList, CancellationToken.None).ConfigureAwait(true);
+
+                foreach (var pair in payloadList)
+                {
                     TransferHistoryStore.AppendEntry(
                         "ENVIADO",
-                        displayName,
-                        sizeBytes,
+                        pair.Item1.RelativePath,
+                        pair.Item1.SizeBytes,
                         targetIp.ToString(),
                         "Completado",
                         targetIp.ToString(),
-                        string.Empty,
-                        "Enviado desde MainForm");
+                        pair.Item1.Sha256Hex,
+                        "Enviado por canal cifrado TLS 1.2+");
                 }
 
                 _lstFiles.Items.Clear();
-                _lblStatus.Text = "Envío completado.";
+                _lblStatus.Text = $"Envío completado ({payloadList.Count} elemento(s), {batchBytes} bytes).";
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Error("UI.Send", "Error durante el envío de archivos.", ex);
+                FileLogger.Instance.Error("UI.Send", "Error durante el envío seguro.", ex);
                 _lblStatus.Text = "Error en el envío: " + ex.Message;
             }
             finally
@@ -436,9 +467,7 @@ namespace ONKOS.UI
                     }
                     catch (IOException ex)
                     {
-                        FileLogger.Instance.Warn(
-                            "UI.Send",
-                            $"No se pudo borrar paquete temporal ({ex.GetType().Name}: {ex.Message}).");
+                        FileLogger.Instance.Warn("UI.Send", $"No se pudo borrar paquete temporal ({ex.Message}).");
                     }
                 }
 
@@ -447,39 +476,58 @@ namespace ONKOS.UI
             }
         }
 
-        private static async Task SendSingleFileAsync(string host, int port, string filePath, string displayName)
+        private async Task SendBatchTlsAsync(
+            string host,
+            int port,
+            List<Tuple<ManifestItem, string>> payloadList,
+            CancellationToken token)
         {
             using (var client = new TcpClient())
             {
                 await client.ConnectAsync(host, port).ConfigureAwait(false);
                 client.NoDelay = true;
 
-                var info = new FileInfo(filePath);
-                using (NetworkStream stream = client.GetStream())
-                using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
-                using (var input = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
+                using (NetworkStream rawStream = client.GetStream())
+                using (SslStream sslStream = await SecureTransferProtocol.AuthenticateClientAsync(rawStream, host, token).ConfigureAwait(false))
+                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
+                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
                 {
-                    writer.Write(Path.GetFileName(filePath));
-                    writer.Write(info.Length);
-                    writer.Flush();
+                    string senderName = _localProfile != null ? _localProfile.FullName : Environment.UserName;
+                    string senderArea = _localProfile != null ? _localProfile.Area : string.Empty;
 
-                    byte[] buffer = new byte[81920];
-                    long sent = 0L;
-                    while (sent < info.Length)
+                    SecureTransferProtocol.WriteHeader(writer, senderName, senderArea, Environment.MachineName, payloadList.Count);
+
+                    foreach (var pair in payloadList)
                     {
-                        int read = await input.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
-                        if (read <= 0)
-                            break;
+                        ManifestItem meta = pair.Item1;
+                        string localPath = pair.Item2;
 
-                        await stream.WriteAsync(buffer, 0, read).ConfigureAwait(false);
-                        sent += read;
+                        SecureTransferProtocol.WriteManifestItem(writer, meta);
+
+                        using (var input = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+                        {
+                            byte[] buffer = new byte[81920];
+                            long sent = 0L;
+                            while (sent < meta.SizeBytes)
+                            {
+                                token.ThrowIfCancellationRequested();
+                                int read = await input.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
+                                if (read <= 0)
+                                    break;
+
+                                await sslStream.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
+                                sent += read;
+                            }
+                        }
+
+                        await sslStream.FlushAsync(token).ConfigureAwait(false);
+                        string ack = reader.ReadString();
+                        if (!string.Equals(ack, "OK_ITEM", StringComparison.Ordinal))
+                        {
+                            string detail = reader.PeekChar() >= 0 ? reader.ReadString() : ack;
+                            throw new IOException($"El receptor rechazó '{meta.RelativePath}': {detail}");
+                        }
                     }
-
-                    await stream.FlushAsync().ConfigureAwait(false);
-                    byte[] ack = new byte[1];
-                    int ackRead = await stream.ReadAsync(ack, 0, 1).ConfigureAwait(false);
-                    if (ackRead != 1 || ack[0] != 1)
-                        throw new IOException($"El destino no confirmó la recepción de '{displayName}'.");
                 }
             }
         }
