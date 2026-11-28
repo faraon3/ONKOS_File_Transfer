@@ -41,10 +41,11 @@ Name: "{userdesktop}\ONKOS File Transfer 2.0"; Filename: "{app}\ONKOSFileTransfe
 Name: "desktopicon"; Description: "Crear acceso directo en el &Escritorio"; GroupDescription: "Accesos directos adicionales:"
 
 [Run]
-Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" start= auto DisplayName= ""ONKOS Transfer Service"""; Flags: runhidden
+Filename: "sc.exe"; Parameters: "create ONKOSTransferService binPath= ""{app}\Servicio\ONKOS.TransferService.exe"" obj= ""NT AUTHORITY\LocalService"" start= auto DisplayName= ""ONKOS Transfer Service"""; Flags: runhidden
+Filename: "sc.exe"; Parameters: "failure ONKOSTransferService reset= 86400 actions= restart/5000/restart/5000/restart/5000"; Flags: runhidden
 Filename: "sc.exe"; Parameters: "start ONKOSTransferService"; Flags: runhidden
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""ONKOS Transfer TCP 5050"""; Flags: runhidden
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050"; Flags: runhidden
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""ONKOS Transfer TCP 5050"" dir=in action=allow protocol=TCP localport=5050 remoteip=LocalSubnet profile=private,domain"; Flags: runhidden
 Filename: "{app}\ONKOSFileTransfer.exe"; Description: "Abrir ONKOS File Transfer 2.0"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
