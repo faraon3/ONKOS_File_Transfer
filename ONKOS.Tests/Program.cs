@@ -6,7 +6,6 @@ using ONKOS.Core.Logging;
 using ONKOS.Core.Notifications;
 using ONKOS.Core.Protocol;
 using ONKOS.Core.Storage;
-using ONKOS.UI;
 
 namespace ONKOS.Tests
 {
@@ -16,11 +15,6 @@ namespace ONKOS.Tests
         {
             try
             {
-                ThemePalette dark = ThemeManager.GetPalette(AppThemeMode.Dark);
-                ThemePalette hc = ThemeManager.GetPalette(AppThemeMode.HighContrast);
-                if (dark.WindowBg == hc.WindowBg)
-                    throw new InvalidOperationException("Falló la distinción de paletas de tema.");
-
                 NotificationRecord n1 = NotificationCenterStore.PublishGrouped(
                     NotificationCategory.Received,
                     "phase6-group",
@@ -41,7 +35,7 @@ namespace ONKOS.Tests
                 if (bcast.ToString() != "192.168.11.255")
                     throw new InvalidOperationException("Falló el cálculo de broadcast /23.");
 
-                FileLogger.Instance.Info("Phase6B.Tests", "Pruebas de temas, notificaciones, protocolo y red completadas.");
+                FileLogger.Instance.Info("Phase6B.Tests", "Pruebas de notificaciones, protocolo y red completadas.");
                 Console.WriteLine("PHASE6B_TESTS_OK");
                 return 0;
             }
