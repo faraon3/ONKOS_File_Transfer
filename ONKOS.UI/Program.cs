@@ -54,11 +54,11 @@ namespace ONKOS.UI
                 PeerInfo profile;
                 if (!UserProfileStore.TryLoad(out profile))
                 {
-                    using (var welcome = new WelcomeRegistrationForm())
+                    using (var wizard = new FirstRunWizardForm())
                     {
-                        if (welcome.ShowDialog() != DialogResult.OK || welcome.RegisteredProfile == null)
+                        if (wizard.ShowDialog() != DialogResult.OK || wizard.RegisteredProfile == null)
                             return;
-                        profile = welcome.RegisteredProfile;
+                        profile = wizard.RegisteredProfile;
                     }
                 }
 
@@ -153,8 +153,8 @@ namespace ONKOS.UI
         {
             FileLogger.Instance.Error("UI.ThreadException", "Error no controlado en hilo de interfaz.", e.Exception);
             MessageBox.Show(
-                "Ocurrió un error inesperado en la interfaz. El detalle quedó registrado en los logs de ONKOS.",
-                "ONKOS File Transfer",
+                "Ocurrió un error inesperado en la interfaz. Puedes revisar el detalle en el registro de ONKOS.",
+                UiResources.AppTitle,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
