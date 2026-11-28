@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -136,7 +136,8 @@ namespace ONKOS.UI
         {
             if (_step == 0)
             {
-                if (string.IsNullOrWhiteSpace(UserProfileStore.SanitizeField(_txtName.Text)))
+                string cleanName = UserProfileStore.SanitizeField(_txtName.Text);
+                if (string.IsNullOrWhiteSpace(cleanName))
                 {
                     _txtName.Focus();
                     return;
@@ -147,12 +148,13 @@ namespace ONKOS.UI
 
             try
             {
+                string fullName = UserProfileStore.SanitizeField(_txtName.Text);
                 string area = UserProfileStore.SanitizeField(_cmbArea.Text);
                 if (string.IsNullOrWhiteSpace(area))
                     area = "General";
 
                 UserProfileStore.AddConfiguredArea(area);
-                PeerInfo saved = UserProfileStore.Save(_txtName.Text, area);
+                UserProfileStore.Save(fullName, area);
 
                 if (!string.IsNullOrWhiteSpace(_txtFolder.Text))
                     AppSettingsStore.SetInboxFolder(_txtFolder.Text.Trim());
@@ -163,7 +165,11 @@ namespace ONKOS.UI
                     catch (Exception) { }
                 });
 
-                RegisteredProfile = saved;
+                PeerInfo loaded;
+                RegisteredProfile = (UserProfileStore.TryLoad(out loaded) && loaded != null)
+                    ? loaded
+                    : new PeerInfo { FullName = fullName, Area = area };
+
                 DialogResult = DialogResult.OK;
                 Close();
             }
