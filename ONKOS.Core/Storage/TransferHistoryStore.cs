@@ -236,7 +236,12 @@ namespace ONKOS.Core.Storage
                 RaiseUnseenChanged();
         }
 
-        public static List<TransferHistoryEntry> LoadEntries(string directionFilter = null, string searchText = null)
+        public static List<TransferHistoryEntry> LoadEntries(
+            string directionFilter = null,
+            string searchText = null,
+            string statusFilter = null,
+            DateTime? fromDate = null,
+            DateTime? toDate = null)
         {
             var list = new List<TransferHistoryEntry>();
 
@@ -305,6 +310,24 @@ namespace ONKOS.Core.Storage
                 query = query.Where(x => string.Equals(x.Direction, directionFilter, StringComparison.OrdinalIgnoreCase));
             }
 
+            if (!string.IsNullOrWhiteSpace(statusFilter) &&
+                !string.Equals(statusFilter, "TODOS", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => string.Equals(x.Status, statusFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (fromDate.HasValue)
+            {
+                DateTime start = fromDate.Value.Date;
+                query = query.Where(x => x.TimestampLocal >= start);
+            }
+
+            if (toDate.HasValue)
+            {
+                DateTime endExclusive = toDate.Value.Date.AddDays(1);
+                query = query.Where(x => x.TimestampLocal < endExclusive);
+            }
+
             if (!string.IsNullOrWhiteSpace(searchText))
             {
                 string q = searchText.Trim().ToLowerInvariant();
@@ -312,11 +335,47 @@ namespace ONKOS.Core.Storage
                     (x.ItemName ?? string.Empty).ToLowerInvariant().Contains(q) ||
                     (x.Counterparty ?? string.Empty).ToLowerInvariant().Contains(q) ||
                     (x.Status ?? string.Empty).ToLowerInvariant().Contains(q) ||
+                    (x.TargetPath ?? string.Empty).ToLowerInvariant().Contains(q) ||
                     (x.Sha256 ?? string.Empty).ToLowerInvariant().Contains(q) ||
                     (x.Notes ?? string.Empty).ToLowerInvariant().Contains(q));
             }
 
             return query.ToList();
+        }
+
+        public static void ExportToCsv(string destinationCsvPath, IEnumerable<TransferHistoryEntry> entries)
+        {
+            if (!PathAndAclHelper.IsCurrentProcessElevated())
+                throw new UnauthorizedAccessException("Exportar el historial requiere privilegios de administrador.");
+
+            if (string.IsNullOrWhiteSpace(destinationCsvPath))
+                throw new ArgumentException("Ruta de exportación inválida.", nameof(destinationCsvPath));
+
+            var sb = new StringBuilder();
+            sb.AppendLine("FechaHora;Tipo;Elemento;TamanoBytes;Contraparte;Estado;Ruta;SHA256;Detalle");
+
+            foreach (TransferHistoryEntry e in entries ?? Enumerable.Empty<TransferHistoryEntry>())
+            {
+                sb.AppendLine(string.Join(";",
+                    EscapeCsv(e.TimestampLocal.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)),
+                    EscapeCsv(e.Direction),
+                    EscapeCsv(e.ItemName),
+                    e.SizeBytes.ToString(CultureInfo.InvariantCulture),
+                    EscapeCsv(e.Counterparty),
+                    EscapeCsv(e.Status),
+                    EscapeCsv(e.TargetPath),
+                    EscapeCsv(e.Sha256),
+                    EscapeCsv(e.Notes)));
+            }
+
+            File.WriteAllText(destinationCsvPath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            FileLogger.Instance.Info("TransferHistoryStore", "Historial exportado a CSV por administrador: " + destinationCsvPath);
+        }
+
+        private static string EscapeCsv(string val)
+        {
+            string s = (val ?? string.Empty).Replace("\"", "\"\"");
+            return "\"" + s + "\"";
         }
 
         public static void ClearAll()
