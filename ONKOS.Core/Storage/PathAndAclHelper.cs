@@ -14,6 +14,8 @@ namespace ONKOS.Core.Storage
 
         public static string LogsFolder => Path.Combine(BaseDataFolder, "logs");
 
+        public static string SecurityFolder => Path.Combine(BaseDataFolder, "security");
+
         public static string DefaultInboxFolder => Path.Combine(BaseDataFolder, "Inbox");
 
         public static string SettingsFilePath => Path.Combine(BaseDataFolder, "ruta_recibidos.txt");
@@ -26,12 +28,20 @@ namespace ONKOS.Core.Storage
 
         public static string UnseenReceivedFilePath => Path.Combine(BaseDataFolder, "recibidos_no_vistos.txt");
 
+        public static string PeerAuthFilePath => Path.Combine(SecurityFolder, "equipos_autorizados.tsv");
+
+        public static string IdentityPfxFilePath => Path.Combine(SecurityFolder, "identidad_equipo.pfx");
+
+        public static string IdentitySecretFilePath => Path.Combine(SecurityFolder, "identidad_llave.bin");
+
         public static void EnsureBaseAndLogsFolders()
         {
             Directory.CreateDirectory(BaseDataFolder);
             Directory.CreateDirectory(LogsFolder);
+            Directory.CreateDirectory(SecurityFolder);
             TryGrantAuthenticatedUsersModify(BaseDataFolder);
             TryGrantAuthenticatedUsersModify(LogsFolder);
+            TryRestrictSecurityFolder(SecurityFolder);
         }
 
         public static void EnsureInboxReady(string inboxPath)
@@ -81,6 +91,24 @@ namespace ONKOS.Core.Storage
             }
         }
 
+        public static bool IsCurrentProcessElevated()
+        {
+            try
+            {
+                WindowsIdentity identity = WindowsIdentity.GetCurrent();
+                if (identity == null)
+                    return false;
+
+                var principal = new WindowsPrincipal(identity);
+                return principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Instance.Warn("Security.Acl", $"No se pudo verificar elevación ({ex.Message}).");
+                return false;
+            }
+        }
+
         public static void TryGrantAuthenticatedUsersModify(string folderPath)
         {
             try
@@ -102,7 +130,58 @@ namespace ONKOS.Core.Storage
             }
             catch (UnauthorizedAccessException)
             {
-                // Puede ocurrir si se ejecuta sin privilegios administrativos sobre una carpeta ya creada.
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        public static void TryRestrictSecurityFolder(string folderPath)
+        {
+            try
+            {
+                if (!Directory.Exists(folderPath))
+                    return;
+
+                var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                var localServiceSid = new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null);
+
+                DirectorySecurity security = Directory.GetAccessControl(folderPath);
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(localServiceSid, FileSystemRights.Modify, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                Directory.SetAccessControl(folderPath, security);
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        public static void TryRestrictFileToAdminsAndService(string filePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                    return;
+
+                var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                var localServiceSid = new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null);
+
+                FileSecurity security = File.GetAccessControl(filePath);
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(localServiceSid, FileSystemRights.Read, AccessControlType.Allow));
+                File.SetAccessControl(filePath, security);
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
             catch (IOException)
             {
