@@ -143,7 +143,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.Program", "No se pudo traer la instancia existente al frente.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.Program",
+                    $"No se pudo traer la instancia existente al frente ({ex.GetType().Name}: {ex.Message}).");
             }
         }
 
