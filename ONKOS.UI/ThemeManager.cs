@@ -157,8 +157,7 @@ namespace ONKOS.UI
 
         public static ThemePalette GetCurrentPalette()
         {
-            AppThemeMode saved = LoadSavedMode();
-            return GetPalette(saved);
+            return GetPalette(LoadSavedMode());
         }
 
         public static ThemePalette GetPalette(AppThemeMode requested)
