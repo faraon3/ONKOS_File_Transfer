@@ -56,7 +56,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.MainForm", "No se pudo cargar icono principal.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.MainForm",
+                    $"No se pudo cargar icono principal ({ex.GetType().Name}: {ex.Message}).");
             }
 
             var pnlTop = new Panel
@@ -273,7 +275,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.MainForm", "Error al abrir carpeta de recibidos.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.MainForm",
+                    $"Error al abrir carpeta de recibidos ({ex.GetType().Name}: {ex.Message}).");
                 _lblStatus.Text = "No se pudo abrir la carpeta de recibidos.";
             }
         }
@@ -432,7 +436,9 @@ namespace ONKOS.UI
                     }
                     catch (IOException ex)
                     {
-                        FileLogger.Instance.Warn("UI.Send", "No se pudo borrar paquete temporal.", ex);
+                        FileLogger.Instance.Warn(
+                            "UI.Send",
+                            $"No se pudo borrar paquete temporal ({ex.GetType().Name}: {ex.Message}).");
                     }
                 }
 
