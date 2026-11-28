@@ -1,102 +1,90 @@
-name: ONKOS File Transfer - Build
+name: Build ONKOS File Transfer 2.0
 
 on:
   push:
-    branches: [main, v2-architecture]
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build:
+  build-and-test:
     runs-on: windows-latest
 
     steps:
-      - name: Descargar repositorio
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configurar MSBuild
+      - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Instalar Inno Setup
+      - name: Restore NuGet packages if present
         shell: pwsh
         run: |
-          if (!(Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
-            choco install innosetup -y --no-progress
+          if (Test-Path "ONKOS_File_Transfer.sln") {
+            nuget restore "ONKOS_File_Transfer.sln"
           }
-          $innoPaths = @(
-            "C:\Program Files (x86)\Inno Setup 6",
-            "C:\Program Files\Inno Setup 6",
-            "C:\Program Files (x86)\Inno Setup 5"
-          )
-          foreach ($p in $innoPaths) {
-            if (Test-Path "$p\ISCC.exe") {
-              "PATH=$p;$env:PATH" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-              $env:PATH = "$p;$env:PATH"
-              break
-            }
-          }
-          Get-Command iscc.exe -ErrorAction Stop | Select-Object -ExpandProperty Source
 
-      - name: Compilar ONKOS.Core
-        run: >
-          msbuild ONKOS.Core/ONKOS.Core.csproj
-          /p:Configuration=Release
-          /p:Platform=AnyCPU
-          /m
+      - name: Build ONKOS.Core (Release)
+        run: msbuild ONKOS.Core/ONKOS.Core.csproj /p:Configuration=Release /p:Platform=AnyCPU /m
 
-      - name: Compilar ONKOS.Service
-        run: >
-          msbuild ONKOS.Service/ONKOS.Service.csproj
-          /p:Configuration=Release
-          /p:Platform=AnyCPU
-          /m
+      - name: Build ONKOS.Service (Release)
+        run: msbuild ONKOS.Service/ONKOS.Service.csproj /p:Configuration=Release /p:Platform=AnyCPU /m
 
-      - name: Compilar ONKOS.UI
-        run: >
-          msbuild ONKOS.UI/ONKOS.UI.csproj
-          /p:Configuration=Release
-          /p:Platform=AnyCPU
-          /m
+      - name: Build ONKOS.UI (Release)
+        run: msbuild ONKOS.UI/ONKOS.UI.csproj /p:Configuration=Release /p:Platform=AnyCPU /m
 
-      - name: Compilar y ejecutar ONKOS.Tests
+      - name: Build and run ONKOS.Tests (Release)
+        shell: pwsh
         run: |
           msbuild ONKOS.Tests/ONKOS.Tests.csproj /p:Configuration=Release /p:Platform=AnyCPU /m
-          ONKOS.Tests\bin\Release\ONKOS.Tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "ONKOS.Tests\bin\Release\ONKOS.Tests.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verificar compilaciones
+      - name: Build installer with Inno Setup if available
         shell: pwsh
         run: |
-          $gui = "ONKOS.UI/bin/Release/ONKOSFileTransfer.exe"
-          $service = "ONKOS.Service/bin/Release/ONKOS.TransferService.exe"
-          if (!(Test-Path $gui)) { throw "No se encontró la interfaz: $gui" }
-          if (!(Test-Path $service)) { throw "No se encontró el servicio: $service" }
-          Get-Item $gui, $service | Select-Object FullName, Length
+          $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $candidates = @(
+              "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+              "C:\Program Files\Inno Setup 6\ISCC.exe"
+            )
+            foreach ($cand in $candidates) {
+              if (Test-Path $cand) {
+                $iscc = Get-Item $cand
+                break
+              }
+            }
+          }
 
-      - name: Compilar Instalador EXE con Inno Setup
-        run: iscc ONKOS_Setup.iss
+          if ($iscc -and (Test-Path "ONKOS_Setup.iss")) {
+            & $iscc.FullName "ONKOS_Setup.iss"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "ISCC.exe no encontrado en la imagen; se empaquetarán los binarios Release como artefacto."
+          }
 
-      - name: Preparar paquete ZIP de respaldo
+      - name: Stage release artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package/Interfaz, package/Servicio | Out-Null
-          Copy-Item "ONKOS.UI/bin/Release/*" package/Interfaz/ -Recurse -Force
-          Copy-Item "ONKOS.Service/bin/Release/*" package/Servicio/ -Recurse -Force
-          Copy-Item "ONKOSFileTransfer/recibidos.ico" package/recibidos.ico -Force
-          Copy-Item "ONKOSFileTransfer/onkos.ico" package/Interfaz/onkos.ico -Force
-          Compress-Archive -Path "package/*" -DestinationPath "ONKOS-File-Transfer-V2.zip" -Force
+          $stageDir = Join-Path $env:RUNNER_TEMP "onkos_release_stage"
+          New-Item -ItemType Directory -Force -Path "$stageDir\UI" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stageDir\Servicio" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stageDir\Instalador" | Out-Null
 
-      - name: Publicar versión preliminar V2
-        if: ${{ github.ref == 'refs/heads/v2-architecture' }}
-        uses: softprops/action-gh-release@v2
+          Copy-Item "ONKOS.UI\bin\Release\*" -Destination "$stageDir\UI" -Recurse -Force
+          Copy-Item "ONKOS.Service\bin\Release\*" -Destination "$stageDir\Servicio" -Recurse -Force
+          if (Test-Path "Output\*") {
+            Copy-Item "Output\*" -Destination "$stageDir\Instalador" -Recurse -Force
+          }
+
+          Write-Output "STAGED_DIR=$stageDir" >> $env:GITHUB_ENV
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v2-preview-${{ github.run_number }}
-          name: ONKOS File Transfer 2.0 - Prueba ${{ github.run_number }}
-          body: |
-            Versión preliminar de ONKOS File Transfer 2.0 (Fase 1) compilada desde la rama v2-architecture.
-          files: |
-            Output/Instalador_ONKOS_File_Transfer_2.0.exe
-            ONKOS-File-Transfer-V2.zip
-          prerelease: true
-          make_latest: false
+          name: ONKOS-File-Transfer-2.0-Release
+          path: ${{ env.STAGED_DIR }}
+          if-no-files-found: warn
