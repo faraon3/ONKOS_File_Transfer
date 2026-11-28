@@ -1,12 +1,11 @@
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Net.Sockets;
 using System.ServiceProcess;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -26,8 +25,11 @@ namespace ONKOS.UI
         private readonly TransferQueueManager _queue = new TransferQueueManager();
         private readonly CancellationTokenSource _uiCts = new CancellationTokenSource();
         private readonly System.Windows.Forms.Timer _liveSyncTimer;
+        private readonly System.Windows.Forms.Timer _fadeInTimer;
         private readonly NotifyIcon _trayIcon;
         private readonly ContextMenuStrip _trayMenu;
+        private readonly ContextMenuStrip _addMenu;
+        private readonly ContextMenuStrip _moreMenu;
 
         private PeerInfo _localProfile;
         private ThemePalette _palette;
@@ -47,20 +49,17 @@ namespace ONKOS.UI
         private readonly CheckedListBox _clbPeers;
         private readonly ListBox _lstFiles;
         private readonly ListBox _lstQueue;
-        private readonly Button _btnAddFiles;
-        private readonly Button _btnAddFolder;
-        private readonly Button _btnRemoveFile;
+        private readonly Button _btnAddItem;
+        private readonly Button _btnRemoveItem;
         private readonly Button _btnSend;
         private readonly Button _btnDetails;
-        private readonly Button _btnHelp;
+        private readonly Button _btnMore;
         private readonly Button _btnPauseResume;
         private readonly Button _btnCancelQueue;
         private readonly Button _btnRetryFailed;
         private readonly Button _btnNotifications;
         private readonly Button _btnInbox;
         private readonly Button _btnHistory;
-        private readonly Button _btnSettings;
-        private readonly Button _btnProfile;
 
         public MainForm(PeerInfo profile)
         {
@@ -71,11 +70,12 @@ namespace ONKOS.UI
             Text = UiResources.AppTitle;
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
-            Size = new Size(940, 700);
-            MinimumSize = new Size(780, 580);
+            Size = new Size(920, 680);
+            MinimumSize = new Size(760, 560);
             StartPosition = FormStartPosition.CenterScreen;
             KeyPreview = true;
             AllowDrop = true;
+            Opacity = 0.0;
             BackColor = _palette.WindowBg;
             ForeColor = _palette.TextPrimary;
             Font = ThemeManager.BaseFont;
@@ -95,20 +95,21 @@ namespace ONKOS.UI
                 FileLogger.Instance.Warn("UI.MainForm", $"No se pudo cargar icono ({ex.Message}).");
             }
 
+            // Cabecera limpia con acciones clave y menú desplegable
             var pnlTop = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 68,
+                Height = 66,
                 BackColor = _palette.HeaderBg,
-                Padding = new Padding(14, 8, 14, 8)
+                Padding = new Padding(16, 8, 16, 8)
             };
 
             var lblTitle = new Label
             {
                 Text = UiResources.AppTitle,
                 Font = ThemeManager.HeaderTitleFont,
-                ForeColor = _palette.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : _palette.PrimaryAccent,
-                Location = new Point(14, 8),
+                ForeColor = _palette.PrimaryAccent,
+                Location = new Point(16, 8),
                 AutoSize = true
             };
 
@@ -116,9 +117,19 @@ namespace ONKOS.UI
             {
                 Text = BuildIdentityText(),
                 ForeColor = _palette.TextSecondary,
-                Location = new Point(15, 36),
+                Location = new Point(17, 36),
                 AutoSize = true
             };
+
+            _moreMenu = new ContextMenuStrip();
+            _moreMenu.Items.Add("Mi perfil", null, (s, e) => OpenProfileWizard());
+            _moreMenu.Items.Add("Configuración y diagnóstico", null, (s, e) => OpenSettings());
+            var themeSub = new ToolStripMenuItem("Tema visual");
+            themeSub.DropDownItems.Add("Oscuro", null, (s, e) => ApplyTheme(AppThemeMode.Dark));
+            themeSub.DropDownItems.Add("Claro", null, (s, e) => ApplyTheme(AppThemeMode.Light));
+            themeSub.DropDownItems.Add("Alto contraste", null, (s, e) => ApplyTheme(AppThemeMode.HighContrast));
+            _moreMenu.Items.Add(themeSub);
+            _moreMenu.Items.Add("Ayuda y atajos (F1)", null, (s, e) => ShowHelpDialog());
 
             var topButtons = new FlowLayoutPanel
             {
@@ -129,11 +140,7 @@ namespace ONKOS.UI
                 Padding = new Padding(0, 6, 0, 0)
             };
 
-            _btnProfile = new Button { Text = "Mi Perfil", Size = new Size(80, 32), AccessibleName = "Editar mi perfil" };
-            ThemeManager.StyleButton(_btnProfile, _palette);
-            _btnProfile.Click += BtnProfile_Click;
-
-            _btnHistory = new Button { Text = "Historial", Size = new Size(84, 32), AccessibleName = "Abrir historial de transferencias" };
+            _btnHistory = new Button { Text = "Historial", Size = new Size(88, 32), AccessibleName = "Abrir historial" };
             ThemeManager.StyleButton(_btnHistory, _palette);
             _btnHistory.Click += (s, e) =>
             {
@@ -142,7 +149,7 @@ namespace ONKOS.UI
                 RefreshInboxBadgeText(force: true);
             };
 
-            _btnNotifications = new Button { Text = "Avisos", Size = new Size(84, 32), AccessibleName = "Abrir centro de notificaciones" };
+            _btnNotifications = new Button { Text = "Avisos", Size = new Size(92, 32), AccessibleName = "Abrir centro de avisos" };
             ThemeManager.StyleButton(_btnNotifications, _palette);
             _btnNotifications.Click += (s, e) =>
             {
@@ -151,29 +158,26 @@ namespace ONKOS.UI
                 RefreshInboxBadgeText(force: true);
             };
 
-            _btnSettings = new Button { Text = "Configuración", Size = new Size(102, 32), AccessibleName = "Abrir configuración y diagnóstico" };
-            ThemeManager.StyleButton(_btnSettings, _palette);
-            _btnSettings.Click += BtnSettings_Click;
-
-            _btnInbox = new Button { Text = "Recibidos", Size = new Size(96, 32), AccessibleName = "Abrir carpeta de archivos recibidos" };
+            _btnInbox = new Button { Text = "Recibidos", Size = new Size(106, 32), AccessibleName = "Abrir carpeta de recibidos" };
             ThemeManager.StyleButton(_btnInbox, _palette);
             _btnInbox.Click += (s, e) => OpenInboxFolder();
 
-            _btnHelp = new Button { Text = "Ayuda (F1)", Size = new Size(92, 32), AccessibleName = "Mostrar ayuda y atajos de teclado" };
-            ThemeManager.StyleButton(_btnHelp, _palette);
-            _btnHelp.Click += (s, e) => ShowHelpDialog();
+            _btnMore = new Button { Text = "Más ▾", Size = new Size(76, 32), AccessibleName = "Más opciones y tema" };
+            ThemeManager.StyleButton(_btnMore, _palette);
+            _btnMore.Click += (s, e) => _moreMenu.Show(_btnMore, new Point(0, _btnMore.Height + 4));
 
-            topButtons.Controls.AddRange(new Control[] { _btnProfile, _btnHistory, _btnNotifications, _btnSettings, _btnInbox, _btnHelp });
+            topButtons.Controls.AddRange(new Control[] { _btnHistory, _btnNotifications, _btnInbox, _btnMore });
             pnlTop.Controls.Add(topButtons);
             pnlTop.Controls.Add(lblTitle);
             pnlTop.Controls.Add(_lblIdentity);
 
+            // Grilla principal en 3 pasos esenciales
             var mainGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 6,
-                Padding = new Padding(14, 8, 14, 8)
+                Padding = new Padding(16, 10, 16, 10)
             };
             mainGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             mainGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -183,38 +187,38 @@ namespace ONKOS.UI
             mainGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             mainGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 36F));
 
-            // Paso 1: Archivos / Carpetas
-            var step1Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 2, 0, 4) };
+            // Paso 1: Botón único "+ Agregar" (archivo o carpeta)
+            _addMenu = new ContextMenuStrip();
+            _addMenu.Items.Add("Seleccionar archivos...", null, (s, e) => PickFilesDialog());
+            _addMenu.Items.Add("Seleccionar carpeta...", null, (s, e) => PickFolderDialog());
+
+            var step1Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 2, 0, 6) };
             step1Header.Controls.Add(new Label
             {
                 Text = UiResources.Step1Title,
                 Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : _palette.PrimaryAccent,
+                ForeColor = _palette.PrimaryAccent,
                 AutoSize = true,
-                Padding = new Padding(0, 5, 10, 0)
+                Padding = new Padding(0, 6, 12, 0)
             });
 
-            _btnAddFiles = new Button { Text = UiResources.BtnAddFiles, Size = new Size(175, 30), AccessibleName = "Agregar archivos" };
-            ThemeManager.StyleButton(_btnAddFiles, _palette, isPrimary: true);
-            _btnAddFiles.Click += BtnAddFiles_Click;
+            _btnAddItem = new Button { Text = UiResources.BtnAddItem, Size = new Size(105, 32), AccessibleName = "Agregar archivo o carpeta" };
+            ThemeManager.StyleButton(_btnAddItem, _palette, isPrimary: true);
+            _btnAddItem.Click += (s, e) => _addMenu.Show(_btnAddItem, new Point(0, _btnAddItem.Height + 4));
 
-            _btnAddFolder = new Button { Text = UiResources.BtnAddFolder, Size = new Size(135, 30), AccessibleName = "Agregar carpeta" };
-            ThemeManager.StyleButton(_btnAddFolder, _palette);
-            _btnAddFolder.Click += BtnAddFolder_Click;
-
-            _btnRemoveFile = new Button { Text = UiResources.BtnRemoveSelected, Size = new Size(125, 30), AccessibleName = "Quitar elementos seleccionados" };
-            ThemeManager.StyleButton(_btnRemoveFile, _palette);
-            _btnRemoveFile.Click += BtnRemoveFile_Click;
+            _btnRemoveItem = new Button { Text = UiResources.BtnRemoveItem, Size = new Size(84, 32), AccessibleName = "Quitar seleccionados" };
+            ThemeManager.StyleButton(_btnRemoveItem, _palette);
+            _btnRemoveItem.Click += BtnRemoveItem_Click;
 
             _lblSelectionSize = new Label
             {
-                Text = "Selección: 0 elemento(s) (0 B)",
+                Text = "0 elementos · 0 B",
                 ForeColor = _palette.TextSecondary,
                 AutoSize = true,
-                Padding = new Padding(10, 7, 0, 0)
+                Padding = new Padding(10, 8, 0, 0)
             };
 
-            step1Header.Controls.AddRange(new Control[] { _btnAddFiles, _btnAddFolder, _btnRemoveFile, _lblSelectionSize });
+            step1Header.Controls.AddRange(new Control[] { _btnAddItem, _btnRemoveItem, _lblSelectionSize });
 
             _lstFiles = new ListBox
             {
@@ -223,39 +227,39 @@ namespace ONKOS.UI
                 BackColor = _palette.CardBg,
                 ForeColor = _palette.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Lista de archivos y carpetas seleccionados para enviar"
+                AccessibleName = "Archivos y carpetas a enviar"
             };
 
-            // Paso 2: Destinatarios
-            var step2Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 4) };
+            // Paso 2: Destinatarios simplificado
+            var step2Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 10, 0, 6) };
             step2Header.Controls.Add(new Label
             {
                 Text = UiResources.Step2Title,
                 Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : _palette.PrimaryAccent,
+                ForeColor = _palette.PrimaryAccent,
                 AutoSize = true,
-                Padding = new Padding(0, 5, 10, 0)
+                Padding = new Padding(0, 6, 12, 0)
             });
 
-            _btnAddManualPeer = new Button { Text = UiResources.BtnAddManualPeer, Size = new Size(195, 30), AccessibleName = "Agregar equipo manualmente" };
+            _btnAddManualPeer = new Button { Text = UiResources.BtnAddManualPeer, Size = new Size(128, 32), AccessibleName = "Agregar destinatario por IP" };
             ThemeManager.StyleButton(_btnAddManualPeer, _palette);
             _btnAddManualPeer.Click += BtnAddManualPeer_Click;
 
-            _btnSelectAllPeers = new Button { Text = UiResources.BtnSelectAllPeers, Size = new Size(135, 30), AccessibleName = "Seleccionar todos los destinatarios" };
+            _btnSelectAllPeers = new Button { Text = UiResources.BtnSelectAllPeers, Size = new Size(76, 32), AccessibleName = "Seleccionar todos" };
             ThemeManager.StyleButton(_btnSelectAllPeers, _palette);
             _btnSelectAllPeers.Click += BtnSelectAllPeers_Click;
 
             _cmbGroupOrArea = new ComboBox
             {
-                Width = 175,
+                Width = 165,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor = _palette.InputBg,
                 ForeColor = _palette.TextPrimary,
-                AccessibleName = "Área o grupo de destinatarios"
+                AccessibleName = "Área o grupo"
             };
             step2Header.Controls.Add(_cmbGroupOrArea);
 
-            _btnSelectGroup = new Button { Text = UiResources.BtnSelectByGroup, Size = new Size(145, 30), AccessibleName = "Marcar destinatarios por área o grupo" };
+            _btnSelectGroup = new Button { Text = UiResources.BtnSelectByGroup, Size = new Size(112, 32), AccessibleName = "Marcar área o grupo" };
             ThemeManager.StyleButton(_btnSelectGroup, _palette);
             _btnSelectGroup.Click += BtnSelectGroup_Click;
 
@@ -268,30 +272,30 @@ namespace ONKOS.UI
                 BackColor = _palette.CardBg,
                 ForeColor = _palette.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Lista de equipos disponibles en la red"
+                AccessibleName = "Equipos en red"
             };
             _clbPeers.ItemCheck += (s, e) => BeginInvoke(new Action(UpdateSendButtonState));
 
-            // Paso 3: Cola y controles
-            var step3Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 4) };
+            // Paso 3: Cola limpia
+            var step3Header = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 10, 0, 6) };
             step3Header.Controls.Add(new Label
             {
                 Text = UiResources.Step3Title,
                 Font = ThemeManager.SectionTitleFont,
-                ForeColor = _palette.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : _palette.PrimaryAccent,
+                ForeColor = _palette.PrimaryAccent,
                 AutoSize = true,
-                Padding = new Padding(0, 5, 10, 0)
+                Padding = new Padding(0, 5, 12, 0)
             });
 
-            _btnPauseResume = new Button { Text = "Pausar", Size = new Size(96, 28), AccessibleName = "Pausar o reanudar cola" };
+            _btnPauseResume = new Button { Text = "Pausar", Size = new Size(92, 30), AccessibleName = "Pausar o reanudar" };
             ThemeManager.StyleButton(_btnPauseResume, _palette);
             _btnPauseResume.Click += BtnPauseResume_Click;
 
-            _btnCancelQueue = new Button { Text = "Cancelar", Size = new Size(96, 28), AccessibleName = "Cancelar transferencias activas" };
+            _btnCancelQueue = new Button { Text = "Cancelar", Size = new Size(92, 30), AccessibleName = "Cancelar envío" };
             ThemeManager.StyleButton(_btnCancelQueue, _palette, isDanger: true);
             _btnCancelQueue.Click += (s, e) => _queue.CancelAllActive();
 
-            _btnRetryFailed = new Button { Text = "Reintentar fallidos", Size = new Size(135, 28), AccessibleName = "Reintentar transferencias fallidas" };
+            _btnRetryFailed = new Button { Text = "Reintentar", Size = new Size(102, 30), AccessibleName = "Reintentar fallidos" };
             ThemeManager.StyleButton(_btnRetryFailed, _palette);
             _btnRetryFailed.Click += (s, e) => _queue.RetryFailedJobs();
 
@@ -303,7 +307,7 @@ namespace ONKOS.UI
                 BackColor = _palette.CardBg,
                 ForeColor = _palette.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Cola de transferencias en curso y completadas"
+                AccessibleName = "Cola de transferencias"
             };
 
             mainGrid.Controls.Add(step1Header, 0, 0);
@@ -313,27 +317,28 @@ namespace ONKOS.UI
             mainGrid.Controls.Add(step3Header, 0, 4);
             mainGrid.Controls.Add(_lstQueue, 0, 5);
 
+            // Barra inferior concisa
             var pnlBottom = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 86,
+                Height = 76,
                 BackColor = _palette.HeaderBg,
-                Padding = new Padding(14, 10, 14, 10)
+                Padding = new Padding(16, 10, 16, 10)
             };
 
             _lblStatus = new Label
             {
-                Text = "Listo. Canal cifrado TLS 1.2+ con autenticación mutua (avisos visuales sin sonido).",
-                Location = new Point(14, 10),
-                Size = new Size(560, 22),
+                Text = "Listo · TLS 1.2+ · Avisos visuales sin sonido",
+                Location = new Point(16, 12),
+                Size = new Size(540, 20),
                 ForeColor = _palette.TextPrimary
             };
 
             _lblInboxPath = new Label
             {
-                Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder(),
-                Location = new Point(14, 38),
-                Size = new Size(560, 22),
+                Text = "Destino: " + AppSettingsStore.GetInboxFolder(),
+                Location = new Point(16, 38),
+                Size = new Size(540, 20),
                 ForeColor = _palette.TextSecondary
             };
 
@@ -343,14 +348,14 @@ namespace ONKOS.UI
                 FlowDirection = FlowDirection.LeftToRight,
                 AutoSize = true,
                 WrapContents = false,
-                Padding = new Padding(0, 12, 0, 0)
+                Padding = new Padding(0, 10, 0, 0)
             };
 
-            _btnDetails = new Button { Text = "Ver detalles", Size = new Size(105, 38), Visible = false, AccessibleName = "Ver detalle técnico del error" };
+            _btnDetails = new Button { Text = "Detalles", Size = new Size(92, 38), Visible = false, AccessibleName = "Ver detalle" };
             ThemeManager.StyleButton(_btnDetails, _palette);
             _btnDetails.Click += BtnDetails_Click;
 
-            _btnSend = new Button { Text = UiResources.SendDisabledNoFiles, Size = new Size(275, 38), AccessibleName = "Enviar archivos a destinatarios seleccionados" };
+            _btnSend = new Button { Text = UiResources.SendNeedFiles, Size = new Size(255, 38), AccessibleName = "Enviar" };
             ThemeManager.StyleButton(_btnSend, _palette, isPrimary: true);
             _btnSend.Click += BtnSend_Click;
 
@@ -360,16 +365,16 @@ namespace ONKOS.UI
             pnlBottom.Controls.Add(_lblStatus);
             pnlBottom.Controls.Add(_lblInboxPath);
 
-            // Bandeja del sistema sin sonido
+            // Bandeja del sistema
             _trayMenu = new ContextMenuStrip();
-            _trayMenu.Items.Add("Abrir ONKOS File Transfer", null, (s, e) => BringToFrontFromSecondInstance());
-            _trayMenu.Items.Add("Abrir carpeta Recibidos", null, (s, e) => OpenInboxFolder());
+            _trayMenu.Items.Add("Abrir " + UiResources.AppTitle, null, (s, e) => BringToFrontFromSecondInstance());
+            _trayMenu.Items.Add("Abrir Recibidos", null, (s, e) => OpenInboxFolder());
             _trayMenu.Items.Add("Centro de Avisos", null, (s, e) =>
             {
                 using (var dlg = new NotificationCenterForm())
                     dlg.ShowDialog(this);
             });
-            _trayMenu.Items.Add("Diagnóstico / Configuración", null, (s, e) => BtnSettings_Click(this, EventArgs.Empty));
+            _trayMenu.Items.Add("Configuración", null, (s, e) => OpenSettings());
 
             _trayIcon = new NotifyIcon
             {
@@ -379,6 +384,9 @@ namespace ONKOS.UI
                 Visible = true
             };
             _trayIcon.DoubleClick += (s, e) => BringToFrontFromSecondInstance();
+
+            _fadeInTimer = new System.Windows.Forms.Timer { Interval = 20 };
+            _fadeInTimer.Tick += OnFadeInTick;
 
             _liveSyncTimer = new System.Windows.Forms.Timer { Interval = 1500 };
             _liveSyncTimer.Tick += OnLiveSyncTimerTick;
@@ -402,17 +410,64 @@ namespace ONKOS.UI
             UpdateSendButtonState();
         }
 
+        private void OnFadeInTick(object sender, EventArgs e)
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            if (Opacity < 1.0)
+                Opacity = Math.Min(1.0, Opacity + 0.14);
+            else
+                _fadeInTimer.Stop();
+        }
+
+        private void ApplyTheme(AppThemeMode mode)
+        {
+            ThemeManager.SaveMode(mode);
+            _palette = ThemeManager.GetPalette(mode);
+            BackColor = _palette.WindowBg;
+            ForeColor = _palette.TextPrimary;
+            _lstFiles.BackColor = _palette.CardBg;
+            _lstFiles.ForeColor = _palette.TextPrimary;
+            _clbPeers.BackColor = _palette.CardBg;
+            _clbPeers.ForeColor = _palette.TextPrimary;
+            _lstQueue.BackColor = _palette.CardBg;
+            _lstQueue.ForeColor = _palette.TextPrimary;
+            _cmbGroupOrArea.BackColor = _palette.InputBg;
+            _cmbGroupOrArea.ForeColor = _palette.TextPrimary;
+            _lblStatus.ForeColor = _palette.TextPrimary;
+            _lblInboxPath.ForeColor = _palette.TextSecondary;
+            _lblSelectionSize.ForeColor = _palette.TextSecondary;
+            _lblIdentity.ForeColor = _palette.TextSecondary;
+
+            ThemeManager.StyleButton(_btnAddItem, _palette, isPrimary: true);
+            ThemeManager.StyleButton(_btnRemoveItem, _palette);
+            ThemeManager.StyleButton(_btnAddManualPeer, _palette);
+            ThemeManager.StyleButton(_btnSelectAllPeers, _palette);
+            ThemeManager.StyleButton(_btnSelectGroup, _palette);
+            ThemeManager.StyleButton(_btnPauseResume, _palette);
+            ThemeManager.StyleButton(_btnCancelQueue, _palette, isDanger: true);
+            ThemeManager.StyleButton(_btnRetryFailed, _palette);
+            ThemeManager.StyleButton(_btnDetails, _palette);
+            ThemeManager.StyleButton(_btnSend, _palette, isPrimary: true);
+            ThemeManager.StyleButton(_btnHistory, _palette);
+            ThemeManager.StyleButton(_btnNotifications, _palette);
+            ThemeManager.StyleButton(_btnInbox, _palette);
+            ThemeManager.StyleButton(_btnMore, _palette);
+            SetFriendlyStatus($"Tema cambiado a {mode}.");
+        }
+
         private void OnMainFormKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Control && e.KeyCode == Keys.O)
             {
                 e.Handled = true;
-                BtnAddFiles_Click(this, EventArgs.Empty);
+                PickFilesDialog();
             }
             else if (e.KeyCode == Keys.Delete && _lstFiles.Focused)
             {
                 e.Handled = true;
-                BtnRemoveFile_Click(this, EventArgs.Empty);
+                BtnRemoveItem_Click(this, EventArgs.Empty);
             }
             else if (e.Control && e.KeyCode == Keys.Enter)
             {
@@ -440,17 +495,22 @@ namespace ONKOS.UI
             RefreshPeersList();
             RefreshQueueList();
             UpdateTrayTooltip();
+            _fadeInTimer.Start();
             _liveSyncTimer.Start();
         }
 
         private void OnMainFormClosed(object sender, FormClosedEventArgs e)
         {
+            _fadeInTimer.Stop();
+            _fadeInTimer.Dispose();
             _liveSyncTimer.Stop();
             _liveSyncTimer.Dispose();
 
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _trayMenu.Dispose();
+            _addMenu.Dispose();
+            _moreMenu.Dispose();
 
             try { _uiCts.Cancel(); }
             catch (ObjectDisposedException) { }
@@ -478,13 +538,13 @@ namespace ONKOS.UI
 
         private void UpdateTrayTooltip()
         {
-            string svc = "Servicio: activo";
+            string svc = "Activo";
             try
             {
                 using (var sc = new ServiceController("ONKOSTransferService"))
                 {
                     if (sc.Status != ServiceControllerStatus.Running)
-                        svc = "Servicio: " + sc.Status;
+                        svc = sc.Status.ToString();
                 }
             }
             catch (Exception)
@@ -492,7 +552,7 @@ namespace ONKOS.UI
             }
 
             int unseen = Math.Max(0, _lastSeenUnseenCount);
-            string tip = $"{UiResources.AppTitle} • {svc} • Recibidos nuevos: {unseen}";
+            string tip = $"{UiResources.AppTitle} · {svc} · Nuevos: {unseen}";
             _trayIcon.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
         }
 
@@ -541,12 +601,12 @@ namespace ONKOS.UI
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Nuevo usuario detectado: {peer.FullName} ({peer.Area}) — {peer.IPv4}"))); }
+                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Nuevo en red: {peer.FullName} ({peer.IPv4})"))); }
                 catch (ObjectDisposedException) { }
                 return;
             }
 
-            SetFriendlyStatus($"Nuevo usuario detectado: {peer.FullName} ({peer.Area}) — {peer.IPv4}");
+            SetFriendlyStatus($"Nuevo en red: {peer.FullName} ({peer.IPv4})");
         }
 
         private void OnPendingAuthorizationReceived(AuthorizedPeerRecord record)
@@ -557,18 +617,18 @@ namespace ONKOS.UI
             NotificationCenterStore.PublishGrouped(
                 NotificationCategory.AuthorizationRequest,
                 "auth-" + record.FingerprintSha256,
-                "Solicitud de autorización pendiente",
+                "Autorización pendiente",
                 $"{record.DisplayName} ({record.LastIp})",
                 $"Huella: {record.FingerprintSha256}");
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})"))); }
+                try { BeginInvoke(new Action(() => SetFriendlyStatus($"Autorización pendiente: {record.DisplayName}"))); }
                 catch (ObjectDisposedException) { }
                 return;
             }
 
-            SetFriendlyStatus($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})");
+            SetFriendlyStatus($"Autorización pendiente: {record.DisplayName}");
         }
 
         private void OnQueueChanged()
@@ -598,8 +658,8 @@ namespace ONKOS.UI
                 fail > 0 ? NotificationCategory.Error : NotificationCategory.Sent,
                 "batch-summary",
                 "Envío finalizado",
-                $"{ok} ok / {fail} fallidos",
-                $"Total en lote: {snapshot.Count} transferencia(s)");
+                $"{ok} ok · {fail} con incidencia",
+                $"Lote: {snapshot.Count} elemento(s)");
 
             if (InvokeRequired)
             {
@@ -616,7 +676,7 @@ namespace ONKOS.UI
             int ok = snapshot.Count(j => j.State == QueueJobState.Completed);
             int fail = snapshot.Count(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
 
-            string msg = $"Resumen del envío: {ok} completado(s), {fail} con fallo o cancelación.";
+            string msg = $"Completados: {ok} · Fallidos/cancelados: {fail}";
             if (fail > 0)
             {
                 TransferJob firstFail = snapshot.FirstOrDefault(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
@@ -625,7 +685,7 @@ namespace ONKOS.UI
                     _lastTechnicalError = $"Destino: {firstFail.TargetLabel} | Elemento: {firstFail.ItemName} | Detalle: {firstFail.ErrorMessage}";
                     _btnDetails.Visible = true;
                     if (!string.IsNullOrWhiteSpace(firstFail.SuggestedAction))
-                        msg += " Acción sugerida: " + firstFail.SuggestedAction;
+                        msg += " · " + firstFail.SuggestedAction;
                 }
             }
 
@@ -655,7 +715,7 @@ namespace ONKOS.UI
 
             MessageBox.Show(
                 this,
-                _lastTechnicalError + "\r\n\r\nRuta de logs: " + FileLogger.Instance.LogsFolder,
+                _lastTechnicalError + "\r\n\r\nLogs: " + FileLogger.Instance.LogsFolder,
                 "Detalle técnico",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -732,20 +792,7 @@ namespace ONKOS.UI
                     ? Math.Min(100.0, (j.SentBytes * 100.0) / j.TotalBytes)
                     : (j.State == QueueJobState.Completed ? 100.0 : 0.0);
 
-                string speed = j.BytesPerSecond > 0
-                    ? FormatBytes((long)j.BytesPerSecond) + "/s"
-                    : "0 B/s";
-
-                string eta = j.EstimatedRemaining.HasValue && j.State == QueueJobState.Running
-                    ? $"ETA {j.EstimatedRemaining.Value:mm\\:ss}"
-                    : string.Empty;
-
-                string errDetail = (j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled) && !string.IsNullOrWhiteSpace(j.ErrorMessage)
-                    ? $" — {j.ErrorMessage}"
-                    : string.Empty;
-
-                _lstQueue.Items.Add(
-                    $"[{j.State}] {j.ItemName} -> {j.TargetLabel} | {pct:0.0}% ({FormatBytes(j.SentBytes)}/{FormatBytes(j.TotalBytes)}) | {speed} {eta}{errDetail}");
+                _lstQueue.Items.Add($"{j.ItemName} -> {j.TargetLabel} · {pct:0}% · {j.State}");
             }
 
             _lstQueue.EndUpdate();
@@ -776,7 +823,7 @@ namespace ONKOS.UI
                     }
 
                     UpdateSendButtonState();
-                    SetFriendlyStatus($"Destinatario agregado: {peer.FullName} ({peer.IPv4}).");
+                    SetFriendlyStatus($"Agregado: {peer.FullName} ({peer.IPv4})");
                 }
             }
         }
@@ -818,8 +865,8 @@ namespace ONKOS.UI
 
             UpdateSendButtonState();
             SetFriendlyStatus(marked > 0
-                ? $"Marcados {marked} destinatario(s) de '{groupName}'."
-                : $"No hay destinatarios activos en '{groupName}'.");
+                ? $"Marcados {marked} de '{groupName}'"
+                : $"Sin activos en '{groupName}'");
         }
 
         private void UpdateSendButtonState()
@@ -833,19 +880,19 @@ namespace ONKOS.UI
             if (fileCount == 0)
             {
                 _btnSend.Enabled = false;
-                _btnSend.Text = UiResources.SendDisabledNoFiles;
+                _btnSend.Text = UiResources.SendNeedFiles;
                 return;
             }
 
             if (peerCount == 0)
             {
                 _btnSend.Enabled = false;
-                _btnSend.Text = UiResources.SendDisabledNoTargets;
+                _btnSend.Text = UiResources.SendNeedTargets;
                 return;
             }
 
             _btnSend.Enabled = true;
-            _btnSend.Text = $"{UiResources.SendReadyPrefix} ({fileCount} elem. -> {peerCount} dest.)";
+            _btnSend.Text = $"{UiResources.SendReady} ({fileCount} · {peerCount})";
         }
 
         private void BtnPauseResume_Click(object sender, EventArgs e)
@@ -874,7 +921,7 @@ namespace ONKOS.UI
             string name = _localProfile != null ? _localProfile.FullName : "Sin perfil";
             string area = _localProfile != null ? _localProfile.Area : "";
             string ip = _discovery.GetLocalIPv4Cached();
-            return $"{name} ({area})  •  IP: {ip}  •  Equipo: {Environment.MachineName}";
+            return $"{name} · {area} · {ip}";
         }
 
         private void RefreshInboxBadgeText(bool force)
@@ -886,7 +933,7 @@ namespace ONKOS.UI
                 _btnInbox.Text = unseen > 0 ? $"Recibidos ({unseen})" : "Recibidos";
             }
 
-            _lblInboxPath.Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder();
+            _lblInboxPath.Text = "Destino: " + AppSettingsStore.GetInboxFolder();
         }
 
         private void OpenInboxFolder()
@@ -897,7 +944,7 @@ namespace ONKOS.UI
                 string err;
                 if (!AppSettingsStore.TryEnsureInboxReady(out folder, out err))
                 {
-                    SetFriendlyStatus("No se pudo preparar la carpeta de recibidos. Revisa el espacio o permisos.");
+                    SetFriendlyStatus("Revisa la carpeta de recibidos o sus permisos.");
                     return;
                 }
 
@@ -912,19 +959,20 @@ namespace ONKOS.UI
             }
         }
 
-        private void BtnSettings_Click(object sender, EventArgs e)
+        private void OpenSettings()
         {
             using (var dlg = new SettingsForm())
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
+                    ApplyTheme(dlg.SelectedTheme);
                     RefreshInboxBadgeText(force: true);
-                    SetFriendlyStatus("Configuración actualizada.");
+                    SetFriendlyStatus("Configuración guardada.");
                 }
             }
         }
 
-        private void BtnProfile_Click(object sender, EventArgs e)
+        private void OpenProfileWizard()
         {
             using (var dlg = new FirstRunWizardForm())
             {
@@ -934,7 +982,7 @@ namespace ONKOS.UI
                     _queue.SetLocalProfile(_localProfile);
                     _discovery.UpdateLocalProfile(_localProfile);
                     _lblIdentity.Text = BuildIdentityText();
-                    SetFriendlyStatus("Perfil actualizado y anunciado en red.");
+                    SetFriendlyStatus("Perfil actualizado.");
                 }
             }
         }
@@ -956,18 +1004,18 @@ namespace ONKOS.UI
             }
         }
 
-        private void BtnAddFiles_Click(object sender, EventArgs e)
+        private void PickFilesDialog()
         {
-            using (var ofd = new OpenFileDialog { Multiselect = true, Title = "Seleccionar archivos para enviar" })
+            using (var ofd = new OpenFileDialog { Multiselect = true, Title = "Seleccionar archivos" })
             {
                 if (ofd.ShowDialog(this) == DialogResult.OK)
                     _ = AddPathsAsync(ofd.FileNames);
             }
         }
 
-        private void BtnAddFolder_Click(object sender, EventArgs e)
+        private void PickFolderDialog()
         {
-            using (var fbd = new FolderBrowserDialog { Description = "Seleccionar carpeta para enviar" })
+            using (var fbd = new FolderBrowserDialog { Description = "Seleccionar carpeta" })
             {
                 if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
                     _ = AddPathsAsync(new[] { fbd.SelectedPath });
@@ -998,11 +1046,11 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.MainForm", $"Error calculando tamaños de selección ({ex.Message}).");
+                FileLogger.Instance.Warn("UI.MainForm", $"Error calculando tamaños ({ex.Message}).");
             }
         }
 
-        private void BtnRemoveFile_Click(object sender, EventArgs e)
+        private void BtnRemoveItem_Click(object sender, EventArgs e)
         {
             var selected = _lstFiles.SelectedItems.Cast<string>().ToList();
             foreach (string item in selected)
@@ -1026,7 +1074,7 @@ namespace ONKOS.UI
 
             _cachedSelectionBytes = total;
             if (!IsDisposed && !Disposing)
-                _lblSelectionSize.Text = $"Selección: {items.Count} elemento(s) ({FormatBytes(_cachedSelectionBytes)})";
+                _lblSelectionSize.Text = $"{items.Count} elementos · {FormatBytes(_cachedSelectionBytes)}";
         }
 
         private async void BtnSend_Click(object sender, EventArgs e)
@@ -1036,14 +1084,14 @@ namespace ONKOS.UI
                 List<PeerInfo> targets = CollectCheckedTargets();
                 if (targets.Count == 0)
                 {
-                    SetFriendlyStatus("Marca al menos un destinatario o usa 'Agregar equipo manualmente'.");
+                    SetFriendlyStatus("Elige al menos un destinatario.");
                     return;
                 }
 
                 List<string> items = _lstFiles.Items.Cast<string>().ToList();
                 if (items.Count == 0)
                 {
-                    SetFriendlyStatus("Adjunta al menos un archivo o carpeta antes de enviar.");
+                    SetFriendlyStatus("Agrega al menos un archivo o carpeta.");
                     return;
                 }
 
@@ -1057,12 +1105,12 @@ namespace ONKOS.UI
                 await RecalculateSelectionSizeAsync().ConfigureAwait(true);
 
                 _btnDetails.Visible = false;
-                SetFriendlyStatus($"Se encolaron {jobs.Count} transferencia(s) por canal cifrado TLS 1.2+.");
+                SetFriendlyStatus($"Encolados {jobs.Count} envío(s).");
             }
             catch (Exception ex)
             {
                 FileLogger.Instance.Error("UI.Send", "Error al encolar transferencia.", ex);
-                SetActionableError("No se pudo iniciar el envío. Revisa la conexión o el destino.", ex);
+                SetActionableError("No se pudo iniciar el envío.", ex);
             }
         }
 
@@ -1109,12 +1157,8 @@ namespace ONKOS.UI
                     return string.Empty;
 
                 string presence = LanDiscoveryService.FormatLastSeen(Peer);
-                string areaPart = string.IsNullOrWhiteSpace(Peer.Area) ? string.Empty : $" — {Peer.Area}";
-                string fpShort = string.IsNullOrWhiteSpace(Peer.FingerprintSha256)
-                    ? string.Empty
-                    : $" [{Peer.FingerprintSha256.Substring(0, Math.Min(8, Peer.FingerprintSha256.Length))}]";
-
-                return $"{Peer.FullName}{areaPart} ({Peer.IPv4} • {Peer.MachineName}{fpShort}) — {presence}";
+                string areaPart = string.IsNullOrWhiteSpace(Peer.Area) ? string.Empty : $" · {Peer.Area}";
+                return $"{Peer.FullName}{areaPart} ({Peer.IPv4}) · {presence}";
             }
         }
     }
