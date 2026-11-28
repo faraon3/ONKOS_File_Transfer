@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using ONKOS.Core.Logging;
+using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 
 namespace ONKOS.Tests
@@ -12,7 +13,7 @@ namespace ONKOS.Tests
         {
             try
             {
-                string tempDir = Path.Combine(Path.GetTempPath(), "ONKOS_Phase1_Tests_" + Guid.NewGuid().ToString("N"));
+                string tempDir = Path.Combine(Path.GetTempPath(), "ONKOS_Phase2A_Tests_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
 
                 string targetFile = Path.Combine(tempDir, "test.txt");
@@ -25,17 +26,21 @@ namespace ONKOS.Tests
                 if (!readBack.Contains("linea-1") || !readBack.Contains("linea-2"))
                     throw new InvalidOperationException("Falló la lectura atómica de prueba.");
 
-                FileLogger.Instance.Info("Phase1.Tests", "Prueba básica de almacenamiento y logger completada.");
+                string normalized = PeerAuthorizationStore.NormalizeFingerprint("aa:bb:cc:dd");
+                if (normalized != "AABBCCDD")
+                    throw new InvalidOperationException("Falló la normalización de huella.");
+
+                FileLogger.Instance.Info("Phase2A.Tests", "Prueba de almacenes y seguridad base completada.");
 
                 try { Directory.Delete(tempDir, true); }
                 catch (IOException) { }
 
-                Console.WriteLine("PHASE1_TESTS_OK");
+                Console.WriteLine("PHASE2A_TESTS_OK");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("PHASE1_TESTS_FAILED: " + ex.Message);
+                Console.Error.WriteLine("PHASE2A_TESTS_FAILED: " + ex.Message);
                 return 1;
             }
         }
