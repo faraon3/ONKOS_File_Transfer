@@ -217,7 +217,7 @@ namespace ONKOS.UI
 
             _btnAddMoreBar = new Button
             {
-                Text = "+  Suelta más archivos o haz clic",
+                Text = UiResources.AddMoreFilesText,
                 Dock = DockStyle.Top,
                 Height = 36
             };
@@ -599,7 +599,7 @@ namespace ONKOS.UI
 
             TextRenderer.DrawText(
                 e.Graphics,
-                "o haz clic para elegir ·",
+                UiResources.DropPromptPrefix,
                 ThemeManager.SecondaryFont,
                 new Rectangle(20, cy + 16, _pnlDropZone.Width - 40, 22),
                 _palette.TextSecondary,
