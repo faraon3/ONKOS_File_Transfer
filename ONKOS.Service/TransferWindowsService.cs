@@ -1,16 +1,20 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ONKOS.Core.Logging;
-using ONKOS.Core.Models;
+using ONKOS.Core.Protocol;
+using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 
 namespace ONKOS.Service
@@ -18,10 +22,16 @@ namespace ONKOS.Service
     public sealed class TransferWindowsService : ServiceBase
     {
         private const int DefaultListenPort = 5050;
-        private const long MaxSingleFileBytes = 20L * 1024L * 1024L * 1024L;
-        private static readonly object SenderFolderLock = new object();
+        private const int MaxConcurrentConnections = 16;
+        private const int MaxConnectionsPerIp = 4;
 
+        private static readonly object SenderFolderLock = new object();
+        private static readonly ConcurrentDictionary<string, int> ActiveByIp =
+            new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly TransferLimits _limits = new TransferLimits();
         private TcpListener _listener;
+        private SemaphoreSlim _concurrencyGate;
         private CancellationTokenSource _cts;
         private bool _isStopping;
 
@@ -38,6 +48,8 @@ namespace ONKOS.Service
             try
             {
                 PathAndAclHelper.EnsureBaseAndLogsFolders();
+                DeviceIdentityStore.GetOrCreateCertificate();
+                TransferHistoryStore.ApplyRetention();
 
                 string inboxFolder;
                 string inboxError;
@@ -48,6 +60,7 @@ namespace ONKOS.Service
                 }
 
                 _isStopping = false;
+                _concurrencyGate = new SemaphoreSlim(MaxConcurrentConnections, MaxConcurrentConnections);
                 _cts = new CancellationTokenSource();
                 _listener = new TcpListener(IPAddress.Any, DefaultListenPort);
                 _listener.Start();
@@ -57,7 +70,7 @@ namespace ONKOS.Service
                 ServiceNotifier.WriteEvent(
                     EventLogEntryType.Information,
                     "Service.Start",
-                    $"ONKOSTransferService iniciado en puerto {DefaultListenPort}. Carpeta de recibidos: {inboxFolder}");
+                    $"ONKOSTransferService iniciado con TLS 1.2+ en puerto {DefaultListenPort}. Carpeta: {inboxFolder}");
             }
             catch (Exception ex)
             {
@@ -90,8 +103,11 @@ namespace ONKOS.Service
             {
                 try { _cts?.Dispose(); }
                 catch (ObjectDisposedException) { }
+                try { _concurrencyGate?.Dispose(); }
+                catch (ObjectDisposedException) { }
                 _cts = null;
                 _listener = null;
+                _concurrencyGate = null;
             }
         }
 
@@ -102,7 +118,7 @@ namespace ONKOS.Service
                 try
                 {
                     TcpClient client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                    _ = Task.Run(() => HandleClientAsync(client, token), token);
+                    _ = Task.Run(() => HandleClientWithLimitsAsync(client, token), token);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -122,170 +138,227 @@ namespace ONKOS.Service
             }
         }
 
-        private async Task HandleClientAsync(TcpClient client, CancellationToken token)
+        private async Task HandleClientWithLimitsAsync(TcpClient client, CancellationToken token)
         {
-            string destinationPath = null;
-            string itemName = "Elemento recibido";
             string remoteIp = "IP_desconocida";
+            try
+            {
+                var remoteEp = client.Client.RemoteEndPoint as IPEndPoint;
+                if (remoteEp != null && remoteEp.Address != null)
+                    remoteIp = remoteEp.Address.ToString();
+            }
+            catch (SocketException)
+            {
+            }
+
+            int currentIpCount = ActiveByIp.AddOrUpdate(remoteIp, 1, (k, v) => v + 1);
+            if (currentIpCount > MaxConnectionsPerIp)
+            {
+                DecrementIpCount(remoteIp);
+                FileLogger.Instance.Warn("Service.Security", $"Límite de conexiones simultáneas excedido para IP {remoteIp}.");
+                client.Close();
+                return;
+            }
+
+            bool enteredGate = false;
+            try
+            {
+                await _concurrencyGate.WaitAsync(token).ConfigureAwait(false);
+                enteredGate = true;
+                await ProcessAuthenticatedClientAsync(client, remoteIp, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                client.Close();
+            }
+            finally
+            {
+                DecrementIpCount(remoteIp);
+                if (enteredGate)
+                {
+                    try { _concurrencyGate?.Release(); }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        private static void DecrementIpCount(string ip)
+        {
+            ActiveByIp.AddOrUpdate(ip, 0, (k, v) => Math.Max(0, v - 1));
+        }
+
+        private async Task ProcessAuthenticatedClientAsync(TcpClient client, string remoteIp, CancellationToken token)
+        {
+            string partPath = null;
+            string itemName = "Elemento recibido";
             long recordedSize = 0L;
             bool transferStarted = false;
 
             try
             {
                 using (client)
+                using (NetworkStream rawStream = client.GetStream())
+                using (SslStream sslStream = await SecureTransferProtocol.AuthenticateServerAsync(rawStream, token).ConfigureAwait(false))
+                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
+                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, leaveInnerStreamOpen: true))
                 {
-                    try
+                    string senderFingerprint = SecureTransferProtocol.GetRemoteFingerprintSha256(sslStream);
+                    if (string.IsNullOrWhiteSpace(senderFingerprint))
+                        throw new AuthenticationException("No se pudo obtener la huella SHA-256 del cliente TLS.");
+
+                    string senderName;
+                    string senderArea;
+                    string machineName;
+                    int itemCount;
+                    SecureTransferProtocol.ReadAndValidateHeader(
+                        reader,
+                        out senderName,
+                        out senderArea,
+                        out machineName,
+                        out itemCount,
+                        _limits);
+
+                    PeerTrustState trustState = PeerAuthorizationStore.GetTrustState(senderFingerprint);
+                    if (trustState != PeerTrustState.Authorized)
                     {
-                        var remoteEp = client.Client.RemoteEndPoint as IPEndPoint;
-                        if (remoteEp != null && remoteEp.Address != null)
-                            remoteIp = remoteEp.Address.ToString();
-                    }
-                    catch (SocketException)
-                    {
+                        PeerAuthorizationStore.RegisterOrTouchPending(
+                            senderFingerprint,
+                            senderName,
+                            senderArea,
+                            remoteIp,
+                            machineName);
+
+                        writer.Write("ERR_NOT_AUTHORIZED");
+                        writer.Write($"Equipo en estado {trustState}. Requiere autorización por huella de Sistemas.");
+                        writer.Flush();
+
+                        FileLogger.Instance.Warn(
+                            "Service.Auth",
+                            $"Conexión rechazada por autorización ({trustState}). Huella: {senderFingerprint}, IP: {remoteIp}");
+                        return;
                     }
 
                     string inboxFolder;
                     string inboxError;
                     if (!AppSettingsStore.TryEnsureInboxReady(out inboxFolder, out inboxError))
+                        throw new IOException(inboxError);
+
+                    string senderFolder = GetSenderFolder(senderFingerprint, remoteIp, inboxFolder);
+                    string senderLabel = string.IsNullOrWhiteSpace(senderArea)
+                        ? $"{senderName} ({remoteIp})"
+                        : $"{senderName} — {senderArea} ({remoteIp})";
+
+                    for (int i = 0; i < itemCount; i++)
                     {
-                        ServiceNotifier.WriteEvent(EventLogEntryType.Error, "Service.Receive", inboxError);
-                        return;
-                    }
+                        token.ThrowIfCancellationRequested();
 
-                    using (NetworkStream stream = client.GetStream())
-                    using (var reader = new BinaryReader(stream, Encoding.UTF8, true))
-                    {
-                        string firstToken;
-                        try
-                        {
-                            firstToken = reader.ReadString();
-                        }
-                        catch (EndOfStreamException)
-                        {
-                            return;
-                        }
-                        catch (IOException)
-                        {
-                            return;
-                        }
-
-                        if (string.IsNullOrWhiteSpace(firstToken))
-                            return;
-
-                        if (string.Equals(firstToken, "ONKOS_WHOAMI_V1", StringComparison.Ordinal))
-                        {
-                            WriteIdentityResponse(stream, remoteIp);
-                            return;
-                        }
-
-                        string safeName = Path.GetFileName(firstToken);
-                        long declaredSize = reader.ReadInt64();
-                        itemName = string.IsNullOrWhiteSpace(safeName) ? "Elemento recibido" : safeName;
-
-                        if (string.IsNullOrWhiteSpace(safeName) || safeName == "." || safeName == ".." ||
-                            declaredSize < 0L || declaredSize > MaxSingleFileBytes)
-                        {
-                            throw new InvalidDataException("Nombre de archivo no válido o tamaño fuera del límite permitido.");
-                        }
-
-                        string spaceReason;
-                        if (!PathAndAclHelper.HasEnoughFreeSpace(inboxFolder, declaredSize, out spaceReason))
-                            throw new IOException(spaceReason);
-
+                        ManifestItem manifest = SecureTransferProtocol.ReadAndValidateManifestItem(reader, _limits, 0L);
+                        itemName = manifest.RelativePath;
+                        recordedSize = manifest.SizeBytes;
                         transferStarted = true;
 
-                        string senderFolder = GetSenderFolder(remoteIp, inboxFolder);
-                        destinationPath = Path.Combine(senderFolder, safeName);
-                        if (File.Exists(destinationPath))
+                        string spaceReason;
+                        if (!PathAndAclHelper.HasEnoughFreeSpace(inboxFolder, manifest.SizeBytes, out spaceReason))
+                            throw new IOException(spaceReason);
+
+                        string desiredDest = SecureTransferProtocol.ResolveSafeDestinationPath(senderFolder, manifest.RelativePath);
+                        string finalDest = SecureTransferProtocol.GetNonOverwritingPath(desiredDest);
+                        string destParent = Path.GetDirectoryName(finalDest);
+                        if (!string.IsNullOrEmpty(destParent))
+                            Directory.CreateDirectory(destParent);
+
+                        if (manifest.IsDirectory)
                         {
-                            destinationPath = Path.Combine(
-                                senderFolder,
-                                Path.GetFileNameWithoutExtension(safeName) + "_" +
-                                DateTime.Now.ToString("yyyyMMdd_HHmmssfff") +
-                                Path.GetExtension(safeName));
+                            Directory.CreateDirectory(finalDest);
+                            writer.Write("OK_ITEM");
+                            writer.Flush();
+
+                            TransferHistoryStore.AppendEntry(
+                                "RECIBIDO",
+                                Path.GetFileName(finalDest),
+                                0L,
+                                senderLabel,
+                                "Completado",
+                                finalDest,
+                                string.Empty,
+                                $"Huella: {senderFingerprint}");
+                            continue;
                         }
 
-                        string sha256Hex;
-                        using (FileStream output = File.Create(destinationPath))
-                        using (var hasher = SHA256.Create())
-                        using (var cryptoStream = new CryptoStream(output, hasher, CryptoStreamMode.Write))
+                        partPath = finalDest + ".part";
+                        string computedSha256;
+
+                        using (var output = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+                        using (var sha = SHA256.Create())
+                        using (var cryptoStream = new CryptoStream(output, sha, CryptoStreamMode.Write))
                         {
                             byte[] buffer = new byte[81920];
-                            long receivedTotal = 0L;
+                            long received = 0L;
 
-                            while (receivedTotal < declaredSize)
+                            while (received < manifest.SizeBytes)
                             {
                                 token.ThrowIfCancellationRequested();
-                                int toRead = (int)Math.Min(buffer.Length, declaredSize - receivedTotal);
-                                int read = await stream.ReadAsync(buffer, 0, toRead, token).ConfigureAwait(false);
+                                int chunkSize = (int)Math.Min(buffer.Length, manifest.SizeBytes - received);
+                                int read = await sslStream.ReadAsync(buffer, 0, chunkSize, token).ConfigureAwait(false);
                                 if (read <= 0)
-                                    throw new EndOfStreamException("La conexión se interrumpió antes de completar la transferencia.");
+                                    throw new EndOfStreamException("Conexión cerrada antes de completar el archivo.");
 
                                 await cryptoStream.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
-                                receivedTotal += read;
+                                received += read;
                             }
 
                             cryptoStream.FlushFinalBlock();
-                            hasher.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-                            sha256Hex = BitConverter.ToString(hasher.Hash ?? Array.Empty<byte>()).Replace("-", string.Empty).ToLowerInvariant();
+                            sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                            computedSha256 = BitConverter.ToString(sha.Hash ?? Array.Empty<byte>()).Replace("-", string.Empty).ToLowerInvariant();
                         }
 
-                        string finalStoredPath = destinationPath;
-                        long finalItemSize = declaredSize;
-                        string finalItemName = Path.GetFileName(destinationPath);
+                        if (!string.Equals(computedSha256, manifest.Sha256Hex, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException($"Fallo de integridad SHA-256 en '{itemName}'.");
 
-                        if (string.Equals(Path.GetExtension(destinationPath), ".onkosfolder", StringComparison.OrdinalIgnoreCase))
+                        if (File.Exists(finalDest))
+                            throw new IOException("Ya existe un archivo en el destino y no se permite sobrescritura por defecto.");
+
+                        File.Move(partPath, finalDest);
+                        partPath = null;
+
+                        string recordedName = Path.GetFileName(finalDest);
+                        long recordedItemSize = manifest.SizeBytes;
+                        string recordedPath = finalDest;
+
+                        if (string.Equals(Path.GetExtension(finalDest), ".onkosfolder", StringComparison.OrdinalIgnoreCase))
                         {
-                            string extractedRoot = ExtractFolderPackage(destinationPath, senderFolder, out string cleanFolderName, out long extractedBytes);
-                            finalStoredPath = extractedRoot;
-                            finalItemName = cleanFolderName;
-                            finalItemSize = extractedBytes;
+                            SecureTransferProtocol.ValidateArchiveSafety(finalDest, manifest.SizeBytes, _limits);
+                            recordedPath = ExtractSafeFolder(finalDest, senderFolder, out recordedName, out recordedItemSize);
                         }
 
-                        recordedSize = finalItemSize;
-                        destinationPath = finalStoredPath;
-
-                        stream.WriteByte(1);
-                        await stream.FlushAsync(token).ConfigureAwait(false);
-
-                        string senderDisplay = ResolveSenderDisplay(senderFolder, remoteIp);
+                        writer.Write("OK_ITEM");
+                        writer.Flush();
 
                         TransferHistoryStore.AppendEntry(
                             "RECIBIDO",
-                            finalItemName,
-                            finalItemSize,
-                            senderDisplay,
+                            recordedName,
+                            recordedItemSize,
+                            senderLabel,
                             "Completado",
-                            finalStoredPath,
-                            sha256Hex,
-                            $"Recibido desde {remoteIp}");
+                            recordedPath,
+                            computedSha256,
+                            $"Huella: {senderFingerprint}");
 
                         ServiceNotifier.WriteEvent(
                             EventLogEntryType.Information,
                             "Service.Receive",
-                            $"Recibido '{finalItemName}' ({finalItemSize} bytes) desde {senderDisplay} en '{finalStoredPath}'. SHA-256: {sha256Hex}");
+                            $"Recibido '{recordedName}' ({recordedItemSize} bytes) desde {senderLabel}. SHA-256: {computedSha256}");
                     }
                 }
             }
-            catch (OperationCanceledException)
+            catch (AuthenticationException authEx)
             {
-                CleanupPartialFile(destinationPath);
-                if (transferStarted)
-                {
-                    TransferHistoryStore.AppendEntry(
-                        "RECIBIDO",
-                        itemName,
-                        recordedSize,
-                        remoteIp,
-                        "Error",
-                        destinationPath ?? string.Empty,
-                        string.Empty,
-                        "Transferencia cancelada por detención del servicio.");
-                }
+                CleanupPartialFile(partPath);
+                FileLogger.Instance.Warn("Service.TLS", $"Fallo de autenticación TLS desde {remoteIp}: {authEx.Message}");
             }
             catch (Exception ex)
             {
-                CleanupPartialFile(destinationPath);
+                CleanupPartialFile(partPath);
                 if (transferStarted)
                 {
                     TransferHistoryStore.AppendEntry(
@@ -294,121 +367,89 @@ namespace ONKOS.Service
                         recordedSize,
                         remoteIp,
                         "Error",
-                        destinationPath ?? string.Empty,
+                        string.Empty,
                         string.Empty,
                         ex.Message);
 
                     ServiceNotifier.WriteEvent(
                         EventLogEntryType.Error,
                         "Service.Receive",
-                        $"Error recibiendo '{itemName}' desde {remoteIp}: {ex.Message}",
+                        $"Error en recepción desde {remoteIp} ('{itemName}'): {ex.Message}",
                         ex);
                 }
                 else
                 {
-                    FileLogger.Instance.Warn("Service.Receive", $"Conexión entrante rechazada o interrumpida desde {remoteIp}: {ex.Message}");
+                    FileLogger.Instance.Warn("Service.Receive", $"Conexión rechazada o fallida desde {remoteIp}: {ex.Message}");
                 }
             }
         }
 
-        private static void WriteIdentityResponse(NetworkStream stream, string remoteIp)
+        private string ExtractSafeFolder(string archivePath, string senderFolder, out string cleanFolderName, out long totalBytes)
         {
-            using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
-            {
-                PeerInfo profile = ReadProfileOrNull();
-                if (profile != null)
-                {
-                    writer.Write("ONKOS_IDENTITY_V1");
-                    writer.Write(profile.FullName ?? string.Empty);
-                    writer.Write(profile.Area ?? string.Empty);
-                    writer.Write(remoteIp ?? string.Empty);
-                    writer.Write(Environment.MachineName ?? string.Empty);
-                }
-                else
-                {
-                    writer.Write("ONKOS_UNREGISTERED_V1");
-                }
-                writer.Flush();
-            }
-        }
+            string baseName = Path.GetFileNameWithoutExtension(archivePath);
+            int sep = baseName.LastIndexOf('_');
+            Guid id;
+            if (sep > 0 && Guid.TryParse(baseName.Substring(sep + 1), out id))
+                baseName = baseName.Substring(0, sep);
 
-        private static PeerInfo ReadProfileOrNull()
-        {
-            PeerInfo profile;
-            return UserProfileStore.TryLoad(out profile) ? profile : null;
-        }
+            cleanFolderName = string.IsNullOrWhiteSpace(baseName)
+                ? "Carpeta_" + DateTime.Now.ToString("yyyyMMdd_HHmmss")
+                : baseName;
 
-        private static string ExtractFolderPackage(string archivePath, string senderFolder, out string cleanFolderName, out long totalExtractedBytes)
-        {
-            string folderName = Path.GetFileNameWithoutExtension(archivePath);
-            int guidSeparator = folderName.LastIndexOf('_');
-            Guid packageId;
-            if (guidSeparator > 0 && Guid.TryParse(folderName.Substring(guidSeparator + 1), out packageId))
-                folderName = folderName.Substring(0, guidSeparator);
-
-            if (string.IsNullOrWhiteSpace(folderName))
-                folderName = "Carpeta_recibida_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
-
-            cleanFolderName = folderName;
-            string extractRoot = Path.Combine(senderFolder, folderName);
-            int suffix = 1;
-            while (Directory.Exists(extractRoot))
-                extractRoot = Path.Combine(senderFolder, folderName + "_" + suffix++);
-
+            string extractRoot = SecureTransferProtocol.GetNonOverwritingPath(Path.Combine(senderFolder, cleanFolderName));
             Directory.CreateDirectory(extractRoot);
-            string rootFull = Path.GetFullPath(extractRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            long bytesSum = 0L;
+            long sum = 0L;
 
             using (ZipArchive archive = ZipFile.OpenRead(archivePath))
             {
                 foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    string relative = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
-                    string target = Path.GetFullPath(Path.Combine(extractRoot, relative));
-                    if (!target.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
-                        throw new InvalidDataException("La carpeta contiene una ruta no válida.");
+                    string safeRel = SecureTransferProtocol.NormalizeAndValidateRelativePath(entry.FullName.TrimEnd('/'), _limits);
+                    string targetPath = SecureTransferProtocol.ResolveSafeDestinationPath(extractRoot, safeRel);
 
                     if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
                     {
-                        Directory.CreateDirectory(target);
+                        Directory.CreateDirectory(targetPath);
                     }
                     else
                     {
-                        string parent = Path.GetDirectoryName(target);
-                        if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+                        string parent = Path.GetDirectoryName(targetPath);
+                        if (!string.IsNullOrEmpty(parent))
                             Directory.CreateDirectory(parent);
 
-                        entry.ExtractToFile(target, false);
-                        try { bytesSum += new FileInfo(target).Length; }
+                        entry.ExtractToFile(targetPath, overwrite: false);
+                        try { sum += new FileInfo(targetPath).Length; }
                         catch (IOException) { }
                     }
                 }
             }
 
             try { File.Delete(archivePath); }
-            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo borrar paquete temporal .onkosfolder ({ex.Message})."); }
+            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo eliminar paquete .onkosfolder ({ex.Message})."); }
 
-            totalExtractedBytes = bytesSum;
+            totalBytes = sum;
             return extractRoot;
         }
 
-        private static string GetSenderFolder(string senderIp, string rootFolder)
+        private static string GetSenderFolder(string fingerprint, string remoteIp, string rootFolder)
         {
-            string safeIp = string.IsNullOrWhiteSpace(senderIp) ? "IP_desconocida" : senderIp.Replace(':', '_');
-            string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
+            string tag = !string.IsNullOrWhiteSpace(fingerprint)
+                ? fingerprint.Substring(0, Math.Min(12, fingerprint.Length))
+                : (string.IsNullOrWhiteSpace(remoteIp) ? "IP_desconocida" : remoteIp.Replace(':', '_'));
 
+            string dayFolder = Path.Combine(rootFolder, DateTime.Now.ToString("yyyy-MM-dd"));
             lock (SenderFolderLock)
             {
                 Directory.CreateDirectory(dayFolder);
-                string prefix = safeIp + "_";
+                string prefix = tag + "_";
                 string existing = null;
 
                 try
                 {
-                    foreach (string candidate in Directory.GetDirectories(dayFolder, prefix + "*"))
+                    foreach (string dir in Directory.GetDirectories(dayFolder, prefix + "*"))
                     {
-                        if (existing == null || Directory.GetCreationTime(candidate) < Directory.GetCreationTime(existing))
-                            existing = candidate;
+                        if (existing == null || Directory.GetCreationTime(dir) < Directory.GetCreationTime(existing))
+                            existing = dir;
                     }
                 }
                 catch (IOException)
@@ -418,34 +459,11 @@ namespace ONKOS.Service
                 if (!string.IsNullOrEmpty(existing))
                     return existing;
 
-                string folderName = safeIp + "_" + DateTime.Now.ToString("HH-mm-ss");
-                string senderFolder = Path.Combine(dayFolder, folderName);
-                int suffix = 1;
-                while (Directory.Exists(senderFolder))
-                    senderFolder = Path.Combine(dayFolder, folderName + "_" + suffix++);
-
-                Directory.CreateDirectory(senderFolder);
-                return senderFolder;
+                string folderName = tag + "_" + DateTime.Now.ToString("HH-mm-ss");
+                string target = SecureTransferProtocol.GetNonOverwritingPath(Path.Combine(dayFolder, folderName));
+                Directory.CreateDirectory(target);
+                return target;
             }
-        }
-
-        private static string ResolveSenderDisplay(string senderFolder, string remoteIp)
-        {
-            try
-            {
-                string folderName = Path.GetFileName(senderFolder ?? string.Empty);
-                if (!string.IsNullOrWhiteSpace(folderName) && folderName.Contains("_"))
-                {
-                    string ipPart = folderName.Split('_')[0];
-                    if (!string.IsNullOrWhiteSpace(ipPart))
-                        return ipPart;
-                }
-            }
-            catch (ArgumentException)
-            {
-            }
-
-            return remoteIp;
         }
 
         private static void CleanupPartialFile(string path)
@@ -454,7 +472,7 @@ namespace ONKOS.Service
                 return;
 
             try { File.Delete(path); }
-            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo eliminar archivo parcial tras error ({ex.Message})."); }
+            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo borrar parcial '{path}' ({ex.Message})."); }
         }
     }
 }
