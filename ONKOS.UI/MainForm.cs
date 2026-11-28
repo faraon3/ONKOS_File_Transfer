@@ -123,7 +123,7 @@ namespace ONKOS.UI
             var topButtons = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
-                FlowDirection = FlowDirection.LeftToLeft,
+                FlowDirection = FlowDirection.LeftToRight,
                 AutoSize = true,
                 WrapContents = false,
                 Padding = new Padding(0, 6, 0, 0)
@@ -340,7 +340,7 @@ namespace ONKOS.UI
             var actionDock = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
-                FlowDirection = FlowDirection.LeftToLeft,
+                FlowDirection = FlowDirection.LeftToRight,
                 AutoSize = true,
                 WrapContents = false,
                 Padding = new Padding(0, 12, 0, 0)
