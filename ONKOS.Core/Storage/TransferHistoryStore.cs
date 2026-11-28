@@ -15,6 +15,8 @@ namespace ONKOS.Core.Storage
         private const string HistoryMutex = @"Global\ONKOS_History_Lock";
         private const string UnseenMutex = @"Global\ONKOS_Unseen_Lock";
 
+        public static int RetentionDays { get; set; } = 90;
+
         public static event Action UnseenReceivedCountChanged;
 
         public static void AppendEntry(
@@ -64,6 +66,49 @@ namespace ONKOS.Core.Storage
 
             if (incrementedUnseen)
                 RaiseUnseenChanged();
+        }
+
+        public static void ApplyRetention(int? daysOverride = null)
+        {
+            int days = daysOverride ?? RetentionDays;
+            if (days <= 0 || !File.Exists(PathAndAclHelper.HistoryFilePath))
+                return;
+
+            try
+            {
+                DateTime cutoff = DateTime.Now.AddDays(-days);
+                string raw = AtomicFileStore.ReadAllTextShared(PathAndAclHelper.HistoryFilePath, Encoding.UTF8, HistoryMutex);
+                string[] lines = raw.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                var kept = new List<string>();
+
+                foreach (string line in lines)
+                {
+                    string[] cols = line.Split('\t');
+                    if (cols.Length < 1)
+                        continue;
+
+                    DateTime dt;
+                    if (!DateTime.TryParseExact(cols[0], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
+                        DateTime.TryParse(cols[0], out dt);
+
+                    if (dt == DateTime.MinValue || dt >= cutoff)
+                        kept.Add(line);
+                }
+
+                if (kept.Count != lines.Length)
+                {
+                    string content = kept.Count == 0
+                        ? string.Empty
+                        : string.Join(Environment.NewLine, kept) + Environment.NewLine;
+
+                    AtomicFileStore.WriteAllTextAtomic(PathAndAclHelper.HistoryFilePath, content, Encoding.UTF8, HistoryMutex);
+                    FileLogger.Instance.Info("TransferHistoryStore", $"Retención aplicada ({days} días). Filas conservadas: {kept.Count}.");
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Instance.Warn("TransferHistoryStore", $"Error aplicando retención de historial ({ex.Message}).");
+            }
         }
 
         private static void IncrementUnseenCount()
@@ -213,17 +258,19 @@ namespace ONKOS.Core.Storage
                     if (cols.Length < 6)
                         continue;
 
+                    DateTime dt;
                     if (!DateTime.TryParseExact(
                         cols[0],
                         "yyyy-MM-dd HH:mm:ss",
                         CultureInfo.InvariantCulture,
                         DateTimeStyles.None,
-                        out DateTime dt))
+                        out dt))
                     {
                         DateTime.TryParse(cols[0], out dt);
                     }
 
-                    long.TryParse(cols[3], NumberStyles.Any, CultureInfo.InvariantCulture, out long bytes);
+                    long bytes;
+                    long.TryParse(cols[3], NumberStyles.Any, CultureInfo.InvariantCulture, out bytes);
 
                     string col7 = cols.Length > 7 ? cols[7].Trim() : string.Empty;
                     string col8 = cols.Length > 8 ? cols[8].Trim() : string.Empty;
@@ -274,11 +321,14 @@ namespace ONKOS.Core.Storage
 
         public static void ClearAll()
         {
+            if (!PathAndAclHelper.IsCurrentProcessElevated())
+                throw new UnauthorizedAccessException("Borrar el historial local requiere privilegios de administrador.");
+
             try
             {
                 AtomicFileStore.WriteAllTextAtomic(PathAndAclHelper.HistoryFilePath, string.Empty, Encoding.UTF8, HistoryMutex);
                 AtomicFileStore.WriteAllTextAtomic(PathAndAclHelper.UnseenReceivedFilePath, "0", Encoding.UTF8, UnseenMutex);
-                FileLogger.Instance.Info("TransferHistoryStore", "Historial local limpiado.");
+                FileLogger.Instance.Info("TransferHistoryStore", "Historial local limpiado por administrador.");
             }
             catch (Exception ex)
             {
