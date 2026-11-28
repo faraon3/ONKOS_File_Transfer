@@ -34,6 +34,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Security" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -45,6 +46,8 @@
     <Compile Include="Logging\ILogger.cs" />
     <Compile Include="Models\PeerInfo.cs" />
     <Compile Include="Models\TransferHistoryEntry.cs" />
+    <Compile Include="Security\DeviceIdentityStore.cs" />
+    <Compile Include="Security\PeerAuthorizationStore.cs" />
     <Compile Include="Storage\AppSettingsStore.cs" />
     <Compile Include="Storage\AtomicFileStore.cs" />
     <Compile Include="Storage\PathAndAclHelper.cs" />
