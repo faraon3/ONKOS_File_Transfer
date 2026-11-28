@@ -12,9 +12,11 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
 using ONKOS.Core.Protocol;
+using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 
 namespace ONKOS.UI
@@ -23,6 +25,7 @@ namespace ONKOS.UI
     {
         private const int TransferPort = 5050;
         private readonly TransferLimits _limits = new TransferLimits();
+        private readonly LanDiscoveryService _discovery = new LanDiscoveryService();
         private PeerInfo _localProfile;
         private bool _isSending;
 
@@ -30,6 +33,7 @@ namespace ONKOS.UI
         private readonly Label _lblInboxPath;
         private readonly Label _lblStatus;
         private readonly TextBox _txtRecipientIp;
+        private readonly ListBox _lstPeers;
         private readonly ListBox _lstFiles;
         private readonly Button _btnAddFiles;
         private readonly Button _btnRemoveFile;
@@ -44,8 +48,8 @@ namespace ONKOS.UI
             _localProfile = profile;
 
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(760, 480);
-            MinimumSize = new Size(680, 420);
+            Size = new Size(800, 540);
+            MinimumSize = new Size(720, 470);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
@@ -94,7 +98,7 @@ namespace ONKOS.UI
             _btnProfile = new Button
             {
                 Text = "Mi Perfil",
-                Location = new Point(400, 16),
+                Location = new Point(440, 16),
                 Size = new Size(80, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -105,7 +109,7 @@ namespace ONKOS.UI
             _btnHistory = new Button
             {
                 Text = "Historial",
-                Location = new Point(486, 16),
+                Location = new Point(526, 16),
                 Size = new Size(84, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -121,7 +125,7 @@ namespace ONKOS.UI
             _btnSettings = new Button
             {
                 Text = "Configuración",
-                Location = new Point(576, 16),
+                Location = new Point(616, 16),
                 Size = new Size(92, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -132,7 +136,7 @@ namespace ONKOS.UI
             _btnInbox = new Button
             {
                 Text = "Recibidos",
-                Location = new Point(674, 16),
+                Location = new Point(714, 16),
                 Size = new Size(70, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -145,23 +149,41 @@ namespace ONKOS.UI
             var lblTarget = new Label
             {
                 Text = "IP destino en LAN:",
-                Location = new Point(18, 82),
+                Location = new Point(18, 80),
                 Size = new Size(130, 22)
             };
 
             _txtRecipientIp = new TextBox
             {
-                Location = new Point(150, 80),
+                Location = new Point(150, 78),
                 Size = new Size(200, 26),
                 BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
 
+            var lblPeers = new Label
+            {
+                Text = "Equipos detectados en LAN (por huella):",
+                Location = new Point(18, 112),
+                Size = new Size(340, 20),
+                ForeColor = Color.FromArgb(184, 148, 255)
+            };
+
+            _lstPeers = new ListBox
+            {
+                Location = new Point(18, 134),
+                Size = new Size(760, 115),
+                BackColor = Color.FromArgb(18, 20, 32),
+                ForeColor = Color.FromArgb(242, 244, 252),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            _lstPeers.SelectedIndexChanged += LstPeers_SelectedIndexChanged;
+
             _btnAddFiles = new Button
             {
                 Text = "+ Adjuntar",
-                Location = new Point(530, 78),
+                Location = new Point(574, 256),
                 Size = new Size(100, 28),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -172,7 +194,7 @@ namespace ONKOS.UI
             _btnRemoveFile = new Button
             {
                 Text = "Quitar",
-                Location = new Point(638, 78),
+                Location = new Point(682, 256),
                 Size = new Size(96, 28),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -182,8 +204,8 @@ namespace ONKOS.UI
 
             _lstFiles = new ListBox
             {
-                Location = new Point(18, 116),
-                Size = new Size(716, 210),
+                Location = new Point(18, 292),
+                Size = new Size(760, 125),
                 SelectionMode = SelectionMode.MultiExtended,
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
@@ -200,9 +222,9 @@ namespace ONKOS.UI
 
             _lblStatus = new Label
             {
-                Text = "Listo. Canal cifrado TLS 1.2+ con autenticación mutua.",
+                Text = "Listo. Descubrimiento LAN activo y canal TLS 1.2+ mutuo.",
                 Location = new Point(16, 10),
-                Size = new Size(540, 22),
+                Size = new Size(580, 22),
                 ForeColor = Color.FromArgb(215, 220, 240)
             };
 
@@ -210,14 +232,14 @@ namespace ONKOS.UI
             {
                 Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder(),
                 Location = new Point(16, 36),
-                Size = new Size(540, 22),
+                Size = new Size(580, 22),
                 ForeColor = Color.FromArgb(155, 162, 192)
             };
 
             _btnSend = new Button
             {
                 Text = "Enviar",
-                Location = new Point(580, 16),
+                Location = new Point(624, 16),
                 Size = new Size(150, 40),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -227,11 +249,125 @@ namespace ONKOS.UI
 
             pnlBottom.Controls.AddRange(new Control[] { _lblStatus, _lblInboxPath, _btnSend });
 
+            _discovery.PeersUpdated += OnDiscoveryPeersUpdated;
+            _discovery.NewPeerDiscovered += OnNewPeerDiscovered;
+            PeerAuthorizationStore.PendingRequestReceived += OnPendingAuthorizationReceived;
+
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
-            Load += (s, e) => RefreshInboxBadgeText();
+            Load += OnMainFormLoad;
+            FormClosed += OnMainFormClosed;
 
-            Controls.AddRange(new Control[] { pnlTop, lblTarget, _txtRecipientIp, _btnAddFiles, _btnRemoveFile, _lstFiles, pnlBottom });
+            Controls.AddRange(new Control[] { pnlTop, lblTarget, _txtRecipientIp, lblPeers, _lstPeers, _btnAddFiles, _btnRemoveFile, _lstFiles, pnlBottom });
+        }
+
+        private void OnMainFormLoad(object sender, EventArgs e)
+        {
+            RefreshInboxBadgeText();
+            _discovery.Start(_localProfile);
+            RefreshPeersList();
+        }
+
+        private void OnMainFormClosed(object sender, FormClosedEventArgs e)
+        {
+            _discovery.PeersUpdated -= OnDiscoveryPeersUpdated;
+            _discovery.NewPeerDiscovered -= OnNewPeerDiscovered;
+            PeerAuthorizationStore.PendingRequestReceived -= OnPendingAuthorizationReceived;
+            _discovery.Dispose();
+        }
+
+        private void OnDiscoveryPeersUpdated()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(RefreshPeersList)); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            RefreshPeersList();
+        }
+
+        private void OnNewPeerDiscovered(PeerInfo peer)
+        {
+            if (IsDisposed || Disposing || peer == null)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(() => ShowSilentBanner($"Nuevo usuario detectado: {peer.FullName} ({peer.Area}) — {peer.IPv4}"))); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            ShowSilentBanner($"Nuevo usuario detectado: {peer.FullName} ({peer.Area}) — {peer.IPv4}");
+        }
+
+        private void OnPendingAuthorizationReceived(AuthorizedPeerRecord record)
+        {
+            if (IsDisposed || Disposing || record == null)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(() => ShowSilentBanner($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})"))); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            ShowSilentBanner($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})");
+        }
+
+        private void ShowSilentBanner(string message)
+        {
+            if (IsDisposed || Disposing)
+                return;
+            _lblStatus.Text = message;
+        }
+
+        private void RefreshPeersList()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            string selectedKey = null;
+            if (_lstPeers.SelectedItem is PeerListItem currentSelected)
+                selectedKey = PeerContactsStore.BuildContactKey(currentSelected.Peer);
+
+            List<PeerInfo> peers = _discovery.GetPeers();
+
+            _lstPeers.BeginUpdate();
+            _lstPeers.Items.Clear();
+
+            int toSelectIndex = -1;
+            for (int i = 0; i < peers.Count; i++)
+            {
+                PeerInfo p = peers[i];
+                var item = new PeerListItem(p);
+                _lstPeers.Items.Add(item);
+
+                if (!string.IsNullOrEmpty(selectedKey) &&
+                    string.Equals(PeerContactsStore.BuildContactKey(p), selectedKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    toSelectIndex = i;
+                }
+            }
+
+            if (toSelectIndex >= 0)
+                _lstPeers.SelectedIndex = toSelectIndex;
+
+            _lstPeers.EndUpdate();
+        }
+
+        private void LstPeers_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_lstPeers.SelectedItem is PeerListItem item && item.Peer != null && !string.IsNullOrWhiteSpace(item.Peer.IPv4))
+            {
+                _txtRecipientIp.Text = item.Peer.IPv4;
+            }
         }
 
         public void BringToFrontFromSecondInstance()
@@ -251,7 +387,8 @@ namespace ONKOS.UI
         {
             string name = _localProfile != null ? _localProfile.FullName : "Sin perfil";
             string area = _localProfile != null ? _localProfile.Area : "";
-            return $"{name} ({area})  •  Equipo: {Environment.MachineName}";
+            string ip = _discovery.GetLocalIPv4Cached();
+            return $"{name} ({area})  •  IP: {ip}  •  Equipo: {Environment.MachineName}";
         }
 
         private void RefreshInboxBadgeText()
@@ -305,8 +442,9 @@ namespace ONKOS.UI
                 if (dlg.ShowDialog(this) == DialogResult.OK && dlg.RegisteredProfile != null)
                 {
                     _localProfile = dlg.RegisteredProfile;
+                    _discovery.UpdateLocalProfile(_localProfile);
                     _lblIdentity.Text = BuildIdentityText();
-                    _lblStatus.Text = "Perfil actualizado.";
+                    _lblStatus.Text = "Perfil actualizado y anunciado en red.";
                 }
             }
         }
@@ -368,7 +506,7 @@ namespace ONKOS.UI
             IPAddress targetIp;
             if (!IPAddress.TryParse(ipText, out targetIp) || targetIp.AddressFamily != AddressFamily.InterNetwork)
             {
-                _lblStatus.Text = "Escribe una dirección IPv4 válida de destino.";
+                _lblStatus.Text = "Escribe o selecciona un equipo con IPv4 válida de destino.";
                 return;
             }
 
@@ -529,6 +667,30 @@ namespace ONKOS.UI
                         }
                     }
                 }
+            }
+        }
+
+        private sealed class PeerListItem
+        {
+            public PeerInfo Peer { get; }
+
+            public PeerListItem(PeerInfo peer)
+            {
+                Peer = peer;
+            }
+
+            public override string ToString()
+            {
+                if (Peer == null)
+                    return string.Empty;
+
+                string presence = LanDiscoveryService.FormatLastSeen(Peer);
+                string areaPart = string.IsNullOrWhiteSpace(Peer.Area) ? string.Empty : $" — {Peer.Area}";
+                string fpShort = string.IsNullOrWhiteSpace(Peer.FingerprintSha256)
+                    ? string.Empty
+                    : $" [{Peer.FingerprintSha256.Substring(0, Math.Min(8, Peer.FingerprintSha256.Length))}]";
+
+                return $"{Peer.FullName}{areaPart} ({Peer.IPv4} • {Peer.MachineName}{fpShort}) — {presence}";
             }
         }
     }
