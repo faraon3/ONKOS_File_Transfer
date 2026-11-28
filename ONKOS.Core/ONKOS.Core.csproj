@@ -53,11 +53,15 @@
     <Compile Include="Protocol\SecureTransferProtocol.cs" />
     <Compile Include="Security\DeviceIdentityStore.cs" />
     <Compile Include="Security\PeerAuthorizationStore.cs" />
+    <Compile Include="Storage\AddressBookStore.cs" />
     <Compile Include="Storage\AppSettingsStore.cs" />
     <Compile Include="Storage\AtomicFileStore.cs" />
     <Compile Include="Storage\PathAndAclHelper.cs" />
+    <Compile Include="Storage\ReceiverPolicyStore.cs" />
     <Compile Include="Storage\TransferHistoryStore.cs" />
     <Compile Include="Storage\UserProfileStore.cs" />
+    <Compile Include="Transfers\PathSizeCache.cs" />
+    <Compile Include="Transfers\TransferQueueManager.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
