@@ -179,7 +179,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.History", "No se pudo abrir la ubicación del elemento recibido.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.History",
+                    $"No se pudo abrir la ubicación del elemento recibido ({ex.GetType().Name}: {ex.Message}).");
             }
         }
 
