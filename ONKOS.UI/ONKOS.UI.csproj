@@ -12,6 +12,7 @@
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -40,6 +41,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -57,13 +59,20 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="FirstRunWizardForm.cs" />
     <Compile Include="MainForm.cs" />
+    <Compile Include="ManualPeerDialog.cs" />
     <Compile Include="NotificationCenterForm.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SettingsForm.cs" />
+    <Compile Include="ThemeManager.cs" />
     <Compile Include="TransferHistoryForm.cs" />
+    <Compile Include="UiResources.cs" />
     <Compile Include="VisualToastForm.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\ONKOSFileTransfer\onkos.ico">
