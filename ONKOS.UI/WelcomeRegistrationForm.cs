@@ -41,7 +41,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.Welcome", "No se pudo cargar icono en WelcomeRegistrationForm.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.Welcome",
+                    $"No se pudo cargar icono en WelcomeRegistrationForm ({ex.GetType().Name}: {ex.Message}).");
             }
 
             var lblTitle = new Label
