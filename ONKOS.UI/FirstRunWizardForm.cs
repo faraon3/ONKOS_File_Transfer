@@ -1,8 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
-using System.ServiceProcess;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
@@ -15,9 +14,13 @@ namespace ONKOS.UI
     {
         private readonly TextBox _txtName;
         private readonly ComboBox _cmbArea;
-        private readonly TextBox _txtInbox;
-        private readonly Label _lblDiag;
-        private readonly Label _lblError;
+        private readonly TextBox _txtFolder;
+        private readonly Button _btnNextOrFinish;
+        private readonly Button _btnBack;
+        private readonly Panel _pnlStep1;
+        private readonly Panel _pnlStep2;
+        private readonly Timer _fadeTimer;
+        private int _step;
 
         public PeerInfo RegisteredProfile { get; private set; }
 
@@ -25,253 +28,148 @@ namespace ONKOS.UI
         {
             ThemePalette p = ThemeManager.GetCurrentPalette();
 
-            Text = "ONKOS File Transfer 2.0 — Configuración inicial";
+            Text = UiResources.AppTitle;
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
-            Size = new Size(560, 440);
-            MinimumSize = new Size(500, 400);
+            Size = new Size(420, 270);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
+            Opacity = ThemeManager.AreAnimationsEnabled() ? 0.0 : 1.0;
             BackColor = p.WindowBg;
             ForeColor = p.TextPrimary;
-            Font = ThemeManager.BaseFont;
+            Font = ThemeManager.BodyFont;
 
-            try
-            {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "onkos.ico");
-                if (File.Exists(icoPath))
-                    Icon = new Icon(icoPath);
-            }
-            catch (Exception ex)
-            {
-                FileLogger.Instance.Warn("UI.Wizard", $"No se pudo cargar icono ({ex.Message}).");
-            }
+            _pnlStep1 = new Panel { Dock = DockStyle.Fill, BackColor = p.WindowBg };
+            var lblName = new Label { Text = "Nombre", Font = ThemeManager.SecondaryFont, ForeColor = p.TextSecondary, Location = new Point(20, 24), AutoSize = true };
+            _txtName = new TextBox { Location = new Point(20, 46), Size = new Size(360, 28), BackColor = p.SurfaceBg, ForeColor = p.TextPrimary, BorderStyle = BorderStyle.FixedSingle };
 
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 9,
-                Padding = new Padding(20)
-            };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-
-            var lblTitle = new Label
-            {
-                Text = "Bienvenido a ONKOS File Transfer 2.0",
-                Font = ThemeManager.HeaderTitleFont,
-                ForeColor = p.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : p.PrimaryAccent,
-                AutoSize = true
-            };
-
-            var lblSub = new Label
-            {
-                Text = "Completa estos 3 pasos rápidos para dejar listo el equipo en la red clínica:",
-                ForeColor = p.TextSecondary,
-                AutoSize = true,
-                Margin = new Padding(0, 2, 0, 10)
-            };
-
-            var lblStep1 = new Label { Text = "1. Tu nombre visible y área de trabajo:", Font = ThemeManager.BoldFont, AutoSize = true };
-
-            var pnlUser = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Height = 34 };
-            pnlUser.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55F));
-            pnlUser.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45F));
-
-            _txtName = new TextBox
-            {
-                Dock = DockStyle.Fill,
-                MaxLength = UserProfileStore.MaxFieldLength,
-                BackColor = p.InputBg,
-                ForeColor = p.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Nombre completo del usuario"
-            };
-
-            _cmbArea = new ComboBox
-            {
-                Dock = DockStyle.Fill,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
-                AutoCompleteSource = AutoCompleteSource.ListItems,
-                BackColor = p.InputBg,
-                ForeColor = p.TextPrimary,
-                AccessibleName = "Área o departamento"
-            };
-            List<string> areas = UserProfileStore.GetConfiguredAreas();
-            foreach (string a in areas)
+            var lblArea = new Label { Text = "Área", Font = ThemeManager.SecondaryFont, ForeColor = p.TextSecondary, Location = new Point(20, 86), AutoSize = true };
+            _cmbArea = new ComboBox { Location = new Point(20, 108), Size = new Size(360, 28), DropDownStyle = ComboBoxStyle.DropDown, BackColor = p.SurfaceBg, ForeColor = p.TextPrimary };
+            foreach (string a in UserProfileStore.GetConfiguredAreas())
                 _cmbArea.Items.Add(a);
             if (_cmbArea.Items.Count > 0)
                 _cmbArea.SelectedIndex = 0;
 
-            pnlUser.Controls.Add(_txtName, 0, 0);
-            pnlUser.Controls.Add(_cmbArea, 1, 0);
+            _pnlStep1.Controls.AddRange(new Control[] { lblName, _txtName, lblArea, _cmbArea });
 
-            var lblStep2 = new Label
+            _pnlStep2 = new Panel { Dock = DockStyle.Fill, BackColor = p.WindowBg, Visible = false };
+            var lblFolder = new Label { Text = "Carpeta de recibidos", Font = ThemeManager.SecondaryFont, ForeColor = p.TextSecondary, Location = new Point(20, 38), AutoSize = true };
+            _txtFolder = new TextBox
             {
-                Text = "2. Carpeta donde se guardarán los archivos recibidos:",
-                Font = ThemeManager.BoldFont,
-                AutoSize = true,
-                Margin = new Padding(0, 8, 0, 0)
-            };
-
-            var pnlInbox = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Height = 34 };
-            pnlInbox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 78F));
-            pnlInbox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
-
-            _txtInbox = new TextBox
-            {
-                Dock = DockStyle.Fill,
-                BackColor = p.InputBg,
-                ForeColor = p.TextPrimary,
-                BorderStyle = BorderStyle.FixedSingle,
                 Text = AppSettingsStore.GetInboxFolder(),
-                AccessibleName = "Ruta de carpeta de recibidos"
+                Location = new Point(20, 62),
+                Size = new Size(272, 28),
+                BackColor = p.SurfaceBg,
+                ForeColor = p.TextPrimary,
+                BorderStyle = BorderStyle.FixedSingle
             };
-
-            var btnBrowse = new Button { Text = "Examinar...", Dock = DockStyle.Fill };
-            ThemeManager.StyleButton(btnBrowse, p);
+            var btnBrowse = new Button { Text = "Elegir", Size = new Size(80, 28), Location = new Point(300, 62) };
+            ThemeManager.ConfigureSmoothButton(btnBrowse, p, ButtonVariant.Secondary, 10);
             btnBrowse.Click += (s, e) =>
             {
-                using (var dlg = new FolderBrowserDialog { SelectedPath = _txtInbox.Text })
+                using (var dlg = new FolderBrowserDialog())
                 {
+                    dlg.SelectedPath = Directory.Exists(_txtFolder.Text) ? _txtFolder.Text : AppSettingsStore.GetInboxFolder();
                     if (dlg.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(dlg.SelectedPath))
-                        _txtInbox.Text = dlg.SelectedPath;
+                        _txtFolder.Text = dlg.SelectedPath;
                 }
             };
+            _pnlStep2.Controls.AddRange(new Control[] { lblFolder, _txtFolder, btnBrowse });
 
-            pnlInbox.Controls.Add(_txtInbox, 0, 0);
-            pnlInbox.Controls.Add(btnBrowse, 1, 0);
+            _btnBack = new Button { Text = "Atrás", Size = new Size(90, 34), Location = new Point(192, 182), Visible = false };
+            ThemeManager.ConfigureSmoothButton(_btnBack, p, ButtonVariant.Secondary, 10);
+            _btnBack.Click += (s, e) => SetStep(0);
 
-            var lblStep3 = new Label
+            _btnNextOrFinish = new Button { Text = "Siguiente", Size = new Size(96, 34), Location = new Point(284, 182) };
+            ThemeManager.ConfigureSmoothButton(_btnNextOrFinish, p, ButtonVariant.Primary, 10);
+            _btnNextOrFinish.Click += BtnNextOrFinish_Click;
+
+            _fadeTimer = new Timer { Interval = 18 };
+            _fadeTimer.Tick += (s, e) =>
             {
-                Text = "3. Comprobación rápida de red y servicio local:",
-                Font = ThemeManager.BoldFont,
-                AutoSize = true,
-                Margin = new Padding(0, 8, 0, 0)
-            };
-
-            _lblDiag = new Label
-            {
-                Text = RunQuickCheck(),
-                ForeColor = p.TextSecondary,
-                AutoSize = true
-            };
-
-            _lblError = new Label
-            {
-                Text = string.Empty,
-                ForeColor = Color.FromArgb(255, 110, 130),
-                AutoSize = true
-            };
-
-            var pnlActions = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.RightToLeft,
-                AutoSize = true
-            };
-
-            var btnFinish = new Button { Text = "Finalizar y abrir", Size = new Size(145, 34) };
-            ThemeManager.StyleButton(btnFinish, p, isPrimary: true);
-            btnFinish.Click += BtnFinish_Click;
-
-            var btnCancel = new Button { Text = "Cancelar", Size = new Size(100, 34) };
-            ThemeManager.StyleButton(btnCancel, p);
-            btnCancel.Click += (s, e) =>
-            {
-                DialogResult = DialogResult.Cancel;
-                Close();
-            };
-
-            pnlActions.Controls.Add(btnFinish);
-            pnlActions.Controls.Add(btnCancel);
-
-            layout.Controls.Add(lblTitle, 0, 0);
-            layout.Controls.Add(lblSub, 0, 1);
-            layout.Controls.Add(lblStep1, 0, 2);
-            layout.Controls.Add(pnlUser, 0, 3);
-            layout.Controls.Add(lblStep2, 0, 4);
-            layout.Controls.Add(pnlInbox, 0, 5);
-            layout.Controls.Add(lblStep3, 0, 6);
-            layout.Controls.Add(_lblDiag, 0, 7);
-
-            var footer = new Panel { Dock = DockStyle.Fill, Height = 64 };
-            _lblError.Dock = DockStyle.Top;
-            pnlActions.Dock = DockStyle.Bottom;
-            footer.Controls.Add(pnlActions);
-            footer.Controls.Add(_lblError);
-            layout.Controls.Add(footer, 0, 8);
-
-            AcceptButton = btnFinish;
-            CancelButton = btnCancel;
-            Controls.Add(layout);
-        }
-
-        private static string RunQuickCheck()
-        {
-            string svcState = "No detectado";
-            try
-            {
-                using (var sc = new ServiceController("ONKOSTransferService"))
+                if (!ThemeManager.AreAnimationsEnabled() || Opacity >= 1.0)
                 {
-                    svcState = sc.Status.ToString();
+                    Opacity = 1.0;
+                    _fadeTimer.Stop();
+                    return;
                 }
-            }
-            catch (Exception)
+                Opacity = Math.Min(1.0, Opacity + 0.16);
+            };
+
+            AcceptButton = _btnNextOrFinish;
+            Controls.AddRange(new Control[] { _pnlStep1, _pnlStep2, _btnBack, _btnNextOrFinish });
+            Load += (s, e) =>
             {
-            }
-
-            List<SubnetInfo> nets = LanDiscoveryService.DetectActiveLanSubnets();
-            string ipInfo = nets.Count > 0
-                ? $"{nets[0].LocalIp} (máscara {nets[0].SubnetMask})"
-                : "Sin adaptador LAN activo detectado";
-
-            return $"Servicio de recepción: {svcState}  •  Red LAN: {ipInfo}";
+                PreloadExistingProfile();
+                _fadeTimer.Start();
+            };
+            FormClosed += (s, e) =>
+            {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
+            };
         }
 
-        private void BtnFinish_Click(object sender, EventArgs e)
+        private void PreloadExistingProfile()
         {
-            string name = UserProfileStore.SanitizeField(_txtName.Text);
-            string area = UserProfileStore.SanitizeField(_cmbArea.Text);
-
-            if (string.IsNullOrWhiteSpace(name) || UserProfileStore.IsIgnoredSystemName(name))
+            PeerInfo existing;
+            if (UserProfileStore.TryLoad(out existing) && existing != null)
             {
-                _lblError.Text = "Escribe tu nombre completo para identificarte en la red.";
-                _txtName.Focus();
-                return;
+                _txtName.Text = existing.FullName ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(existing.Area))
+                    _cmbArea.Text = existing.Area;
             }
+        }
 
-            if (string.IsNullOrWhiteSpace(area))
+        private void SetStep(int target)
+        {
+            _step = target;
+            _pnlStep1.Visible = (_step == 0);
+            _pnlStep2.Visible = (_step == 1);
+            _btnBack.Visible = (_step == 1);
+            _btnNextOrFinish.Text = (_step == 1) ? "Listo" : "Siguiente";
+        }
+
+        private void BtnNextOrFinish_Click(object sender, EventArgs e)
+        {
+            if (_step == 0)
             {
-                _lblError.Text = "Selecciona o escribe tu área.";
-                _cmbArea.Focus();
+                if (string.IsNullOrWhiteSpace(UserProfileStore.SanitizeField(_txtName.Text)))
+                {
+                    _txtName.Focus();
+                    return;
+                }
+                SetStep(1);
                 return;
             }
 
             try
             {
-                AppSettingsStore.SetInboxFolder(_txtInbox.Text);
-                UserProfileStore.Save(name, area);
+                string area = UserProfileStore.SanitizeField(_cmbArea.Text);
+                if (string.IsNullOrWhiteSpace(area))
+                    area = "General";
 
-                RegisteredProfile = new PeerInfo
+                UserProfileStore.AddConfiguredArea(area);
+                PeerInfo saved = UserProfileStore.Save(_txtName.Text, area);
+
+                if (!string.IsNullOrWhiteSpace(_txtFolder.Text))
+                    AppSettingsStore.SetInboxFolder(_txtFolder.Text.Trim());
+
+                _ = Task.Run(() =>
                 {
-                    FullName = name,
-                    Area = area,
-                    MachineName = Environment.MachineName,
-                    IPv4 = new LanDiscoveryService().GetLocalIPv4Cached(),
-                    LastSeenUtc = DateTime.UtcNow
-                };
+                    try { LanDiscoveryService.DetectActiveLanSubnets(); }
+                    catch (Exception) { }
+                });
 
+                RegisteredProfile = saved;
                 DialogResult = DialogResult.OK;
                 Close();
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Error("UI.Wizard", "Error completando asistente inicial.", ex);
-                _lblError.Text = "No se pudo guardar la configuración inicial. Revisa los permisos de la carpeta.";
+                FileLogger.Instance.Warn("UI.Wizard", $"Error guardando perfil inicial ({ex.Message}).");
             }
         }
     }
