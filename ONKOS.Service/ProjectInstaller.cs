@@ -23,7 +23,7 @@ namespace ONKOS.Service
             {
                 ServiceName = "ONKOSTransferService",
                 DisplayName = "ONKOS Transfer Service",
-                Description = "Servicio local de recepción de archivos de ONKOS en puerto TCP 5050.",
+                Description = "Servicio local cifrado (TLS 1.2+) de recepción de archivos de ONKOS en puerto TCP 5050.",
                 StartType = ServiceStartMode.Automatic,
                 DelayedAutoStart = true
             };
