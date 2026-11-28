@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
+using ONKOS.Core.Protocol;
 using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
 
@@ -24,6 +25,7 @@ namespace ONKOS.Core.Discovery
     public sealed class LanDiscoveryService : IDisposable
     {
         public const int DiscoveryPort = 5051;
+        public const int TransferPort = 5050;
         private const string MagicPrefix = "ONKOS_ANN_V2";
         private const int AnnounceIntervalMs = 4000;
         private const int PresenceCheckIntervalMs = 6000;
@@ -481,7 +483,7 @@ namespace ONKOS.Core.Discovery
                             await sem.WaitAsync(token).ConfigureAwait(false);
                             try
                             {
-                                bool open = await ProbeTcpPortAsync(p.IPv4, SecureTransferProtocol.DefaultOrTransferPortFallback(), 900, token).ConfigureAwait(false);
+                                bool open = await ProbeTcpPortAsync(p.IPv4, TransferPort, 900, token).ConfigureAwait(false);
                                 if (open)
                                 {
                                     lock (_sync)
@@ -571,14 +573,6 @@ namespace ONKOS.Core.Discovery
             catch (ObjectDisposedException) { }
             try { _cts?.Dispose(); }
             catch (ObjectDisposedException) { }
-        }
-    }
-
-    internal static class ProtocolPortHelper
-    {
-        public static int DefaultOrTransferPortFallback()
-        {
-            return 5050;
         }
     }
 }
