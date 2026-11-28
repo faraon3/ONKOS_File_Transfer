@@ -45,22 +45,25 @@ jobs:
       - name: Build installer with Inno Setup if available
         shell: pwsh
         run: |
-          $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
-          if (-not $iscc) {
+          $isccPath = $null
+          $cmd = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+          if ($cmd -and $cmd.Source) {
+            $isccPath = $cmd.Source
+          } else {
             $candidates = @(
               "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
               "C:\Program Files\Inno Setup 6\ISCC.exe"
             )
             foreach ($cand in $candidates) {
               if (Test-Path $cand) {
-                $iscc = Get-Item $cand
+                $isccPath = $cand
                 break
               }
             }
           }
 
-          if ($iscc -and (Test-Path "ONKOS_Setup.iss")) {
-            & $iscc.FullName "ONKOS_Setup.iss"
+          if ($isccPath -and (Test-Path "ONKOS_Setup.iss")) {
+            & $isccPath "ONKOS_Setup.iss"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             Write-Host "ISCC.exe no encontrado en la imagen; se empaquetarán los binarios Release como artefacto."
