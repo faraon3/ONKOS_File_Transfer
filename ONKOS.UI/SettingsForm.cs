@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -60,7 +59,6 @@ namespace ONKOS.UI
                 AutoSize = true
             };
 
-            // Recibidos
             var lblInbox = new Label
             {
                 Text = "Recibidos",
@@ -95,7 +93,6 @@ namespace ONKOS.UI
                 }
             };
 
-            // Apariencia
             var lblTheme = new Label
             {
                 Text = "Apariencia",
@@ -122,7 +119,6 @@ namespace ONKOS.UI
                 ThemeManager.SaveMode(mode);
             };
 
-            // Toggles (Appearance.Normal con estilo interruptor)
             _chkAutoStart = new CheckBox
             {
                 Text = "Iniciar con Windows",
@@ -155,7 +151,6 @@ namespace ONKOS.UI
                 ReceiverPolicyStore.Save(cur);
             };
 
-            // Avanzado plegado
             var lnkAdv = new LinkLabel
             {
                 Text = "Avanzado",
