@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -34,12 +33,11 @@ namespace ONKOS.UI
         private ThemePalette _palette;
         private long _cachedSelectionBytes;
         private int _lastSeenUnseenCount = -1;
-        private string _lastShownNotificationId;
         private string _activeAreaFilter = "Todos";
         private bool _isSendingMode;
         private bool _isDragHovering;
         private int _hoveredFileIndex = -1;
-        private string _hoveredQueueJobId = string.Empty;
+        private string _hoveredQueueKey = string.Empty;
 
         private readonly List<string> _selectedPaths = new List<string>();
         private readonly HashSet<string> _selectedPeerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -476,6 +474,13 @@ namespace ONKOS.UI
             LayoutDropZoneControls();
         }
 
+        private static string BuildJobKey(TransferJob job)
+        {
+            if (job == null)
+                return string.Empty;
+            return (job.ItemName ?? string.Empty) + "|" + (job.TargetLabel ?? string.Empty);
+        }
+
         private void OnFadeTick(object sender, EventArgs e)
         {
             if (IsDisposed || Disposing)
@@ -494,7 +499,7 @@ namespace ONKOS.UI
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             var logoRect = new RectangleF(18, 15, 32, 32);
             using (GraphicsPath path = ThemeManager.CreateRoundedRectangle(logoRect, 9F))
-            using (var grad = new LinearGradientBrush(logoRect, _palette.AccentStart, _palette.AccentEnd, LinearGradientMode.DiagonalForward))
+            using (var grad = new LinearGradientBrush(logoRect, _palette.AccentStart, _palette.AccentEnd, LinearGradientMode.Horizontal))
             {
                 e.Graphics.FillPath(grad, path);
             }
@@ -1108,12 +1113,13 @@ namespace ONKOS.UI
 
             foreach (TransferJob job in jobs)
             {
+                string jobKey = BuildJobKey(job);
                 bool isFailed = job.State == QueueJobState.Failed;
                 bool isPaused = job.State == QueueJobState.Paused;
                 bool isDone = job.State == QueueJobState.Completed;
                 bool isRunning = job.State == QueueJobState.Running;
-                bool isHovered = string.Equals(_hoveredQueueJobId, job.Id, StringComparison.Ordinal);
-                bool showTechDetail = _expandedQueueErrors.ContainsKey(job.Id);
+                bool isHovered = string.Equals(_hoveredQueueKey, jobKey, StringComparison.Ordinal);
+                bool showTechDetail = _expandedQueueErrors.ContainsKey(jobKey);
 
                 int cardHeight = isFailed ? (showTechDetail ? 106 : 78) : (isRunning ? 74 : 58);
 
@@ -1125,13 +1131,13 @@ namespace ONKOS.UI
                     BackColor = isFailed ? Color.FromArgb(24, _palette.StatusError) : _palette.SurfaceBg
                 };
 
-                string capturedId = job.Id;
-                card.MouseEnter += (s, e) => { _hoveredQueueJobId = capturedId; RebuildQueueCards(); };
+                string capturedKey = jobKey;
+                card.MouseEnter += (s, e) => { _hoveredQueueKey = capturedKey; RebuildQueueCards(); };
                 card.MouseLeave += (s, e) =>
                 {
                     if (!card.ClientRectangle.Contains(card.PointToClient(Cursor.Position)))
                     {
-                        _hoveredQueueJobId = string.Empty;
+                        _hoveredQueueKey = string.Empty;
                         RebuildQueueCards();
                     }
                 };
@@ -1316,10 +1322,10 @@ namespace ONKOS.UI
                     };
                     lnkTech.Click += (s, e) =>
                     {
-                        if (_expandedQueueErrors.ContainsKey(capturedId))
-                            _expandedQueueErrors.Remove(capturedId);
+                        if (_expandedQueueErrors.ContainsKey(capturedKey))
+                            _expandedQueueErrors.Remove(capturedKey);
                         else
-                            _expandedQueueErrors[capturedId] = job.ErrorMessage ?? string.Empty;
+                            _expandedQueueErrors[capturedKey] = job.ErrorMessage ?? string.Empty;
                         RebuildQueueCards();
                     };
                     card.Controls.Add(lnkTech);
