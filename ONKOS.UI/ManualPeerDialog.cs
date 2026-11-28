@@ -24,11 +24,11 @@ namespace ONKOS.UI
         {
             ThemePalette p = ThemeManager.GetCurrentPalette();
 
-            Text = "Agregar equipo manualmente";
+            Text = "Nuevo destinatario";
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
-            Size = new Size(460, 355);
-            MinimumSize = new Size(420, 330);
+            Size = new Size(430, 315);
+            MinimumSize = new Size(390, 295);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -42,24 +42,18 @@ namespace ONKOS.UI
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 9,
+                RowCount = 8,
                 Padding = new Padding(18)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
             var lblHeader = new Label
             {
-                Text = "Agregar destinatario por dirección IPv4",
+                Text = "Agregar equipo por IPv4",
                 Font = ThemeManager.SectionTitleFont,
-                ForeColor = p.Mode == AppThemeMode.Dark ? Color.FromArgb(184, 148, 255) : p.PrimaryAccent,
+                ForeColor = p.PrimaryAccent,
                 AutoSize = true,
                 Margin = new Padding(0, 0, 0, 10)
-            };
-
-            var lblIp = new Label
-            {
-                Text = "Dirección IPv4 del equipo destino (obligatorio):",
-                AutoSize = true
             };
 
             _txtIp = new TextBox
@@ -68,15 +62,7 @@ namespace ONKOS.UI
                 BackColor = p.InputBg,
                 ForeColor = p.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Dirección IPv4 destino",
-                AccessibleDescription = "Escribe la dirección IPv4 del equipo receptor, por ejemplo 192.168.1.45"
-            };
-
-            var lblName = new Label
-            {
-                Text = "Nombre visible del contacto o puesto (opcional):",
-                AutoSize = true,
-                Margin = new Padding(0, 8, 0, 0)
+                AccessibleName = "Dirección IPv4"
             };
 
             _txtName = new TextBox
@@ -86,15 +72,7 @@ namespace ONKOS.UI
                 BackColor = p.InputBg,
                 ForeColor = p.TextPrimary,
                 BorderStyle = BorderStyle.FixedSingle,
-                AccessibleName = "Nombre del contacto",
-                AccessibleDescription = "Nombre descriptivo para identificar este equipo"
-            };
-
-            var lblArea = new Label
-            {
-                Text = "Área o grupo (opcional):",
-                AutoSize = true,
-                Margin = new Padding(0, 8, 0, 0)
+                AccessibleName = "Nombre opcional"
             };
 
             _cmbArea = new ComboBox
@@ -105,7 +83,7 @@ namespace ONKOS.UI
                 AutoCompleteSource = AutoCompleteSource.ListItems,
                 BackColor = p.InputBg,
                 ForeColor = p.TextPrimary,
-                AccessibleName = "Área o grupo del equipo"
+                AccessibleName = "Área opcional"
             };
             List<string> areas = UserProfileStore.GetConfiguredAreas();
             foreach (string a in areas)
@@ -115,19 +93,17 @@ namespace ONKOS.UI
 
             _chkSaveToBook = new CheckBox
             {
-                Text = "Guardar en la libreta local de contactos",
+                Text = "Guardar en libreta",
                 Checked = true,
                 AutoSize = true,
-                Margin = new Padding(0, 8, 0, 4),
-                AccessibleName = "Guardar contacto en libreta local"
+                Margin = new Padding(0, 8, 0, 2)
             };
 
             _lblError = new Label
             {
                 Text = string.Empty,
                 ForeColor = Color.FromArgb(255, 110, 130),
-                AutoSize = true,
-                Margin = new Padding(0, 2, 0, 6)
+                AutoSize = true
             };
 
             var pnlButtons = new FlowLayoutPanel
@@ -137,21 +113,11 @@ namespace ONKOS.UI
                 AutoSize = true
             };
 
-            var btnAdd = new Button
-            {
-                Text = "Agregar",
-                Size = new Size(105, 32),
-                AccessibleName = "Agregar equipo"
-            };
+            var btnAdd = new Button { Text = "Agregar", Size = new Size(100, 32) };
             ThemeManager.StyleButton(btnAdd, p, isPrimary: true);
             btnAdd.Click += BtnAdd_Click;
 
-            var btnCancel = new Button
-            {
-                Text = "Cancelar",
-                Size = new Size(105, 32),
-                AccessibleName = "Cancelar"
-            };
+            var btnCancel = new Button { Text = "Cancelar", Size = new Size(95, 32) };
             ThemeManager.StyleButton(btnCancel, p);
             btnCancel.Click += (s, e) =>
             {
@@ -163,20 +129,21 @@ namespace ONKOS.UI
             pnlButtons.Controls.Add(btnCancel);
 
             layout.Controls.Add(lblHeader, 0, 0);
-            layout.Controls.Add(lblIp, 0, 1);
+            layout.Controls.Add(new Label { Text = "IPv4:", AutoSize = true }, 0, 1);
             layout.Controls.Add(_txtIp, 0, 2);
-            layout.Controls.Add(lblName, 0, 3);
+            layout.Controls.Add(new Label { Text = "Nombre (opcional):", AutoSize = true, Margin = new Padding(0, 6, 0, 0) }, 0, 3);
             layout.Controls.Add(_txtName, 0, 4);
-            layout.Controls.Add(lblArea, 0, 5);
+            layout.Controls.Add(new Label { Text = "Área (opcional):", AutoSize = true, Margin = new Padding(0, 6, 0, 0) }, 0, 5);
             layout.Controls.Add(_cmbArea, 0, 6);
-            layout.Controls.Add(_chkSaveToBook, 0, 7);
 
-            var bottomWrap = new Panel { Dock = DockStyle.Fill, Height = 62 };
+            var bottomWrap = new Panel { Dock = DockStyle.Fill, Height = 64 };
+            _chkSaveToBook.Dock = DockStyle.Top;
             _lblError.Dock = DockStyle.Top;
             pnlButtons.Dock = DockStyle.Bottom;
             bottomWrap.Controls.Add(pnlButtons);
             bottomWrap.Controls.Add(_lblError);
-            layout.Controls.Add(bottomWrap, 0, 8);
+            bottomWrap.Controls.Add(_chkSaveToBook);
+            layout.Controls.Add(bottomWrap, 0, 7);
 
             AcceptButton = btnAdd;
             CancelButton = btnCancel;
@@ -189,7 +156,7 @@ namespace ONKOS.UI
             IPAddress parsed;
             if (!IPAddress.TryParse(ipText, out parsed) || parsed.AddressFamily != AddressFamily.InterNetwork)
             {
-                _lblError.Text = "Escribe una dirección IPv4 válida (ejemplo: 192.168.1.45).";
+                _lblError.Text = "Ingresa una IPv4 válida (ej. 192.168.1.45).";
                 _txtIp.Focus();
                 return;
             }
