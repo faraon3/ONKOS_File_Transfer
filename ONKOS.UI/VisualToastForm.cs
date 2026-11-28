@@ -8,35 +8,40 @@ namespace ONKOS.UI
     public sealed class VisualToastForm : Form
     {
         private readonly Timer _closeTimer;
+        private readonly Timer _fadeTimer;
 
         public VisualToastForm(NotificationRecord record, int durationSeconds)
         {
+            ThemePalette p = ThemeManager.GetCurrentPalette();
+
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             TopMost = true;
             StartPosition = FormStartPosition.Manual;
-            Size = new Size(370, 108);
-            BackColor = Color.FromArgb(24, 27, 44);
-            ForeColor = Color.FromArgb(246, 247, 252);
-            Font = new Font("Segoe UI", 9.5F);
+            Size = new Size(356, 94);
+            BackColor = p.CardBg;
+            ForeColor = p.TextPrimary;
+            Font = ThemeManager.BaseFont;
+            Opacity = 0.0;
 
             var lblCat = new Label
             {
                 Text = GetCategoryLabel(record.Category),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(184, 148, 255),
+                Font = ThemeManager.BoldFont,
+                ForeColor = p.PrimaryAccent,
                 Location = new Point(14, 10),
-                Size = new Size(310, 18)
+                Size = new Size(295, 18)
             };
 
             var btnClose = new Button
             {
                 Text = "×",
-                Location = new Point(336, 6),
+                Location = new Point(320, 6),
                 Size = new Size(26, 22),
                 FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.FromArgb(200, 206, 232),
-                BackColor = Color.FromArgb(24, 27, 44)
+                ForeColor = p.TextSecondary,
+                BackColor = p.CardBg,
+                Cursor = Cursors.Hand
             };
             btnClose.FlatAppearance.BorderSize = 0;
             btnClose.Click += (s, e) => Close();
@@ -44,30 +49,34 @@ namespace ONKOS.UI
             var lblTitle = new Label
             {
                 Text = record.Title ?? string.Empty,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                ForeColor = Color.White,
+                Font = ThemeManager.BoldFont,
+                ForeColor = p.TextPrimary,
                 Location = new Point(14, 30),
-                Size = new Size(342, 22)
+                Size = new Size(328, 20)
             };
 
             var lblPeer = new Label
             {
                 Text = record.SenderOrTarget ?? string.Empty,
-                ForeColor = Color.FromArgb(170, 225, 195),
-                Location = new Point(14, 54),
-                Size = new Size(342, 20)
+                ForeColor = p.TextSecondary,
+                Location = new Point(14, 52),
+                Size = new Size(328, 18)
             };
 
             var lblDetail = new Label
             {
                 Text = record.Detail ?? string.Empty,
-                ForeColor = Color.FromArgb(175, 182, 210),
-                Location = new Point(14, 76),
-                Size = new Size(342, 22)
+                ForeColor = p.TextSecondary,
+                Location = new Point(14, 71),
+                Size = new Size(328, 18)
             };
 
             Controls.AddRange(new Control[] { lblCat, btnClose, lblTitle, lblPeer, lblDetail });
+            ThemeManager.ApplyRoundedRegion(this, 12);
             PositionOnActiveMonitor();
+
+            _fadeTimer = new Timer { Interval = 25 };
+            _fadeTimer.Tick += OnFadeTick;
 
             int intervalMs = Math.Max(2, Math.Min(30, durationSeconds)) * 1000;
             _closeTimer = new Timer { Interval = intervalMs };
@@ -76,15 +85,34 @@ namespace ONKOS.UI
                 _closeTimer.Stop();
                 Close();
             };
-            Shown += (s, e) => _closeTimer.Start();
+
+            Shown += (s, e) =>
+            {
+                _fadeTimer.Start();
+                _closeTimer.Start();
+            };
+
             FormClosed += (s, e) =>
             {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
                 _closeTimer.Stop();
                 _closeTimer.Dispose();
             };
         }
 
         protected override bool ShowWithoutActivation => true;
+
+        private void OnFadeTick(object sender, EventArgs e)
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            if (Opacity < 0.96)
+                Opacity = Math.Min(0.96, Opacity + 0.16);
+            else
+                _fadeTimer.Stop();
+        }
 
         private void PositionOnActiveMonitor()
         {
@@ -106,7 +134,7 @@ namespace ONKOS.UI
                 case NotificationCategory.Error:
                     return "ERROR";
                 case NotificationCategory.AuthorizationRequest:
-                    return "AUTORIZACIÓN PENDIENTE";
+                    return "AUTORIZACIÓN";
                 case NotificationCategory.SecurityChange:
                     return "SEGURIDAD";
                 case NotificationCategory.ServiceStatus:
