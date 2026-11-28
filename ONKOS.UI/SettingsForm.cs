@@ -128,7 +128,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.Settings", "No se pudo guardar carpeta de recibidos.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.Settings",
+                    $"No se pudo guardar carpeta de recibidos ({ex.GetType().Name}: {ex.Message}).");
                 _lblInfo.ForeColor = Color.FromArgb(255, 110, 130);
                 _lblInfo.Text = ex.Message;
             }
@@ -143,7 +145,9 @@ namespace ONKOS.UI
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Warn("UI.Settings", "No se pudo abrir carpeta de logs.", ex);
+                FileLogger.Instance.Warn(
+                    "UI.Settings",
+                    $"No se pudo abrir carpeta de logs ({ex.GetType().Name}: {ex.Message}).");
             }
         }
     }
