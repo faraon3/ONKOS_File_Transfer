@@ -218,6 +218,26 @@ namespace ONKOS.Service
                         out itemCount,
                         _limits);
 
+                    string blockReason;
+                    if (ReceiverPolicyStore.IsBlocked(senderFingerprint, remoteIp, out blockReason))
+                    {
+                        writer.Write("ERR_BLOCKED");
+                        writer.Write(blockReason);
+                        writer.Flush();
+                        FileLogger.Instance.Warn("Service.Policy", $"Remitente bloqueado ({remoteIp} / {senderFingerprint}): {blockReason}");
+                        return;
+                    }
+
+                    ReceiverPolicy policy = ReceiverPolicyStore.Load();
+                    if (!policy.AutoAcceptAuthorized)
+                    {
+                        writer.Write("ERR_MANUAL_CONFIRM_REQUIRED");
+                        writer.Write("La aceptación automática está desactivada en este receptor.");
+                        writer.Flush();
+                        FileLogger.Instance.Info("Service.Policy", $"Recepción rechazada por política de confirmación manual desde {remoteIp}.");
+                        return;
+                    }
+
                     PeerTrustState trustState = PeerAuthorizationStore.GetTrustState(senderFingerprint);
                     if (trustState != PeerTrustState.Authorized)
                     {
