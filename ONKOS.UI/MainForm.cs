@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -15,29 +13,37 @@ using System.Windows.Forms;
 using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
-using ONKOS.Core.Protocol;
 using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
+using ONKOS.Core.Transfers;
 
 namespace ONKOS.UI
 {
     public sealed class MainForm : Form
     {
-        private const int TransferPort = 5050;
-        private readonly TransferLimits _limits = new TransferLimits();
         private readonly LanDiscoveryService _discovery = new LanDiscoveryService();
+        private readonly TransferQueueManager _queue = new TransferQueueManager();
+        private readonly CancellationTokenSource _uiCts = new CancellationTokenSource();
+
         private PeerInfo _localProfile;
-        private bool _isSending;
+        private long _cachedSelectionBytes;
 
         private readonly Label _lblIdentity;
         private readonly Label _lblInboxPath;
         private readonly Label _lblStatus;
+        private readonly Label _lblSelectionSize;
         private readonly TextBox _txtRecipientIp;
-        private readonly ListBox _lstPeers;
+        private readonly ComboBox _cmbGroupOrArea;
+        private readonly Button _btnSelectGroup;
+        private readonly CheckedListBox _clbPeers;
         private readonly ListBox _lstFiles;
+        private readonly ListBox _lstQueue;
         private readonly Button _btnAddFiles;
         private readonly Button _btnRemoveFile;
         private readonly Button _btnSend;
+        private readonly Button _btnPauseResume;
+        private readonly Button _btnCancelQueue;
+        private readonly Button _btnRetryFailed;
         private readonly Button _btnInbox;
         private readonly Button _btnHistory;
         private readonly Button _btnSettings;
@@ -46,10 +52,11 @@ namespace ONKOS.UI
         public MainForm(PeerInfo profile)
         {
             _localProfile = profile;
+            _queue.SetLocalProfile(_localProfile);
 
             Text = "ONKOS File Transfer 2.0";
-            Size = new Size(800, 540);
-            MinimumSize = new Size(720, 470);
+            Size = new Size(860, 650);
+            MinimumSize = new Size(760, 560);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
@@ -98,7 +105,7 @@ namespace ONKOS.UI
             _btnProfile = new Button
             {
                 Text = "Mi Perfil",
-                Location = new Point(440, 16),
+                Location = new Point(500, 16),
                 Size = new Size(80, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -109,7 +116,7 @@ namespace ONKOS.UI
             _btnHistory = new Button
             {
                 Text = "Historial",
-                Location = new Point(526, 16),
+                Location = new Point(586, 16),
                 Size = new Size(84, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -125,7 +132,7 @@ namespace ONKOS.UI
             _btnSettings = new Button
             {
                 Text = "Configuración",
-                Location = new Point(616, 16),
+                Location = new Point(676, 16),
                 Size = new Size(92, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -136,8 +143,8 @@ namespace ONKOS.UI
             _btnInbox = new Button
             {
                 Text = "Recibidos",
-                Location = new Point(714, 16),
-                Size = new Size(70, 30),
+                Location = new Point(774, 16),
+                Size = new Size(68, 30),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -148,42 +155,70 @@ namespace ONKOS.UI
 
             var lblTarget = new Label
             {
-                Text = "IP destino en LAN:",
-                Location = new Point(18, 80),
-                Size = new Size(130, 22)
+                Text = "IP / Destino manual:",
+                Location = new Point(18, 76),
+                Size = new Size(135, 22)
             };
 
             _txtRecipientIp = new TextBox
             {
-                Location = new Point(150, 78),
-                Size = new Size(200, 26),
+                Location = new Point(156, 74),
+                Size = new Size(180, 26),
                 BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
 
+            _cmbGroupOrArea = new ComboBox
+            {
+                Location = new Point(348, 74),
+                Size = new Size(190, 26),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(28, 31, 48),
+                ForeColor = Color.White
+            };
+
+            _btnSelectGroup = new Button
+            {
+                Text = "Marcar área/grupo",
+                Location = new Point(546, 73),
+                Size = new Size(135, 28),
+                BackColor = Color.FromArgb(38, 41, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _btnSelectGroup.Click += BtnSelectGroup_Click;
+
             var lblPeers = new Label
             {
-                Text = "Equipos detectados en LAN (por huella):",
-                Location = new Point(18, 112),
-                Size = new Size(340, 20),
+                Text = "Destinatarios en LAN (marca uno o varios):",
+                Location = new Point(18, 108),
+                Size = new Size(420, 20),
                 ForeColor = Color.FromArgb(184, 148, 255)
             };
 
-            _lstPeers = new ListBox
+            _clbPeers = new CheckedListBox
             {
-                Location = new Point(18, 134),
-                Size = new Size(760, 115),
+                Location = new Point(18, 130),
+                Size = new Size(818, 105),
+                CheckOnClick = true,
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
                 BorderStyle = BorderStyle.FixedSingle
             };
-            _lstPeers.SelectedIndexChanged += LstPeers_SelectedIndexChanged;
+
+            _lblSelectionSize = new Label
+            {
+                Text = "Selección: 0 elemento(s) (0 B)",
+                Location = new Point(18, 244),
+                Size = new Size(340, 20),
+                ForeColor = Color.FromArgb(165, 172, 202)
+            };
 
             _btnAddFiles = new Button
             {
                 Text = "+ Adjuntar",
-                Location = new Point(574, 256),
+                Location = new Point(630, 241),
                 Size = new Size(100, 28),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -194,8 +229,8 @@ namespace ONKOS.UI
             _btnRemoveFile = new Button
             {
                 Text = "Quitar",
-                Location = new Point(682, 256),
-                Size = new Size(96, 28),
+                Location = new Point(738, 241),
+                Size = new Size(98, 28),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -204,11 +239,61 @@ namespace ONKOS.UI
 
             _lstFiles = new ListBox
             {
-                Location = new Point(18, 292),
-                Size = new Size(760, 125),
+                Location = new Point(18, 274),
+                Size = new Size(818, 92),
                 SelectionMode = SelectionMode.MultiExtended,
                 BackColor = Color.FromArgb(18, 20, 32),
                 ForeColor = Color.FromArgb(242, 244, 252),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            var lblQueue = new Label
+            {
+                Text = "Cola de transferencias (progreso, velocidad, ETA y estado):",
+                Location = new Point(18, 372),
+                Size = new Size(460, 20),
+                ForeColor = Color.FromArgb(184, 148, 255)
+            };
+
+            _btnPauseResume = new Button
+            {
+                Text = "Pausar",
+                Location = new Point(526, 369),
+                Size = new Size(92, 26),
+                BackColor = Color.FromArgb(38, 41, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _btnPauseResume.Click += BtnPauseResume_Click;
+
+            _btnCancelQueue = new Button
+            {
+                Text = "Cancelar",
+                Location = new Point(626, 369),
+                Size = new Size(96, 26),
+                BackColor = Color.FromArgb(120, 42, 60),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _btnCancelQueue.Click += (s, e) => _queue.CancelAllActive();
+
+            _btnRetryFailed = new Button
+            {
+                Text = "Reintentar fallidos",
+                Location = new Point(730, 369),
+                Size = new Size(106, 26),
+                BackColor = Color.FromArgb(38, 41, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            _btnRetryFailed.Click += (s, e) => _queue.RetryFailedJobs();
+
+            _lstQueue = new ListBox
+            {
+                Location = new Point(18, 399),
+                Size = new Size(818, 120),
+                BackColor = Color.FromArgb(18, 20, 32),
+                ForeColor = Color.FromArgb(225, 232, 250),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
@@ -222,9 +307,9 @@ namespace ONKOS.UI
 
             _lblStatus = new Label
             {
-                Text = "Listo. Descubrimiento LAN activo y canal TLS 1.2+ mutuo.",
+                Text = "Listo. Cola activa en segundo plano y canal cifrado TLS 1.2+.",
                 Location = new Point(16, 10),
-                Size = new Size(580, 22),
+                Size = new Size(640, 22),
                 ForeColor = Color.FromArgb(215, 220, 240)
             };
 
@@ -232,15 +317,15 @@ namespace ONKOS.UI
             {
                 Text = "Carpeta recibidos: " + AppSettingsStore.GetInboxFolder(),
                 Location = new Point(16, 36),
-                Size = new Size(580, 22),
+                Size = new Size(640, 22),
                 ForeColor = Color.FromArgb(155, 162, 192)
             };
 
             _btnSend = new Button
             {
                 Text = "Enviar",
-                Location = new Point(624, 16),
-                Size = new Size(150, 40),
+                Location = new Point(682, 16),
+                Size = new Size(154, 40),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -252,28 +337,59 @@ namespace ONKOS.UI
             _discovery.PeersUpdated += OnDiscoveryPeersUpdated;
             _discovery.NewPeerDiscovered += OnNewPeerDiscovered;
             PeerAuthorizationStore.PendingRequestReceived += OnPendingAuthorizationReceived;
+            _queue.QueueChanged += OnQueueChanged;
+            _queue.BatchCompleted += OnQueueBatchCompleted;
 
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
             Load += OnMainFormLoad;
             FormClosed += OnMainFormClosed;
 
-            Controls.AddRange(new Control[] { pnlTop, lblTarget, _txtRecipientIp, lblPeers, _lstPeers, _btnAddFiles, _btnRemoveFile, _lstFiles, pnlBottom });
+            Controls.AddRange(new Control[]
+            {
+                pnlTop,
+                lblTarget,
+                _txtRecipientIp,
+                _cmbGroupOrArea,
+                _btnSelectGroup,
+                lblPeers,
+                _clbPeers,
+                _lblSelectionSize,
+                _btnAddFiles,
+                _btnRemoveFile,
+                _lstFiles,
+                lblQueue,
+                _btnPauseResume,
+                _btnCancelQueue,
+                _btnRetryFailed,
+                _lstQueue,
+                pnlBottom
+            });
         }
 
         private void OnMainFormLoad(object sender, EventArgs e)
         {
             RefreshInboxBadgeText();
+            _queue.EnsureStarted();
             _discovery.Start(_localProfile);
+            RefreshGroupsCombo();
             RefreshPeersList();
+            RefreshQueueList();
         }
 
         private void OnMainFormClosed(object sender, FormClosedEventArgs e)
         {
+            try { _uiCts.Cancel(); }
+            catch (ObjectDisposedException) { }
+
             _discovery.PeersUpdated -= OnDiscoveryPeersUpdated;
             _discovery.NewPeerDiscovered -= OnNewPeerDiscovered;
             PeerAuthorizationStore.PendingRequestReceived -= OnPendingAuthorizationReceived;
+            _queue.QueueChanged -= OnQueueChanged;
+            _queue.BatchCompleted -= OnQueueBatchCompleted;
+
             _discovery.Dispose();
+            _uiCts.Dispose();
         }
 
         private void OnDiscoveryPeersUpdated()
@@ -283,11 +399,12 @@ namespace ONKOS.UI
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(RefreshPeersList)); }
+                try { BeginInvoke(new Action(() => { RefreshGroupsCombo(); RefreshPeersList(); })); }
                 catch (ObjectDisposedException) { }
                 return;
             }
 
+            RefreshGroupsCombo();
             RefreshPeersList();
         }
 
@@ -321,6 +438,50 @@ namespace ONKOS.UI
             ShowSilentBanner($"Solicitud de autorización pendiente: {record.DisplayName} ({record.LastIp})");
         }
 
+        private void OnQueueChanged()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(RefreshQueueList)); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            RefreshQueueList();
+        }
+
+        private void OnQueueBatchCompleted(List<TransferJob> snapshot)
+        {
+            if (IsDisposed || Disposing || snapshot == null || snapshot.Count == 0)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(() => ShowBatchSummary(snapshot))); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            ShowBatchSummary(snapshot);
+        }
+
+        private void ShowBatchSummary(List<TransferJob> snapshot)
+        {
+            int ok = snapshot.Count(j => j.State == QueueJobState.Completed);
+            int fail = snapshot.Count(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
+
+            _lblStatus.Text = $"Resumen envío: {ok} completado(s), {fail} con fallo/cancelación.";
+            if (fail > 0)
+            {
+                TransferJob firstFail = snapshot.FirstOrDefault(j => j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled);
+                if (firstFail != null && !string.IsNullOrWhiteSpace(firstFail.SuggestedAction))
+                    _lblStatus.Text += $" Sugerencia: {firstFail.SuggestedAction}";
+            }
+        }
+
         private void ShowSilentBanner(string message)
         {
             if (IsDisposed || Disposing)
@@ -328,46 +489,134 @@ namespace ONKOS.UI
             _lblStatus.Text = message;
         }
 
+        private void RefreshGroupsCombo()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            string current = _cmbGroupOrArea.SelectedItem != null ? _cmbGroupOrArea.SelectedItem.ToString() : null;
+            List<string> groups = AddressBookStore.GetGroupsAndAreas(_discovery.GetPeers());
+
+            _cmbGroupOrArea.BeginUpdate();
+            _cmbGroupOrArea.Items.Clear();
+            foreach (string g in groups)
+                _cmbGroupOrArea.Items.Add(g);
+
+            if (!string.IsNullOrEmpty(current))
+            {
+                int idx = _cmbGroupOrArea.Items.IndexOf(current);
+                if (idx >= 0)
+                    _cmbGroupOrArea.SelectedIndex = idx;
+            }
+            else if (_cmbGroupOrArea.Items.Count > 0)
+            {
+                _cmbGroupOrArea.SelectedIndex = 0;
+            }
+            _cmbGroupOrArea.EndUpdate();
+        }
+
         private void RefreshPeersList()
         {
             if (IsDisposed || Disposing)
                 return;
 
-            string selectedKey = null;
-            if (_lstPeers.SelectedItem is PeerListItem currentSelected)
-                selectedKey = PeerContactsStore.BuildContactKey(currentSelected.Peer);
+            var checkedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var checkedObj in _clbPeers.CheckedItems)
+            {
+                if (checkedObj is PeerListItem pli && pli.Peer != null)
+                    checkedKeys.Add(PeerContactsStore.BuildContactKey(pli.Peer));
+            }
 
             List<PeerInfo> peers = _discovery.GetPeers();
+            _clbPeers.BeginUpdate();
+            _clbPeers.Items.Clear();
 
-            _lstPeers.BeginUpdate();
-            _lstPeers.Items.Clear();
-
-            int toSelectIndex = -1;
-            for (int i = 0; i < peers.Count; i++)
+            foreach (PeerInfo p in peers)
             {
-                PeerInfo p = peers[i];
                 var item = new PeerListItem(p);
-                _lstPeers.Items.Add(item);
+                string key = PeerContactsStore.BuildContactKey(p);
+                bool isChecked = checkedKeys.Contains(key);
+                _clbPeers.Items.Add(item, isChecked);
+            }
 
-                if (!string.IsNullOrEmpty(selectedKey) &&
-                    string.Equals(PeerContactsStore.BuildContactKey(p), selectedKey, StringComparison.OrdinalIgnoreCase))
+            _clbPeers.EndUpdate();
+        }
+
+        private void RefreshQueueList()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            List<TransferJob> jobs = _queue.GetSnapshot();
+            _btnPauseResume.Text = _queue.IsPaused ? "Reanudar" : "Pausar";
+
+            _lstQueue.BeginUpdate();
+            _lstQueue.Items.Clear();
+
+            foreach (TransferJob j in jobs)
+            {
+                double pct = j.TotalBytes > 0
+                    ? Math.Min(100.0, (j.SentBytes * 100.0) / j.TotalBytes)
+                    : (j.State == QueueJobState.Completed ? 100.0 : 0.0);
+
+                string speed = j.BytesPerSecond > 0
+                    ? FormatBytes((long)j.BytesPerSecond) + "/s"
+                    : "0 B/s";
+
+                string eta = j.EstimatedRemaining.HasValue && j.State == QueueJobState.Running
+                    ? $"ETA {j.EstimatedRemaining.Value:mm\\:ss}"
+                    : string.Empty;
+
+                string errDetail = (j.State == QueueJobState.Failed || j.State == QueueJobState.Cancelled) && !string.IsNullOrWhiteSpace(j.ErrorMessage)
+                    ? $" — {j.ErrorMessage}"
+                    : string.Empty;
+
+                _lstQueue.Items.Add(
+                    $"[{j.State}] {j.ItemName} -> {j.TargetLabel} | {pct:0.0}% ({FormatBytes(j.SentBytes)}/{FormatBytes(j.TotalBytes)}) | {speed} {eta}{errDetail}");
+            }
+
+            _lstQueue.EndUpdate();
+        }
+
+        private void BtnSelectGroup_Click(object sender, EventArgs e)
+        {
+            string groupName = _cmbGroupOrArea.SelectedItem != null ? _cmbGroupOrArea.SelectedItem.ToString() : string.Empty;
+            if (string.IsNullOrWhiteSpace(groupName))
+                return;
+
+            List<AddressBookEntry> book = AddressBookStore.LoadAll();
+            var groupIps = new HashSet<string>(
+                book.Where(b => string.Equals(b.GroupName, groupName, StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(b.Area, groupName, StringComparison.OrdinalIgnoreCase))
+                    .Select(b => b.IPv4 ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
+
+            int marked = 0;
+            for (int i = 0; i < _clbPeers.Items.Count; i++)
+            {
+                if (_clbPeers.Items[i] is PeerListItem item && item.Peer != null)
                 {
-                    toSelectIndex = i;
+                    bool matchArea = string.Equals(item.Peer.Area, groupName, StringComparison.OrdinalIgnoreCase);
+                    bool matchBook = !string.IsNullOrWhiteSpace(item.Peer.IPv4) && groupIps.Contains(item.Peer.IPv4.Trim());
+                    if (matchArea || matchBook)
+                    {
+                        _clbPeers.SetItemChecked(i, true);
+                        marked++;
+                    }
                 }
             }
 
-            if (toSelectIndex >= 0)
-                _lstPeers.SelectedIndex = toSelectIndex;
-
-            _lstPeers.EndUpdate();
+            _lblStatus.Text = marked > 0
+                ? $"Marcados {marked} destinatario(s) de '{groupName}'."
+                : $"No hay destinatarios activos en '{groupName}'.";
         }
 
-        private void LstPeers_SelectedIndexChanged(object sender, EventArgs e)
+        private void BtnPauseResume_Click(object sender, EventArgs e)
         {
-            if (_lstPeers.SelectedItem is PeerListItem item && item.Peer != null && !string.IsNullOrWhiteSpace(item.Peer.IPv4))
-            {
-                _txtRecipientIp.Text = item.Peer.IPv4;
-            }
+            if (_queue.IsPaused)
+                _queue.ResumeAll();
+            else
+                _queue.PauseAll();
         }
 
         public void BringToFrontFromSecondInstance()
@@ -442,6 +691,7 @@ namespace ONKOS.UI
                 if (dlg.ShowDialog(this) == DialogResult.OK && dlg.RegisteredProfile != null)
                 {
                     _localProfile = dlg.RegisteredProfile;
+                    _queue.SetLocalProfile(_localProfile);
                     _discovery.UpdateLocalProfile(_localProfile);
                     _lblIdentity.Text = BuildIdentityText();
                     _lblStatus.Text = "Perfil actualizado y anunciado en red.";
@@ -462,7 +712,7 @@ namespace ONKOS.UI
             {
                 var dropped = e.Data.GetData(DataFormats.FileDrop) as string[];
                 if (dropped != null)
-                    AddPaths(dropped);
+                    _ = AddPathsAsync(dropped);
             }
         }
 
@@ -471,22 +721,34 @@ namespace ONKOS.UI
             using (var ofd = new OpenFileDialog { Multiselect = true, Title = "Seleccionar archivos" })
             {
                 if (ofd.ShowDialog(this) == DialogResult.OK)
-                    AddPaths(ofd.FileNames);
+                    _ = AddPathsAsync(ofd.FileNames);
             }
         }
 
-        private void AddPaths(IEnumerable<string> paths)
+        private async Task AddPathsAsync(IEnumerable<string> paths)
         {
-            foreach (string p in paths)
+            try
             {
-                if (string.IsNullOrWhiteSpace(p))
-                    continue;
-                if (!File.Exists(p) && !Directory.Exists(p))
-                    continue;
+                foreach (string p in paths)
+                {
+                    if (string.IsNullOrWhiteSpace(p))
+                        continue;
+                    if (!File.Exists(p) && !Directory.Exists(p))
+                        continue;
 
-                bool exists = _lstFiles.Items.Cast<string>().Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase));
-                if (!exists)
-                    _lstFiles.Items.Add(p);
+                    bool exists = _lstFiles.Items.Cast<string>().Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase));
+                    if (!exists)
+                        _lstFiles.Items.Add(p);
+                }
+
+                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Instance.Warn("UI.MainForm", $"Error calculando tamaños de selección ({ex.Message}).");
             }
         }
 
@@ -494,180 +756,112 @@ namespace ONKOS.UI
         {
             var selected = _lstFiles.SelectedItems.Cast<string>().ToList();
             foreach (string item in selected)
+            {
+                PathSizeCache.Invalidate(item);
                 _lstFiles.Items.Remove(item);
+            }
+            _ = RecalculateSelectionSizeAsync();
+        }
+
+        private async Task RecalculateSelectionSizeAsync()
+        {
+            List<string> items = _lstFiles.Items.Cast<string>().ToList();
+            long total = 0L;
+            foreach (string p in items)
+            {
+                PathSizeSummary summary = await PathSizeCache.GetOrComputeAsync(p, _uiCts.Token).ConfigureAwait(true);
+                total += summary.TotalBytes;
+            }
+
+            _cachedSelectionBytes = total;
+            if (!IsDisposed && !Disposing)
+                _lblSelectionSize.Text = $"Selección: {items.Count} elemento(s) ({FormatBytes(_cachedSelectionBytes)})";
         }
 
         private async void BtnSend_Click(object sender, EventArgs e)
         {
-            if (_isSending)
-                return;
-
-            string ipText = (_txtRecipientIp.Text ?? string.Empty).Trim();
-            IPAddress targetIp;
-            if (!IPAddress.TryParse(ipText, out targetIp) || targetIp.AddressFamily != AddressFamily.InterNetwork)
-            {
-                _lblStatus.Text = "Escribe o selecciona un equipo con IPv4 válida de destino.";
-                return;
-            }
-
-            List<string> sourceItems = _lstFiles.Items.Cast<string>().ToList();
-            if (sourceItems.Count == 0)
-            {
-                _lblStatus.Text = "Agrega al menos un archivo o carpeta para enviar.";
-                return;
-            }
-
-            _isSending = true;
-            _btnSend.Enabled = false;
-            var tempFiles = new List<string>();
-
             try
             {
-                var payloadList = new List<Tuple<ManifestItem, string>>();
-                long batchBytes = 0L;
-
-                foreach (string sourcePath in sourceItems)
+                List<PeerInfo> targets = CollectTargets();
+                if (targets.Count == 0)
                 {
-                    string displayName = Path.GetFileName(sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                    if (string.IsNullOrWhiteSpace(displayName))
-                        displayName = sourcePath;
-
-                    string fileToSend = sourcePath;
-                    string relName = displayName;
-
-                    if (Directory.Exists(sourcePath))
-                    {
-                        string zipPath = Path.Combine(Path.GetTempPath(), $"{displayName}_{Guid.NewGuid():N}.onkosfolder");
-                        ZipFile.CreateFromDirectory(sourcePath, zipPath, CompressionLevel.Fastest, false);
-                        tempFiles.Add(zipPath);
-                        fileToSend = zipPath;
-                        relName = Path.GetFileName(zipPath);
-                    }
-                    else if (!File.Exists(sourcePath))
-                    {
-                        _lblStatus.Text = $"No existe el elemento: {sourcePath}";
-                        continue;
-                    }
-
-                    long sizeBytes = new FileInfo(fileToSend).Length;
-                    batchBytes += sizeBytes;
-                    string sha = SecureTransferProtocol.ComputeFileSha256Hex(fileToSend);
-                    string safeRel = SecureTransferProtocol.NormalizeAndValidateRelativePath(relName, _limits);
-
-                    var item = new ManifestItem
-                    {
-                        RelativePath = safeRel,
-                        SizeBytes = sizeBytes,
-                        Sha256Hex = sha,
-                        IsDirectory = false
-                    };
-                    payloadList.Add(Tuple.Create(item, fileToSend));
-                }
-
-                if (payloadList.Count == 0)
-                {
-                    _lblStatus.Text = "No hay elementos válidos para enviar.";
+                    _lblStatus.Text = "Marca al menos un destinatario o escribe una IPv4 válida.";
                     return;
                 }
 
-                _lblStatus.Text = $"Conectando con TLS 1.2+ a {targetIp}...";
-                await SendBatchTlsAsync(targetIp.ToString(), TransferPort, payloadList, CancellationToken.None).ConfigureAwait(true);
-
-                foreach (var pair in payloadList)
+                List<string> items = _lstFiles.Items.Cast<string>().ToList();
+                if (items.Count == 0)
                 {
-                    TransferHistoryStore.AppendEntry(
-                        "ENVIADO",
-                        pair.Item1.RelativePath,
-                        pair.Item1.SizeBytes,
-                        targetIp.ToString(),
-                        "Completado",
-                        targetIp.ToString(),
-                        pair.Item1.Sha256Hex,
-                        "Enviado por canal cifrado TLS 1.2+");
+                    _lblStatus.Text = "Adjunta al menos un archivo o carpeta para enviar.";
+                    return;
                 }
 
+                foreach (PeerInfo t in targets)
+                    AddressBookStore.UpsertContact(t);
+
+                List<TransferJob> jobs = _queue.EnqueueBatch(items, targets);
                 _lstFiles.Items.Clear();
-                _lblStatus.Text = $"Envío completado ({payloadList.Count} elemento(s), {batchBytes} bytes).";
+                _cachedSelectionBytes = 0L;
+                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+
+                _lblStatus.Text = $"Se agregaron {jobs.Count} transferencia(s) a la cola.";
             }
             catch (Exception ex)
             {
-                FileLogger.Instance.Error("UI.Send", "Error durante el envío seguro.", ex);
-                _lblStatus.Text = "Error en el envío: " + ex.Message;
-            }
-            finally
-            {
-                foreach (string temp in tempFiles)
-                {
-                    try
-                    {
-                        if (File.Exists(temp))
-                            File.Delete(temp);
-                    }
-                    catch (IOException ex)
-                    {
-                        FileLogger.Instance.Warn("UI.Send", $"No se pudo borrar paquete temporal ({ex.Message}).");
-                    }
-                }
-
-                _isSending = false;
-                _btnSend.Enabled = true;
+                FileLogger.Instance.Error("UI.Send", "Error al encolar transferencia.", ex);
+                _lblStatus.Text = "No se pudo encolar el envío: " + ex.Message;
             }
         }
 
-        private async Task SendBatchTlsAsync(
-            string host,
-            int port,
-            List<Tuple<ManifestItem, string>> payloadList,
-            CancellationToken token)
+        private List<PeerInfo> CollectTargets()
         {
-            using (var client = new TcpClient())
+            var result = new List<PeerInfo>();
+            var seenIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (object checkedObj in _clbPeers.CheckedItems)
             {
-                await client.ConnectAsync(host, port).ConfigureAwait(false);
-                client.NoDelay = true;
-
-                using (NetworkStream rawStream = client.GetStream())
-                using (SslStream sslStream = await SecureTransferProtocol.AuthenticateClientAsync(rawStream, host, token).ConfigureAwait(false))
-                using (var writer = new BinaryWriter(sslStream, Encoding.UTF8, true))
-                using (var reader = new BinaryReader(sslStream, Encoding.UTF8, true))
+                if (checkedObj is PeerListItem pli && pli.Peer != null && !string.IsNullOrWhiteSpace(pli.Peer.IPv4))
                 {
-                    string senderName = _localProfile != null ? _localProfile.FullName : Environment.UserName;
-                    string senderArea = _localProfile != null ? _localProfile.Area : string.Empty;
-
-                    SecureTransferProtocol.WriteHeader(writer, senderName, senderArea, Environment.MachineName, payloadList.Count);
-
-                    foreach (var pair in payloadList)
-                    {
-                        ManifestItem meta = pair.Item1;
-                        string localPath = pair.Item2;
-
-                        SecureTransferProtocol.WriteManifestItem(writer, meta);
-
-                        using (var input = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
-                        {
-                            byte[] buffer = new byte[81920];
-                            long sent = 0L;
-                            while (sent < meta.SizeBytes)
-                            {
-                                token.ThrowIfCancellationRequested();
-                                int read = await input.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
-                                if (read <= 0)
-                                    break;
-
-                                await sslStream.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
-                                sent += read;
-                            }
-                        }
-
-                        await sslStream.FlushAsync(token).ConfigureAwait(false);
-                        string ack = reader.ReadString();
-                        if (!string.Equals(ack, "OK_ITEM", StringComparison.Ordinal))
-                        {
-                            string detail = reader.PeekChar() >= 0 ? reader.ReadString() : ack;
-                            throw new IOException($"El receptor rechazó '{meta.RelativePath}': {detail}");
-                        }
-                    }
+                    string ip = pli.Peer.IPv4.Trim();
+                    if (seenIps.Add(ip))
+                        result.Add(pli.Peer);
                 }
             }
+
+            string manual = (_txtRecipientIp.Text ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(manual))
+            {
+                if (PeerContactsStore.TryParseManualContact(manual, out string name, out string area, out string ipv4, out string err))
+                {
+                    if (seenIps.Add(ipv4))
+                    {
+                        result.Add(new PeerInfo
+                        {
+                            FullName = name,
+                            Area = area,
+                            IPv4 = ipv4,
+                            MachineName = ipv4,
+                            LastSeenUtc = DateTime.UtcNow
+                        });
+                    }
+                }
+                else if (result.Count == 0)
+                {
+                    _lblStatus.Text = err;
+                }
+            }
+
+            return result;
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 1024L) return bytes + " B";
+            double kb = bytes / 1024.0;
+            if (kb < 1024.0) return kb.ToString("0.#") + " KB";
+            double mb = kb / 1024.0;
+            if (mb < 1024.0) return mb.ToString("0.#") + " MB";
+            return (mb / 1024.0).ToString("0.##") + " GB";
         }
 
         private sealed class PeerListItem
