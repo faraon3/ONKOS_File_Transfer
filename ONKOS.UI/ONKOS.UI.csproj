@@ -58,9 +58,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MainForm.cs" />
+    <Compile Include="NotificationCenterForm.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SettingsForm.cs" />
     <Compile Include="TransferHistoryForm.cs" />
+    <Compile Include="VisualToastForm.cs" />
     <Compile Include="WelcomeRegistrationForm.cs" />
   </ItemGroup>
   <ItemGroup>
