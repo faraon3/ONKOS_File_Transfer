@@ -254,7 +254,7 @@ namespace ONKOS.UI
 
             var lblSendTo = new Label
             {
-                Text = UiResources.RecipientsTitle,
+                Text = "Enviar a",
                 Font = ThemeManager.SecondaryFont,
                 ForeColor = _palette.TextSecondary,
                 Dock = DockStyle.Top,
@@ -599,7 +599,7 @@ namespace ONKOS.UI
 
             TextRenderer.DrawText(
                 e.Graphics,
-                UiResources.DropPromptSubtitle,
+                "o haz clic para elegir ·",
                 ThemeManager.SecondaryFont,
                 new Rectangle(20, cy + 16, _pnlDropZone.Width - 40, 22),
                 _palette.TextSecondary,
@@ -1377,4 +1377,250 @@ namespace ONKOS.UI
         private void OnDragLeave(object sender, EventArgs e)
         {
             _isDragHovering = false;
-            _pnlDropZone.Invalidate
+            _pnlDropZone.Invalidate();
+        }
+
+        private void OnDragDrop(object sender, DragEventArgs e)
+        {
+            _isDragHovering = false;
+            _pnlDropZone.Invalidate();
+            if (e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var dropped = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (dropped != null)
+                    _ = AddPathsAsync(dropped);
+            }
+        }
+
+        private void PickFilesDialog()
+        {
+            using (var ofd = new OpenFileDialog { Multiselect = true, Title = UiResources.AppTitle })
+            {
+                if (ofd.ShowDialog(this) == DialogResult.OK)
+                    _ = AddPathsAsync(ofd.FileNames);
+            }
+        }
+
+        private void PickFolderDialog()
+        {
+            using (var fbd = new FolderBrowserDialog { Description = UiResources.AppTitle })
+            {
+                if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    _ = AddPathsAsync(new[] { fbd.SelectedPath });
+            }
+        }
+
+        private async Task AddPathsAsync(IEnumerable<string> paths)
+        {
+            try
+            {
+                foreach (string p in paths)
+                {
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    if (!File.Exists(p) && !Directory.Exists(p)) continue;
+                    if (!_selectedPaths.Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase)))
+                        _selectedPaths.Add(p);
+                }
+
+                _isSendingMode = false;
+                SyncVisualState();
+                await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Instance.Warn("UI.MainForm", $"Error al agregar rutas ({ex.Message}).");
+            }
+        }
+
+        private void RemovePathAt(int index)
+        {
+            if (index < 0 || index >= _selectedPaths.Count)
+                return;
+            string p = _selectedPaths[index];
+            PathSizeCache.Invalidate(p);
+            _selectedPaths.RemoveAt(index);
+            _hoveredFileIndex = -1;
+            SyncVisualState();
+            _ = RecalculateSelectionSizeAsync();
+        }
+
+        private async Task RecalculateSelectionSizeAsync()
+        {
+            long total = 0L;
+            foreach (string p in _selectedPaths.ToList())
+            {
+                PathSizeSummary summary = await PathSizeCache.GetOrComputeAsync(p, _uiCts.Token).ConfigureAwait(true);
+                total += summary.TotalBytes;
+            }
+            _cachedSelectionBytes = total;
+            if (!IsDisposed && !Disposing && !_isSendingMode && _selectedPaths.Count > 0)
+                RebuildFileCards();
+        }
+
+        private async void BtnSendPill_Click(object sender, EventArgs e)
+        {
+            if (_isSendingMode)
+            {
+                _queue.CancelAllActive();
+                UpdateSendPillAppearance();
+                return;
+            }
+
+            List<PeerInfo> targets = _discovery.GetPeers()
+                .Where(p => _selectedPeerKeys.Contains(PeerContactsStore.BuildContactKey(p)))
+                .ToList();
+
+            if (targets.Count == 0 || _selectedPaths.Count == 0)
+                return;
+
+            foreach (PeerInfo t in targets)
+                AddressBookStore.UpsertContact(t);
+
+            List<string> itemsToSend = _selectedPaths.ToList();
+            int fileCount = itemsToSend.Count;
+            int peerCount = targets.Count;
+
+            _queue.EnqueueBatch(itemsToSend, targets);
+            _selectedPaths.Clear();
+            _cachedSelectionBytes = 0L;
+            _isSendingMode = true;
+            _lblSendSummary.Text = $"{fileCount} {(fileCount == 1 ? "archivo" : "archivos")} → {peerCount} {(peerCount == 1 ? "equipo" : "equipos")}";
+
+            SyncVisualState();
+            await RecalculateSelectionSizeAsync().ConfigureAwait(true);
+        }
+
+        public void BringToFrontFromSecondInstance()
+        {
+            if (IsDisposed) return;
+            if (WindowState == FormWindowState.Minimized)
+                WindowState = FormWindowState.Normal;
+            Show();
+            BringToFront();
+            Activate();
+        }
+
+        private string BuildUserSubtitle()
+        {
+            string name = _localProfile != null ? _localProfile.FullName : string.Empty;
+            string area = _localProfile != null ? _localProfile.Area : string.Empty;
+            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(area))
+                return $"{name} · {area}";
+            return !string.IsNullOrWhiteSpace(name) ? name : area;
+        }
+
+        private void OpenActivityWindow(string initialTab)
+        {
+            using (var dlg = new ActivityForm(initialTab))
+                dlg.ShowDialog(this);
+            RefreshActivityBadge();
+        }
+
+        private void OpenSettings()
+        {
+            using (var dlg = new SettingsForm())
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _palette = ThemeManager.GetCurrentPalette();
+                    ApplyPaletteToMain();
+                    RefreshActivityBadge();
+                }
+            }
+        }
+
+        private void OpenProfileWizard()
+        {
+            using (var dlg = new FirstRunWizardForm())
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK && dlg.RegisteredProfile != null)
+                {
+                    _localProfile = dlg.RegisteredProfile;
+                    _queue.SetLocalProfile(_localProfile);
+                    _discovery.UpdateLocalProfile(_localProfile);
+                    _lblUserArea.Text = BuildUserSubtitle();
+                    _pnlAvatarBtn.Invalidate();
+                }
+            }
+        }
+
+        private void ApplyPaletteToMain()
+        {
+            BackColor = _palette.WindowBg;
+            ForeColor = _palette.TextPrimary;
+            _pnlHeader.BackColor = _palette.WindowBg;
+            _pnlEmptyState.BackColor = _palette.WindowBg;
+            _pnlDropZone.BackColor = _palette.SurfaceBg;
+            _lnkChooseFolder.BackColor = _palette.SurfaceBg;
+            _lnkChooseFolder.LinkColor = _palette.AccentStart;
+            _pnlComposeState.BackColor = _palette.WindowBg;
+            _pnlFilesList.BackColor = _palette.WindowBg;
+            _pnlAreaChips.BackColor = _palette.WindowBg;
+            _pnlPeersList.BackColor = _palette.WindowBg;
+            _txtPeerSearch.BackColor = _palette.SurfaceBg;
+            _txtPeerSearch.ForeColor = _palette.TextPrimary;
+            _pnlSendingState.BackColor = _palette.WindowBg;
+            _pnlQueueList.BackColor = _palette.WindowBg;
+            _lnkEditBatch.LinkColor = _palette.AccentStart;
+            _pnlFooter.BackColor = _palette.WindowBg;
+            _lblUserName.ForeColor = _palette.TextPrimary;
+            _lblUserArea.ForeColor = _palette.TextSecondary;
+            _lblFilesSummary.ForeColor = _palette.TextSecondary;
+            _lblServiceStatus.ForeColor = _palette.TextSecondary;
+
+            ThemeManager.ConfigureSmoothButton(_btnAddMoreBar, _palette, ButtonVariant.Secondary, 10);
+            ThemeManager.ConfigureSmoothButton(_btnNewReceivedChip, _palette, ButtonVariant.Secondary, 15);
+            ThemeManager.ConfigureSmoothButton(_btnSendPill, _palette, ButtonVariant.Primary, 20);
+            SyncVisualState();
+            Invalidate(true);
+        }
+
+        private static bool IsServiceRunning()
+        {
+            try
+            {
+                using (var sc = new ServiceController("ONKOSTransferService"))
+                    return sc.Status == ServiceControllerStatus.Running;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        private static long SafeFileLength(string path)
+        {
+            try
+            {
+                return new FileInfo(path).Length;
+            }
+            catch (Exception)
+            {
+                return 0L;
+            }
+        }
+
+        private static string GetInitials(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return "OT";
+            string[] parts = name.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1)
+                return parts[0].Substring(0, Math.Min(2, parts[0].Length)).ToUpperInvariant();
+            return (parts[0].Substring(0, 1) + parts[parts.Length - 1].Substring(0, 1)).ToUpperInvariant();
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 1024L) return bytes + " B";
+            double kb = bytes / 1024.0;
+            if (kb < 1024.0) return kb.ToString("0.#") + " KB";
+            double mb = kb / 1024.0;
+            if (mb < 1024.0) return mb.ToString("0.#") + " MB";
+            return (mb / 1024.0).ToString("0.##") + " GB";
+        }
+    }
+}
