@@ -15,9 +15,12 @@ namespace ONKOS.Tests
         {
             try
             {
+                if (!File.Exists("ONKOS_Setup.iss") && !File.Exists(Path.Combine("..", "ONKOS_Setup.iss")))
+                    throw new FileNotFoundException("No se encontró ONKOS_Setup.iss en el entorno de pruebas.");
+
                 NotificationRecord n1 = NotificationCenterStore.PublishGrouped(
                     NotificationCategory.Received,
-                    "phase6-group",
+                    "phase7-group",
                     "Archivo recibido",
                     "Soporte — Sistemas",
                     "reporte.pdf");
@@ -35,13 +38,13 @@ namespace ONKOS.Tests
                 if (bcast.ToString() != "192.168.11.255")
                     throw new InvalidOperationException("Falló el cálculo de broadcast /23.");
 
-                FileLogger.Instance.Info("Phase6B.Tests", "Pruebas de notificaciones, protocolo y red completadas.");
-                Console.WriteLine("PHASE6B_TESTS_OK");
+                FileLogger.Instance.Info("Phase7B.Tests", "Pruebas de empaquetado, notificaciones, protocolo y red completadas.");
+                Console.WriteLine("PHASE7B_TESTS_OK");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("PHASE6B_TESTS_FAILED: " + ex.Message);
+                Console.Error.WriteLine("PHASE7B_TESTS_FAILED: " + ex.Message);
                 return 1;
             }
         }
