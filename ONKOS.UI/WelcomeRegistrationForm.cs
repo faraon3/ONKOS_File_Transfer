@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Forms;
+using ONKOS.Core.Discovery;
 using ONKOS.Core.Logging;
 using ONKOS.Core.Models;
 using ONKOS.Core.Storage;
@@ -13,7 +15,7 @@ namespace ONKOS.UI
     public sealed class WelcomeRegistrationForm : Form
     {
         private readonly TextBox _txtFullName;
-        private readonly TextBox _txtArea;
+        private readonly ComboBox _cmbArea;
         private readonly Label _lblError;
 
         public PeerInfo RegisteredProfile { get; private set; }
@@ -24,11 +26,12 @@ namespace ONKOS.UI
                 ? "ONKOS File Transfer 2.0 — Registro"
                 : "ONKOS File Transfer 2.0 — Mi Perfil";
 
-            Size = new Size(440, 300);
+            Size = new Size(450, 310);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
+            KeyPreview = true;
             BackColor = Color.FromArgb(14, 15, 24);
             ForeColor = Color.FromArgb(246, 247, 252);
             Font = new Font("Segoe UI", 9.5F);
@@ -57,15 +60,16 @@ namespace ONKOS.UI
 
             var lblName = new Label
             {
-                Text = "Nombre completo",
-                Location = new Point(24, 62),
-                Size = new Size(376, 20)
+                Text = "Nombre completo (máx. 80 caracteres, sin '|')",
+                Location = new Point(24, 60),
+                Size = new Size(388, 20)
             };
 
             _txtFullName = new TextBox
             {
-                Location = new Point(24, 86),
-                Size = new Size(376, 26),
+                Location = new Point(24, 84),
+                Size = new Size(388, 26),
+                MaxLength = UserProfileStore.MaxFieldLength,
                 BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.FromArgb(246, 247, 252),
                 BorderStyle = BorderStyle.FixedSingle,
@@ -75,32 +79,51 @@ namespace ONKOS.UI
             var lblArea = new Label
             {
                 Text = "Área / Departamento",
-                Location = new Point(24, 124),
-                Size = new Size(376, 20)
+                Location = new Point(24, 122),
+                Size = new Size(388, 20)
             };
 
-            _txtArea = new TextBox
+            List<string> areas = UserProfileStore.GetConfiguredAreas();
+            _cmbArea = new ComboBox
             {
-                Location = new Point(24, 148),
-                Size = new Size(376, 26),
+                Location = new Point(24, 146),
+                Size = new Size(388, 28),
+                MaxLength = UserProfileStore.MaxFieldLength,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems,
                 BackColor = Color.FromArgb(28, 31, 48),
                 ForeColor = Color.FromArgb(246, 247, 252),
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = existingProfile != null ? (existingProfile.Area ?? string.Empty) : string.Empty
+                FlatStyle = FlatStyle.Flat
             };
+
+            foreach (string a in areas)
+                _cmbArea.Items.Add(a);
+
+            string currentArea = existingProfile != null ? (existingProfile.Area ?? string.Empty) : string.Empty;
+            if (!string.IsNullOrWhiteSpace(currentArea))
+            {
+                if (!_cmbArea.Items.Contains(currentArea))
+                    _cmbArea.Items.Add(currentArea);
+                _cmbArea.Text = currentArea;
+            }
+            else if (_cmbArea.Items.Count > 0)
+            {
+                _cmbArea.SelectedIndex = 0;
+            }
 
             _lblError = new Label
             {
                 Text = string.Empty,
                 ForeColor = Color.FromArgb(255, 110, 130),
                 Location = new Point(24, 182),
-                Size = new Size(376, 24)
+                Size = new Size(388, 24)
             };
 
             var btnCancel = new Button
             {
                 Text = "Cancelar",
-                Location = new Point(198, 216),
+                Location = new Point(208, 218),
                 Size = new Size(96, 32),
                 BackColor = Color.FromArgb(38, 41, 62),
                 ForeColor = Color.White,
@@ -115,7 +138,7 @@ namespace ONKOS.UI
             var btnSave = new Button
             {
                 Text = "Guardar",
-                Location = new Point(304, 216),
+                Location = new Point(316, 218),
                 Size = new Size(96, 32),
                 BackColor = Color.FromArgb(124, 77, 224),
                 ForeColor = Color.White,
@@ -125,13 +148,33 @@ namespace ONKOS.UI
 
             AcceptButton = btnSave;
             CancelButton = btnCancel;
-            Controls.AddRange(new Control[] { lblTitle, lblName, _txtFullName, lblArea, _txtArea, _lblError, btnCancel, btnSave });
+            KeyDown += OnFormKeyDown;
+
+            Controls.AddRange(new Control[] { lblTitle, lblName, _txtFullName, lblArea, _cmbArea, _lblError, btnCancel, btnSave });
+        }
+
+        private void OnFormKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.Handled = true;
+                DialogResult = DialogResult.Cancel;
+                Close();
+            }
+            else if (e.KeyCode == Keys.Enter && !e.Shift && !e.Control && !e.Alt)
+            {
+                if (!_cmbArea.DroppedDown)
+                {
+                    e.Handled = true;
+                    BtnSave_Click(this, EventArgs.Empty);
+                }
+            }
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
         {
             string fullName = UserProfileStore.SanitizeField(_txtFullName.Text);
-            string area = UserProfileStore.SanitizeField(_txtArea.Text);
+            string area = UserProfileStore.SanitizeField(_cmbArea.Text);
 
             if (string.IsNullOrWhiteSpace(fullName))
             {
@@ -149,8 +192,8 @@ namespace ONKOS.UI
 
             if (string.IsNullOrWhiteSpace(area))
             {
-                _lblError.Text = "Escribe tu área o departamento.";
-                _txtArea.Focus();
+                _lblError.Text = "Selecciona o escribe tu área o departamento.";
+                _cmbArea.Focus();
                 return;
             }
 
@@ -179,17 +222,27 @@ namespace ONKOS.UI
         {
             try
             {
-                foreach (IPAddress addr in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
+                using (var discovery = new LanDiscoveryService())
                 {
-                    if (addr.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr))
-                        return addr.ToString();
+                    return discovery.GetLocalIPv4Cached();
                 }
             }
-            catch (SocketException)
+            catch (Exception)
             {
-            }
+                try
+                {
+                    foreach (IPAddress addr in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
+                    {
+                        if (addr.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr))
+                            return addr.ToString();
+                    }
+                }
+                catch (SocketException)
+                {
+                }
 
-            return "127.0.0.1";
+                return "127.0.0.1";
+            }
         }
     }
 }
