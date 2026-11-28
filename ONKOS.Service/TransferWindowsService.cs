@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ONKOS.Core.Logging;
+using ONKOS.Core.Models;
 using ONKOS.Core.Storage;
 
 namespace ONKOS.Service
@@ -74,7 +75,7 @@ namespace ONKOS.Service
                 catch (ObjectDisposedException) { }
 
                 try { _listener?.Stop(); }
-                catch (SocketException ex) { FileLogger.Instance.Warn("Service.Stop", "Error al detener TcpListener.", ex); }
+                catch (SocketException ex) { FileLogger.Instance.Warn("Service.Stop", $"Error al detener TcpListener ({ex.Message})."); }
 
                 ServiceNotifier.WriteEvent(
                     EventLogEntryType.Information,
@@ -110,7 +111,7 @@ namespace ONKOS.Service
                 catch (SocketException ex)
                 {
                     if (!_isStopping && !token.IsCancellationRequested)
-                        FileLogger.Instance.Warn("Service.Accept", "Error de socket aceptando conexión.", ex);
+                        FileLogger.Instance.Warn("Service.Accept", $"Error de socket aceptando conexión ({ex.Message}).");
                     break;
                 }
                 catch (Exception ex)
@@ -314,13 +315,14 @@ namespace ONKOS.Service
         {
             using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
             {
-                if (ONKOS.Core.Models.PeerInfo profile = ReadProfileOrNull())
+                PeerInfo profile = ReadProfileOrNull();
+                if (profile != null)
                 {
                     writer.Write("ONKOS_IDENTITY_V1");
-                    writer.Write(profile.FullName);
-                    writer.Write(profile.Area);
-                    writer.Write(remoteIp);
-                    writer.Write(Environment.MachineName);
+                    writer.Write(profile.FullName ?? string.Empty);
+                    writer.Write(profile.Area ?? string.Empty);
+                    writer.Write(remoteIp ?? string.Empty);
+                    writer.Write(Environment.MachineName ?? string.Empty);
                 }
                 else
                 {
@@ -330,9 +332,9 @@ namespace ONKOS.Service
             }
         }
 
-        private static ONKOS.Core.Models.PeerInfo ReadProfileOrNull()
+        private static PeerInfo ReadProfileOrNull()
         {
-            ONKOS.Core.Models.PeerInfo profile;
+            PeerInfo profile;
             return UserProfileStore.TryLoad(out profile) ? profile : null;
         }
 
@@ -384,7 +386,7 @@ namespace ONKOS.Service
             }
 
             try { File.Delete(archivePath); }
-            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", "No se pudo borrar paquete temporal .onkosfolder.", ex); }
+            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo borrar paquete temporal .onkosfolder ({ex.Message})."); }
 
             totalExtractedBytes = bytesSum;
             return extractRoot;
@@ -452,7 +454,7 @@ namespace ONKOS.Service
                 return;
 
             try { File.Delete(path); }
-            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", "No se pudo eliminar archivo parcial tras error.", ex); }
+            catch (IOException ex) { FileLogger.Instance.Warn("Service.Receive", $"No se pudo eliminar archivo parcial tras error ({ex.Message})."); }
         }
     }
 }
