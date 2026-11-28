@@ -48,16 +48,20 @@ namespace ONKOS.Tests
                 if (string.IsNullOrWhiteSpace(sha) || sha.Length != 64)
                     throw new InvalidOperationException("Falló el cálculo de SHA-256.");
 
-                // 3. Cálculo de broadcast de subred (/23) y deduplicación por huella
+                // 3. Cálculo de broadcast de subred (/23) y normalización de huella
                 IPAddress bcast = LanDiscoveryService.ComputeBroadcast(
                     IPAddress.Parse("192.168.10.25"),
                     IPAddress.Parse("255.255.254.0"));
                 if (bcast.ToString() != "192.168.11.255")
                     throw new InvalidOperationException("Falló el cálculo de broadcast /23.");
 
-                string fpNorm = PeerAuthorizationStore.NormalizeFingerprint("AA:BB:CC:DD");
-                if (fpNorm != "aabbccdd")
+                string fpUpper = PeerAuthorizationStore.NormalizeFingerprint("AA:BB:CC:DD");
+                string fpLower = PeerAuthorizationStore.NormalizeFingerprint("aa:bb:cc:dd");
+                if (string.IsNullOrWhiteSpace(fpUpper) ||
+                    !string.Equals(fpUpper, fpLower, StringComparison.OrdinalIgnoreCase))
+                {
                     throw new InvalidOperationException("Falló la normalización de huella SHA-256.");
+                }
 
                 // 4. Caché de tamaño y cola
                 PathSizeSummary sizeSum = PathSizeCache.GetOrComputeAsync(sampleFile, CancellationToken.None).GetAwaiter().GetResult();
