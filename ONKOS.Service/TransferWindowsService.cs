@@ -13,6 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ONKOS.Core.Logging;
+using ONKOS.Core.Notifications;
 using ONKOS.Core.Protocol;
 using ONKOS.Core.Security;
 using ONKOS.Core.Storage;
@@ -67,6 +68,13 @@ namespace ONKOS.Service
 
                 _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
 
+                NotificationCenterStore.PublishGrouped(
+                    NotificationCategory.ServiceStatus,
+                    "service-start",
+                    "Servicio ONKOS activo",
+                    Environment.MachineName,
+                    $"Escuchando en puerto {DefaultListenPort} (TLS 1.2+).");
+
                 ServiceNotifier.WriteEvent(
                     EventLogEntryType.Information,
                     "Service.Start",
@@ -89,6 +97,13 @@ namespace ONKOS.Service
 
                 try { _listener?.Stop(); }
                 catch (SocketException ex) { FileLogger.Instance.Warn("Service.Stop", $"Error al detener TcpListener ({ex.Message})."); }
+
+                NotificationCenterStore.PublishGrouped(
+                    NotificationCategory.ServiceStatus,
+                    "service-stop",
+                    "Servicio ONKOS detenido",
+                    Environment.MachineName,
+                    "La recepción de archivos se ha detenido.");
 
                 ServiceNotifier.WriteEvent(
                     EventLogEntryType.Information,
@@ -218,12 +233,24 @@ namespace ONKOS.Service
                         out itemCount,
                         _limits);
 
+                    string senderLabel = string.IsNullOrWhiteSpace(senderArea)
+                        ? $"{senderName} ({remoteIp})"
+                        : $"{senderName} — {senderArea} ({remoteIp})";
+
                     string blockReason;
                     if (ReceiverPolicyStore.IsBlocked(senderFingerprint, remoteIp, out blockReason))
                     {
                         writer.Write("ERR_BLOCKED");
                         writer.Write(blockReason);
                         writer.Flush();
+
+                        NotificationCenterStore.PublishGrouped(
+                            NotificationCategory.SecurityChange,
+                            "blocked-" + senderFingerprint,
+                            "Conexión bloqueada por política",
+                            senderLabel,
+                            blockReason);
+
                         FileLogger.Instance.Warn("Service.Policy", $"Remitente bloqueado ({remoteIp} / {senderFingerprint}): {blockReason}");
                         return;
                     }
@@ -252,6 +279,13 @@ namespace ONKOS.Service
                         writer.Write($"Equipo en estado {trustState}. Requiere autorización por huella de Sistemas.");
                         writer.Flush();
 
+                        NotificationCenterStore.PublishGrouped(
+                            NotificationCategory.AuthorizationRequest,
+                            "auth-" + senderFingerprint,
+                            "Solicitud de autorización pendiente",
+                            senderLabel,
+                            $"Huella: {senderFingerprint} • Equipo: {machineName}");
+
                         FileLogger.Instance.Warn(
                             "Service.Auth",
                             $"Conexión rechazada por autorización ({trustState}). Huella: {senderFingerprint}, IP: {remoteIp}");
@@ -264,9 +298,6 @@ namespace ONKOS.Service
                         throw new IOException(inboxError);
 
                     string senderFolder = GetSenderFolder(senderFingerprint, remoteIp, inboxFolder);
-                    string senderLabel = string.IsNullOrWhiteSpace(senderArea)
-                        ? $"{senderName} ({remoteIp})"
-                        : $"{senderName} — {senderArea} ({remoteIp})";
 
                     for (int i = 0; i < itemCount; i++)
                     {
@@ -364,6 +395,13 @@ namespace ONKOS.Service
                             computedSha256,
                             $"Huella: {senderFingerprint}");
 
+                        NotificationCenterStore.PublishGrouped(
+                            NotificationCategory.Received,
+                            "recv-" + senderFingerprint,
+                            "Archivo recibido",
+                            senderLabel,
+                            recordedName);
+
                         ServiceNotifier.WriteEvent(
                             EventLogEntryType.Information,
                             "Service.Receive",
@@ -390,6 +428,13 @@ namespace ONKOS.Service
                         string.Empty,
                         string.Empty,
                         ex.Message);
+
+                    NotificationCenterStore.PublishGrouped(
+                        NotificationCategory.Error,
+                        "err-" + remoteIp,
+                        "Error al recibir archivo",
+                        remoteIp,
+                        $"{itemName}: {ex.Message}");
 
                     ServiceNotifier.WriteEvent(
                         EventLogEntryType.Error,
